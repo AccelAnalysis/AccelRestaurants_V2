@@ -1184,6 +1184,7 @@ export const SlideEditor = ({
                              <div className="flex-1 bg-background border border-surface-highlight rounded px-3 py-2 flex items-center justify-between">
                                <span className="text-sm text-text">Visible</span>
                                <button 
+                                 aria-label="Tile visibility" aria-pressed={selectedTile.visible}
                                  onClick={() => updateSelectedTile({ visible: !selectedTile.visible })}
                                  className={`p-1 rounded hover:bg-surface-highlight transition-colors ${selectedTile.visible ? 'text-primary' : 'text-text-muted'}`}
                                >
@@ -1193,6 +1194,7 @@ export const SlideEditor = ({
                              <div className="flex-1 bg-background border border-surface-highlight rounded px-3 py-2 flex items-center justify-between">
                                <span className="text-sm text-text">Locked</span>
                                <button 
+                                 aria-label="Lock tile" aria-pressed={selectedTile.locked}
                                  onClick={() => updateSelectedTile({ locked: !selectedTile.locked })}
                                  className={`p-1 rounded hover:bg-surface-highlight transition-colors ${selectedTile.locked ? 'text-red-500' : 'text-text-muted'}`}
                                >

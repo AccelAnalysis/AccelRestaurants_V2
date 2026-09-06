@@ -254,7 +254,7 @@ const PlaylistItem = ({
             </div>
             <button
               onClick={() => onUpdate({ screenAdjustments: undefined })}
-              className="w-full py-1 bg-surface-highlight hover:bg-surface-highlight/80 rounded text-xs text-text-muted transition-colors"
+              className="w-full py-1 bg-surface-highlight hover:bg-surface-highlight/80 rounded text-xs text-text-secondary transition-colors"
             >
               Clear Adjustments (Use Global)
             </button>
@@ -690,10 +690,10 @@ export const ScreenEditor = ({
               <div className="space-y-4">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium text-text-secondary">Scale</label>
+                    <label htmlFor="display-scale" className="text-sm font-medium text-text-secondary">Scale</label>
                     <span className="text-sm text-text-muted font-mono">{(screenAdjustments.scale ?? 1.0).toFixed(2)}x</span>
                   </div>
-                  <input
+                  <input id="display-scale"
                     type="range"
                     min="0.5"
                     max="2.0"
@@ -711,13 +711,13 @@ export const ScreenEditor = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-text-secondary">Offset X (px)</label>
+                    <label htmlFor="display-offset-x" className="text-sm font-medium text-text-secondary">Offset X (px)</label>
                     <div className="flex items-center gap-1">
-                      <button
+                      <button aria-label="Decrease display offset X by 5 pixels"
                         onClick={() => setScreenAdjustments(prev => ({ ...prev, offsetX: Math.max(-1000, (prev.offsetX ?? 0) - 5) }))}
-                        className="px-2 py-1.5 bg-surface-highlight hover:bg-primary/20 hover:text-primary rounded text-text-muted text-xs transition-colors flex-shrink-0"
+                        className="px-2 py-1.5 bg-surface-highlight hover:bg-primary/20 hover:text-primary rounded text-text-secondary text-xs transition-colors flex-shrink-0"
                       >-5</button>
-                      <input
+                      <input id="display-offset-x"
                         type="number"
                         value={screenAdjustments.offsetX ?? 0}
                         onChange={(e) => setScreenAdjustments(prev => ({ ...prev, offsetX: Math.max(-1000, Math.min(1000, Number(e.target.value) || 0)) }))}
@@ -725,21 +725,21 @@ export const ScreenEditor = ({
                         max="1000"
                         className="flex-1 bg-background border border-surface-highlight rounded p-2 text-text focus:border-primary focus:outline-none text-center text-sm"
                       />
-                      <button
+                      <button aria-label="Increase display offset X by 5 pixels"
                         onClick={() => setScreenAdjustments(prev => ({ ...prev, offsetX: Math.min(1000, (prev.offsetX ?? 0) + 5) }))}
-                        className="px-2 py-1.5 bg-surface-highlight hover:bg-primary/20 hover:text-primary rounded text-text-muted text-xs transition-colors flex-shrink-0"
+                        className="px-2 py-1.5 bg-surface-highlight hover:bg-primary/20 hover:text-primary rounded text-text-secondary text-xs transition-colors flex-shrink-0"
                       >+5</button>
                     </div>
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-text-secondary">Offset Y (px)</label>
+                    <label htmlFor="display-offset-y" className="text-sm font-medium text-text-secondary">Offset Y (px)</label>
                     <div className="flex items-center gap-1">
-                      <button
+                      <button aria-label="Decrease display offset Y by 5 pixels"
                         onClick={() => setScreenAdjustments(prev => ({ ...prev, offsetY: Math.max(-1000, (prev.offsetY ?? 0) - 5) }))}
-                        className="px-2 py-1.5 bg-surface-highlight hover:bg-primary/20 hover:text-primary rounded text-text-muted text-xs transition-colors flex-shrink-0"
+                        className="px-2 py-1.5 bg-surface-highlight hover:bg-primary/20 hover:text-primary rounded text-text-secondary text-xs transition-colors flex-shrink-0"
                       >-5</button>
-                      <input
+                      <input id="display-offset-y"
                         type="number"
                         value={screenAdjustments.offsetY ?? 0}
                         onChange={(e) => setScreenAdjustments(prev => ({ ...prev, offsetY: Math.max(-1000, Math.min(1000, Number(e.target.value) || 0)) }))}
@@ -747,9 +747,9 @@ export const ScreenEditor = ({
                         max="1000"
                         className="flex-1 bg-background border border-surface-highlight rounded p-2 text-text focus:border-primary focus:outline-none text-center text-sm"
                       />
-                      <button
+                      <button aria-label="Increase display offset Y by 5 pixels"
                         onClick={() => setScreenAdjustments(prev => ({ ...prev, offsetY: Math.min(1000, (prev.offsetY ?? 0) + 5) }))}
-                        className="px-2 py-1.5 bg-surface-highlight hover:bg-primary/20 hover:text-primary rounded text-text-muted text-xs transition-colors flex-shrink-0"
+                        className="px-2 py-1.5 bg-surface-highlight hover:bg-primary/20 hover:text-primary rounded text-text-secondary text-xs transition-colors flex-shrink-0"
                       >+5</button>
                     </div>
                   </div>

@@ -133,7 +133,7 @@ export const AudioScheduleModal = ({ isOpen, onClose, onSave, scheduleToEdit }: 
                   className={`py-2 px-1 rounded text-sm font-medium transition-colors ${
                     daysOfWeek.includes(value)
                       ? 'bg-primary text-white'
-                      : 'bg-surface-highlight text-text-muted hover:bg-surface-highlight/70'
+                      : 'bg-surface-highlight text-text-secondary hover:bg-surface-highlight/70'
                   }`}
                 >
                   {label}
