@@ -1,0 +1,25 @@
+name: HIG verification
+
+on:
+  push:
+    branches: [recovery/local-v2]
+    paths: ['.github/workflows/hig-verification.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  review-workspace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Export committed source for isolated accessibility review
+        run: git archive --format=tar.gz --output="$RUNNER_TEMP/hig-source.tar.gz" HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hig-review-source
+          path: ${{ runner.temp }}/hig-source.tar.gz
+          retention-days: 2
