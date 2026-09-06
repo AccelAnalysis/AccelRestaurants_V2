@@ -18,32 +18,26 @@ permissions:
 jobs:
   functions-tests:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: functions
 
     steps:
       - name: Check out repository
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          COMMIT_SHA: ${{ github.sha }}
-        run: |
-          git init .
-          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git"
-          git fetch --depth=1 origin "${COMMIT_SHA}"
-          git checkout --detach FETCH_HEAD
+        uses: actions/checkout@v4
 
-      - name: Show runtime
-        run: |
-          node --version
-          npm --version
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
 
       - name: Install Functions dependencies
-        working-directory: functions
         run: npm ci
 
       - name: Build Functions
-        working-directory: functions
         run: npm run build
 
       - name: Run Functions unit tests
-        working-directory: functions
         run: npm test -- --runInBand
