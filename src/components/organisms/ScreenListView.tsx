@@ -1,107 +1,41 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Monitor, Plus, Settings, ExternalLink, Trash2, Rocket, Copy, Check, Lock, MapPin, Wifi, WifiOff } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Monitor, Plus, Settings, ExternalLink, Trash2, Copy, Check, Lock } from 'lucide-react';
 import { ScreenService } from '../../services/screenService';
 import { LocationService } from '../../services/locationService';
-import type { AppScreen, Location } from '../../types/schema';
+import type { AppScreen } from '../../types/schema';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useConfigStore } from '../../store/useConfigStore';
 import { getEffectivePlanLimits } from '../../lib/plans';
 import { TemplateSelectorModal } from './TemplateSelectorModal';
+import { AccessibleDialog } from '../atoms/AccessibleDialog';
+import { InlineFeedback } from '../atoms/InlineFeedback';
 
-// Helper to check if screen is live (heartbeat within last 2 mins)
-const isScreenLive = (screen: AppScreen) => {
-  if (!screen.lastHeartbeatAt) return false;
-  const now = Date.now();
-  // Handle both Firestore Timestamp and serialized dates if any
-  const heartbeatTime = typeof screen.lastHeartbeatAt.toMillis === 'function' 
-    ? screen.lastHeartbeatAt.toMillis() 
-    : 0;
-  return (now - heartbeatTime) < 2 * 60 * 1000;
+const isScreenLive = (screen: AppScreen, now: number) => {
+  const time = screen.lastHeartbeatAt?.toMillis?.() ?? 0;
+  return time > 0 && now - time < 120000;
 };
 
-// Deploy Modal Component
-const DeployModal = ({ 
-  screen, 
-  onClose 
-}: { 
-  screen: AppScreen; 
-  onClose: () => void;
-}) => {
+const DeployModal = ({ screen, onClose }: { screen: AppScreen; onClose: () => void }) => {
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const playerUrl = `${window.location.origin}/player/${screen.id}`;
-
-  const copyToClipboard = async () => {
-    try {
-      await navigator.clipboard.writeText(playerUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Silent fail for clipboard error
-    }
+  const copy = async () => {
+    setError(null);
+    try { await navigator.clipboard.writeText(playerUrl); setCopied(true); }
+    catch { setCopied(false); setError('Copy is unavailable. Select the player URL below and copy it manually.'); }
   };
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-      <div className="bg-surface border border-surface-highlight rounded-xl w-full max-w-md shadow-2xl p-6 overflow-hidden relative">
-        <button 
-          onClick={onClose}
-          className="absolute top-4 right-4 text-text-muted hover:text-text transition-colors"
-        >
-          <Plus className="rotate-45" size={24} />
-        </button>
-
-        <div className="flex items-center gap-3 mb-6">
-          <div className="p-3 bg-primary/20 text-primary rounded-lg">
-            <Rocket size={24} />
-          </div>
-          <div>
-            <h3 className="text-xl font-bold text-text">Deploy Screen</h3>
-            <p className="text-sm text-text-muted">{screen.name}</p>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div>
-            <label className="text-xs font-bold text-text-muted uppercase tracking-wider mb-2 block">
-              Player URL
-            </label>
-            <div className="flex gap-2">
-              <input 
-                type="text" 
-                readOnly 
-                value={playerUrl}
-                className="flex-1 bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text-muted font-mono overflow-hidden text-ellipsis"
-              />
-              <button 
-                onClick={copyToClipboard}
-                className={`p-2 rounded transition-all ${copied ? 'bg-success text-white' : 'bg-primary text-white hover:bg-primary-hover'}`}
-              >
-                {copied ? <Check size={18} /> : <Copy size={18} />}
-              </button>
-            </div>
-          </div>
-
-          <div className="bg-surface-highlight/10 p-4 rounded-lg border border-surface-highlight/30 text-xs text-text-muted">
-            <p className="mb-2"><strong>How to use:</strong></p>
-            <ol className="list-decimal list-inside space-y-1">
-              <li>Copy the unique player URL above.</li>
-              <li>Open this URL on your digital signage hardware.</li>
-              <li>Updates published in this dashboard will sync instantly.</li>
-            </ol>
-          </div>
-
-          <button 
-            onClick={() => window.open(playerUrl, '_blank')}
-            className="w-full py-3 bg-surface-highlight hover:bg-surface-highlight/80 rounded-lg text-text font-medium transition-colors flex items-center justify-center gap-2"
-          >
-            <ExternalLink size={18} />
-            Test Player Link
-          </button>
-        </div>
-      </div>
+  return <AccessibleDialog title="Open player link" description={`Use this link on the display for ${screen.name}.`} onClose={onClose}>
+    <p className="text-sm text-text-secondary mb-4">Opening this dialog does not publish changes. Save the screen playlist before opening its player.</p>
+    <label htmlFor="player-url" className="block text-sm font-medium mb-2">Player URL</label>
+    <input id="player-url" type="text" readOnly value={playerUrl} onFocus={e => e.currentTarget.select()} className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-text" />
+    <InlineFeedback message={error} tone="error" />
+    <InlineFeedback message={copied ? 'Player link copied.' : null} tone="success" />
+    <div className="flex flex-wrap gap-3 mt-4">
+      <button type="button" onClick={copy} className="ui-button ui-button-primary">{copied ? <Check size={18} aria-hidden="true" /> : <Copy size={18} aria-hidden="true" />}Copy link</button>
+      <a href={playerUrl} target="_blank" rel="noopener noreferrer" className="ui-button ui-button-secondary">Open player <ExternalLink size={18} aria-hidden="true" /><span className="sr-only"> in a new tab</span></a>
     </div>
-  );
+  </AccessibleDialog>;
 };
 
 export const ScreenListView = () => {
@@ -110,217 +44,75 @@ export const ScreenListView = () => {
   const { planConfigs } = useConfigStore();
   const [screens, setScreens] = useState<AppScreen[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [deployingScreen, setDeployingScreen] = useState<AppScreen | null>(null);
+  const [deletingScreen, setDeletingScreen] = useState<AppScreen | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [locationMap, setLocationMap] = useState<Record<string, string>>({});
-
+  const [now, setNow] = useState(Date.now);
+  const request = useRef(0);
+  const addButton = useRef<HTMLButtonElement>(null);
   const loadScreens = useCallback(async () => {
+    const current = ++request.current;
+    setError(null);
+    if (!organization?.id) { setScreens([]); setLoading(false); return; }
+    setLoading(true);
     try {
-      if (!organization?.id) {
-        setLoading(false);
-        return;
-      }
-      const orgId = organization.id;
-      
-      const [fetchedScreens, fetchedLocations] = await Promise.all([
-        ScreenService.getScreens(orgId),
-        LocationService.getLocations(orgId)
-      ]);
-      
-      setScreens(fetchedScreens);
-      
-      const locMap: Record<string, string> = {};
-      fetchedLocations.forEach((loc: Location) => {
-        locMap[loc.id] = loc.name;
-      });
-      setLocationMap(locMap);
-      
+      const [items, locations] = await Promise.all([ScreenService.getScreens(organization.id), LocationService.getLocations(organization.id)]);
+      if (current !== request.current) return;
+      setScreens(items);
+      setLocationMap(Object.fromEntries(locations.map(loc => [loc.id, loc.name])));
     } catch {
-      // Silent fail for screen loading
-    } finally {
-      setLoading(false);
-    }
+      if (current === request.current) setError('Screens could not be loaded. Your saved screens have not been changed.');
+    } finally { if (current === request.current) setLoading(false); }
   }, [organization?.id]);
-
-  useEffect(() => {
-    loadScreens();
-  }, [loadScreens]);
-
-  const handleDelete = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    if (confirm('Are you sure you want to delete this screen?')) {
-      await ScreenService.deleteScreen(id);
-      loadScreens();
-    }
+  useEffect(() => { void loadScreens(); const counter = request; return () => { counter.current++; }; }, [loadScreens]);
+  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer); }, []);
+  const deleteScreen = async () => {
+    if (!deletingScreen || deleting) return;
+    setDeleting(true); setDeleteError(null);
+    try {
+      await ScreenService.deleteScreen(deletingScreen.id);
+      setScreens(items => items.filter(item => item.id !== deletingScreen.id));
+      setMessage(`${deletingScreen.name} deleted.`);
+      setDeletingScreen(null);
+      requestAnimationFrame(() => addButton.current?.focus());
+    } catch { setDeleteError('The screen could not be deleted. Try again.'); }
+    finally { setDeleting(false); }
   };
-
-  const handleTemplateImport = (newId: string) => {
-    setShowTemplateModal(false);
-    navigate(`/admin/screens/${newId}`);
-  };
-
-  const handleCreateNew = () => {
-    setShowTemplateModal(false);
-    navigate('/admin/screens/new');
-  };
-
   const limits = organization ? getEffectivePlanLimits(organization, planConfigs) : { screens: 1, seats: 1 };
-  const planLimit = limits.screens;
-  const isLimitReached = planLimit !== -1 && screens.length >= planLimit;
-
-  if (loading) return <div className="text-text">Loading screens...</div>;
-
-  if (!organization?.id) {
-    return <div className="text-text">Organization not loaded. Please refresh or re-login.</div>;
-  }
-
-  return (
-    <div className="p-8">
-      {showTemplateModal && (
-        <TemplateSelectorModal 
-          type="screen" 
-          onClose={handleCreateNew} 
-          onImport={handleTemplateImport} 
-        />
-      )}
-
-      <div className="flex justify-between items-center mb-8">
-        <div>
-          <h2 className="text-3xl font-bold text-text">Screens</h2>
-          <p className="text-text-muted text-sm mt-1">
-            {planLimit === -1 
-              ? `Using ${screens.length} screens (Unlimited)` 
-              : `Using ${screens.length} of ${planLimit} available screens`}
-          </p>
-        </div>
-        <button
-          onClick={() => setShowTemplateModal(true)}
-          disabled={isLimitReached}
-          className={`flex items-center gap-2 px-4 py-2 rounded transition-colors ${
-            isLimitReached 
-              ? 'bg-surface-highlight text-text-muted cursor-not-allowed' 
-              : 'bg-primary text-white hover:bg-primary-hover'
-          }`}
-          title={isLimitReached ? `Upgrade to ${organization?.plan === 'Free' ? 'Growth' : 'Enterprise'} to add more screens` : 'Add New Screen'}
-        >
-          {isLimitReached ? <Lock size={20} /> : <Plus size={20} />}
-          Add Screen
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {screens.map((screen) => (
-          <div
-            key={screen.id}
-            onClick={() => navigate(`/admin/screens/${screen.id}`)}
-            className="bg-surface border border-surface-highlight rounded-lg p-6 cursor-pointer hover:border-primary/50 transition-all group relative"
-          >
-             <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button 
-                onClick={(e) => handleDelete(e, screen.id)}
-                className="p-2 text-text-muted hover:text-error hover:bg-surface-highlight rounded-full"
-              >
-                <Trash2 size={16} />
-              </button>
-            </div>
-
-            <div className="flex items-start justify-between mb-4">
-              <div className="p-3 bg-surface-highlight/30 rounded-lg text-primary">
-                <Monitor size={32} />
-              </div>
-              <div className="flex flex-col gap-2 items-end">
-                <div className={`px-2 py-1 rounded text-xs font-medium ${screen.isActive ? 'bg-success/20 text-success' : 'bg-text-muted/20 text-text-muted'}`}>
-                  {screen.isActive ? 'Enabled' : 'Disabled'}
-                </div>
-                {isScreenLive(screen) && (
-                   <div className="flex items-center gap-1.5 text-xs font-medium text-success animate-pulse">
-                     <Wifi size={14} />
-                     <span>Live</span>
-                   </div>
-                )}
-                {!isScreenLive(screen) && (
-                   <div className="flex items-center gap-1.5 text-xs font-medium text-text-muted opacity-50">
-                     <WifiOff size={14} />
-                     <span>Offline</span>
-                   </div>
-                )}
-              </div>
-            </div>
-
-            <h3 className="text-xl font-bold text-text mb-2">{screen.name}</h3>
-            
-            <div className="space-y-2 mb-6">
-              <div className="flex justify-between text-sm text-text-muted">
-                <span className="flex items-center gap-1"><MapPin size={12} /> Location:</span>
-                <span className="font-medium text-text">{locationMap[screen.locationId] || screen.locationId || 'Unassigned'}</span>
-              </div>
-              <div className="flex justify-between text-sm text-text-muted">
-                <span>Effective Display:</span>
-                <div className="flex items-center gap-2">
-                  <span className="capitalize font-medium text-text">{screen.orientation}</span>
-                  {screen.rotation ? (
-                    <span className="px-1.5 py-0.5 bg-surface-highlight border border-surface-highlight rounded text-[10px] font-mono text-text-muted">
-                      {screen.rotation}°
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-              <div className="flex justify-between text-sm text-text-muted">
-                <span>Playlist:</span>
-                <span>{screen.livePlaylist?.length || 0} slides</span>
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDeployingScreen(screen);
-                }}
-                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-primary hover:bg-primary-hover rounded text-sm text-white transition-colors"
-              >
-                <Rocket size={16} />
-                Deploy
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  window.open(`/player/${screen.id}`, '_blank');
-                }}
-                className="flex items-center justify-center p-2 bg-surface-highlight hover:bg-surface-highlight/80 rounded text-text transition-colors"
-                title="Preview Player"
-              >
-                <ExternalLink size={16} />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate(`/admin/screens/${screen.id}`);
-                }}
-                className="flex items-center justify-center p-2 bg-surface-highlight hover:bg-surface-highlight/80 rounded text-text transition-colors"
-                title="Screen Settings"
-              >
-                <Settings size={16} />
-              </button>
-            </div>
-          </div>
-        ))}
-
-        {screens.length === 0 && (
-          <div className="col-span-full py-12 text-center text-text-muted border-2 border-dashed border-surface-highlight rounded-lg">
-            <Monitor size={48} className="mx-auto mb-4 opacity-50" />
-            <p className="text-lg font-medium mb-2">No screens found</p>
-            <p className="text-sm">Create your first screen to get started</p>
-          </div>
-        )}
-      </div>
-
-      {deployingScreen && (
-        <DeployModal 
-          screen={deployingScreen} 
-          onClose={() => setDeployingScreen(null)} 
-        />
-      )}
+  const limitReached = limits.screens !== -1 && screens.length >= limits.screens;
+  return <div className="p-4 sm:p-8" aria-busy={loading}>
+    <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+      <div><h1 className="text-2xl font-semibold text-text">Screens</h1><p className="text-sm text-text-secondary mt-1">{limits.screens === -1 ? `${screens.length} screens` : `${screens.length} of ${limits.screens} screens in use`}</p></div>
+      <button ref={addButton} type="button" onClick={() => setShowTemplateModal(true)} disabled={limitReached || !organization || loading} aria-describedby={limitReached ? 'screen-limit' : undefined} className="ui-button ui-button-primary">{limitReached ? <Lock size={20} aria-hidden="true" /> : <Plus size={20} aria-hidden="true" />}Add screen</button>
     </div>
-  );
+    {limitReached && <p id="screen-limit" className="text-sm text-text-secondary mb-4">Your plan’s screen limit has been reached. <Link to="/admin/subscription" className="underline">Review your plan</Link>.</p>}
+    <InlineFeedback message={error} tone="error"><button type="button" className="ui-button ui-button-secondary ml-3" onClick={() => void loadScreens()}>Retry</button></InlineFeedback>
+    <InlineFeedback message={message} tone="success" />
+    {loading && <p role="status">Loading screens…</p>}
+    {!organization && !loading && <p role="status">Your organization is not available. Reload the page or sign in again.</p>}
+    {!loading && organization && <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      {screens.map(screen => <article key={screen.id} className="bg-surface border border-surface-highlight rounded-xl p-5 space-y-4">
+        <div className="flex items-start gap-3"><Monitor size={24} aria-hidden="true" className="text-primary shrink-0" /><h2 className="min-w-0 text-lg font-semibold break-words"><Link className="inline-flex items-center min-h-11 underline-offset-4 hover:underline" to={`/admin/screens/${screen.id}`}>{screen.name}</Link></h2></div>
+        <div className="flex flex-wrap gap-3 text-sm text-text-secondary"><span>{screen.isActive ? 'Enabled' : 'Disabled'}</span><span>{isScreenLive(screen, now) ? 'Online' : 'Offline'}</span></div>
+        <dl className="text-sm space-y-2"><div className="flex justify-between gap-3"><dt className="text-text-secondary">Location</dt><dd className="text-right break-words">{locationMap[screen.locationId] || 'Unassigned'}</dd></div><div className="flex justify-between gap-3"><dt className="text-text-secondary">Playlist</dt><dd>{screen.livePlaylist?.length || 0} slides</dd></div></dl>
+        <div className="flex flex-wrap gap-2 border-t border-surface-highlight pt-4">
+          <button type="button" onClick={() => setDeployingScreen(screen)} className="ui-button ui-button-primary">Player link</button>
+          <Link to={`/admin/screens/${screen.id}`} aria-label={`Edit ${screen.name}`} className="ui-button ui-button-secondary"><Settings size={18} aria-hidden="true" /></Link>
+          <button type="button" aria-label={`Delete ${screen.name}`} className="ui-button ui-button-secondary" onClick={() => { setDeleteError(null); setDeletingScreen(screen); }}><Trash2 size={18} aria-hidden="true" /></button>
+        </div>
+      </article>)}
+      {!error && screens.length === 0 && <div className="col-span-full py-12 text-center"><h2 className="text-lg font-semibold">No screens yet</h2><p className="text-text-secondary mt-2">Add a screen to choose a template and playlist.</p></div>}
+    </div>}
+    {showTemplateModal && <TemplateSelectorModal type="screen" onClose={() => setShowTemplateModal(false)} onCreateBlank={() => { setShowTemplateModal(false); navigate('/admin/screens/new'); }} onImport={id => { setShowTemplateModal(false); navigate(`/admin/screens/${id}`); }} />}
+    {deployingScreen && <DeployModal screen={deployingScreen} onClose={() => setDeployingScreen(null)} />}
+    {deletingScreen && <AccessibleDialog title={`Delete ${deletingScreen.name}?`} description="This removes the screen configuration. This action cannot be undone." onClose={() => setDeletingScreen(null)} closeLabel="Cancel" busy={deleting}>
+      <InlineFeedback message={deleteError} tone="error" />
+      <button type="button" disabled={deleting} onClick={() => void deleteScreen()} className="ui-button ui-button-danger">{deleting ? 'Deleting…' : 'Delete screen'}</button>
+    </AccessibleDialog>}
+  </div>;
 };

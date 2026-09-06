@@ -1,3 +1,6 @@
+import { InlineFeedback } from '../atoms/InlineFeedback';
+import { TilePlacementControls } from '../molecules/TilePlacementControls';
+import { getDefaultTileProperties, moveTileWithKey } from '../../utils/editorGeometry';
 import { STORAGE_PATHS } from '../../lib/constants';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 
@@ -84,7 +87,6 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize,
-  ChevronLeft,
   ChevronRight,
   ChevronUp,
   ChevronDown
@@ -163,9 +165,11 @@ interface DraggableTileProps {
   type: TileInstance['type'];
   icon: React.ReactNode;
   label: string;
+  onAdd: (type: TileInstance['type']) => void;
+  search: string;
 }
 
-const DraggableTile = ({ type, icon, label }: DraggableTileProps) => {
+const DraggableTile = ({ type, icon, label, onAdd, search }: DraggableTileProps) => {
   const { organization } = useAuthStore();
   const { planConfigs } = useConfigStore();
   
@@ -187,7 +191,7 @@ const DraggableTile = ({ type, icon, label }: DraggableTileProps) => {
     }),
   }), [type, isAllowed]);
 
-  const dragRef = useCallback((node: HTMLDivElement | null) => {
+  const dragRef = useCallback((node: HTMLButtonElement | null) => {
     if (node) drag(node);
   }, [drag]);
 
@@ -196,26 +200,27 @@ const DraggableTile = ({ type, icon, label }: DraggableTileProps) => {
   }, [preview]);
 
 
+  if (!label.toLowerCase().includes(search.toLowerCase())) return null;
   return (
-    <div
+    <button
+      type="button"
+      aria-label={`Add ${label} tile${isAllowed ? '' : ' (plan upgrade required)'}`}
+      aria-disabled={!isAllowed}
+      onClick={() => { if (isAllowed) onAdd(type); }}
       ref={dragRef}
-      onDragStart={() => {}}
-      onMouseDown={(e) => {
-        void e;
-      }}
-      className={`flex items-center gap-3 p-3 bg-surface border rounded-lg transition-all ${
+      className={`w-full text-left flex items-center gap-3 p-3 bg-surface border rounded-lg transition-all ${
         !isAllowed 
           ? 'opacity-50 cursor-not-allowed border-surface-highlight grayscale' 
-          : `cursor-move hover:border-primary/50 hover:bg-surface-highlight/10 border-surface-highlight ${isDragging ? 'opacity-50' : 'opacity-100'}`
+          : `cursor-pointer hover:border-primary/50 hover:bg-surface-highlight/10 border-surface-highlight ${isDragging ? 'opacity-50' : 'opacity-100'}`
       } select-none`}
       title={!isAllowed ? `Upgrade to ${organization?.plan === 'Free' ? 'Growth' : 'Enterprise'} to unlock` : label}
     >
-      <div className="text-primary pointer-events-none">{icon}</div>
-      <div className="flex-1 flex items-center justify-between pointer-events-none select-none">
+      <span className="text-primary pointer-events-none">{icon}</span>
+      <span className="flex-1 flex items-center justify-between pointer-events-none select-none">
         <span className="text-sm font-medium text-text select-none">{label}</span>
         {!isAllowed && <Lock size={12} className="text-text-muted" />}
-      </div>
-    </div>
+      </span>
+    </button>
   );
 };
 
@@ -257,7 +262,7 @@ const CanvasTile = ({ tile, isSelected, scale, canvasDimensions, onSelect, onUpd
   }, [preview]);
 
 
-  const handleResizeStart = (e: React.MouseEvent, direction: string) => {
+  const handleResizeStart = (e: React.PointerEvent, direction: string) => {
     e.stopPropagation();
     e.preventDefault();
     setResizing({
@@ -274,7 +279,7 @@ const CanvasTile = ({ tile, isSelected, scale, canvasDimensions, onSelect, onUpd
   useEffect(() => {
     if (!resizing) return;
 
-    const handleMouseMove = (e: MouseEvent) => {
+    const handleMouseMove = (e: PointerEvent) => {
       const dx = (e.clientX - resizing.startX) / scale;
       const dy = (e.clientY - resizing.startY) / scale;
       
@@ -318,17 +323,29 @@ const CanvasTile = ({ tile, isSelected, scale, canvasDimensions, onSelect, onUpd
 
     const handleMouseUp = () => setResizing(null);
 
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('pointermove', handleMouseMove);
+    window.addEventListener('pointerup', handleMouseUp);
+    window.addEventListener('pointercancel', handleMouseUp);
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('pointermove', handleMouseMove);
+      window.removeEventListener('pointerup', handleMouseUp);
+      window.removeEventListener('pointercancel', handleMouseUp);
     };
   }, [resizing, tile.id, onUpdate, scale, canvasDimensions]);
 
   return (
     <div
       ref={dragRef}
+      role="group"
+      tabIndex={0}
+      aria-label={`${tile.name}${tile.locked ? ', locked' : ''}`}
+      aria-describedby="canvas-keyboard-help"
+      onFocus={(event) => { if (event.target === event.currentTarget) onSelect(tile.id); }}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget || event.altKey || event.ctrlKey || event.metaKey) return;
+        const updates = moveTileWithKey(tile, event.key, event.shiftKey ? 10 : 1, canvasDimensions);
+        if (updates) { event.preventDefault(); event.stopPropagation(); onUpdate(tile.id, updates); }
+      }}
       onClick={(e) => {
         e.stopPropagation();
         onSelect(tile.id);
@@ -363,24 +380,22 @@ const CanvasTile = ({ tile, isSelected, scale, canvasDimensions, onSelect, onUpd
         </div>
       )}
 
-      {/* Resize Handles - 8 Points */}
-      {isSelected && !tile.locked && (
-        <>
-          {/* Corners */}
-          <div onMouseDown={(e) => handleResizeStart(e, 'nw')} className="absolute -top-2 -left-2 w-4 h-4 bg-primary border-2 border-white rounded-full z-50 cursor-nw-resize hover:scale-125 transition-transform shadow-[0_0_10px_rgba(234,88,12,0.5)]" />
-          <div onMouseDown={(e) => handleResizeStart(e, 'ne')} className="absolute -top-2 -right-2 w-4 h-4 bg-primary border-2 border-white rounded-full z-50 cursor-ne-resize hover:scale-125 transition-transform shadow-[0_0_10px_rgba(234,88,12,0.5)]" />
-          <div onMouseDown={(e) => handleResizeStart(e, 'sw')} className="absolute -bottom-2 -left-2 w-4 h-4 bg-primary border-2 border-white rounded-full z-50 cursor-sw-resize hover:scale-125 transition-transform shadow-[0_0_10px_rgba(234,88,12,0.5)]" />
-          <div onMouseDown={(e) => handleResizeStart(e, 'se')} className="absolute -bottom-2 -right-2 w-4 h-4 bg-primary border-2 border-white rounded-full z-50 cursor-se-resize hover:scale-125 transition-transform shadow-[0_0_10px_rgba(234,88,12,0.5)]" />
-          
-          {/* Sides */}
-          <div onMouseDown={(e) => handleResizeStart(e, 'n')} className="absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-primary border-2 border-white rounded-full z-50 cursor-n-resize hover:scale-125 transition-transform shadow-[0_0_10px_rgba(234,88,12,0.5)]" />
-          <div onMouseDown={(e) => handleResizeStart(e, 's')} className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-primary border-2 border-white rounded-full z-50 cursor-s-resize hover:scale-125 transition-transform shadow-[0_0_10px_rgba(234,88,12,0.5)]" />
-          <div onMouseDown={(e) => handleResizeStart(e, 'e')} className="absolute top-1/2 -right-2 -translate-y-1/2 w-4 h-4 bg-primary border-2 border-white rounded-full z-50 cursor-e-resize hover:scale-125 transition-transform shadow-[0_0_10px_rgba(234,88,12,0.5)]" />
-          <div onMouseDown={(e) => handleResizeStart(e, 'w')} className="absolute top-1/2 -left-2 -translate-y-1/2 w-4 h-4 bg-primary border-2 border-white rounded-full z-50 cursor-w-resize hover:scale-125 transition-transform shadow-[0_0_10px_rgba(234,88,12,0.5)]" />
-        </>
-      )}
+      {isSelected && !tile.locked && (['nw', 'ne', 'sw', 'se', 'n', 's', 'e', 'w'] as const).map(direction => (
+        <button key={direction} type="button" tabIndex={-1} data-direction={direction}
+          aria-label={`Resize ${tile.name} ${direction}`}
+          onPointerDown={event => handleResizeStart(event, direction)}
+          className="resize-handle absolute z-50 flex items-center justify-center bg-transparent p-0"
+          style={{
+            left: direction.includes('w') ? 0 : direction.includes('e') ? '100%' : '50%',
+            top: direction.includes('n') ? 0 : direction.includes('s') ? '100%' : '50%',
+            width: 44 / scale, height: 44 / scale, minWidth: 44 / scale, minHeight: 44 / scale,
+            transform: 'translate(-50%, -50%)', touchAction: 'none', cursor: `${direction}-resize`,
+          }}>
+          <span aria-hidden="true" className="bg-primary border-2 border-white rounded-full" style={{ width: 12 / scale, height: 12 / scale }} />
+        </button>
+      ))}
 
-      <div className="w-full h-full pointer-events-none">
+      <div ref={node => { if (node) node.inert = true; }} className="signage-content w-full h-full pointer-events-none" aria-hidden="true">
         <TileContent tile={tile} isEditor={true} />
       </div>
     </div>
@@ -398,6 +413,10 @@ export const SlideEditor = ({
 }) => {
   const { slideId } = useParams();
   const navigate = useNavigate();
+  const { organization } = useAuthStore();
+  const { planConfigs } = useConfigStore();
+  const [tileSearch, setTileSearch] = useState('');
+  const [editorMessage, setEditorMessage] = useState<string | null>(null);
   
   const [slide, setSlide] = useState<Slide | null>(null);
   const [selectedTileId, setSelectedTileId] = useState<string | null>(null);
@@ -408,14 +427,18 @@ export const SlideEditor = ({
   const [error, setError] = useState<string | null>(null);
   const [scale, setScale] = useState(1);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [toolsCollapsed, setToolsCollapsed] = useState(false);
-  const [propertiesCollapsed, setPropertiesCollapsed] = useState(false);
+  const [toolsCollapsed, setToolsCollapsed] = useState(() => typeof window !== 'undefined' && window.innerWidth < 1024);
+  const [propertiesCollapsed, setPropertiesCollapsed] = useState(() => typeof window !== 'undefined' && window.innerWidth < 1024);
   const [backgroundUrlInput, setBackgroundUrlInput] = useState('');
   const [uploadedBackgroundUrl, setUploadedBackgroundUrl] = useState('');
 
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedSignatureRef = useRef<string | null>(null);
+  const lastFailedSignatureRef = useRef<string | null>(null);
+  const savingRef = useRef(false);
+  const latestSlide = useRef(slide);
+  useEffect(() => { latestSlide.current = slide; }, [slide]);
 
   useEffect(() => {
     if (isTemplateMode && initialData) {
@@ -460,12 +483,16 @@ export const SlideEditor = ({
   }, [slideId, isTemplateMode, initialData]);
 
   const saveSlide = useCallback(async (updatedSlide: Slide) => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setError(null);
     try {
       setSaving(true);
 
       if (isTemplateMode && onSave) {
         await onSave(updatedSlide);
-        setSlide(updatedSlide);
+        lastSavedSignatureRef.current = getSlideSaveSignature(updatedSlide);
+        setEditorMessage('Template saved.');
         return;
       }
 
@@ -488,16 +515,34 @@ export const SlideEditor = ({
       }
 
       await SlideService.updateSlide(slideId, updateData);
-      setSlide(updatedSlide);
       lastSavedSignatureRef.current = getSlideSaveSignature(updatedSlide);
-      setHasUnsavedChanges(false);
+      lastFailedSignatureRef.current = null;
+      setHasUnsavedChanges(!!latestSlide.current && getSlideSaveSignature(latestSlide.current) !== lastSavedSignatureRef.current);
     } catch (err) {
       console.error('Failed to save slide:', err);
-      setError('Failed to save changes');
+      lastFailedSignatureRef.current = getSlideSaveSignature(updatedSlide);
+      setError('Changes could not be saved. Your edits are still here. Use Save to retry.');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }, [slideId, isTemplateMode, onSave]);
+
+  const addTile = (type: TileInstance['type']) => {
+    if (!slide) return;
+    const plan = planConfigs[organization?.plan || 'Free'] || planConfigs.Free;
+    if (!plan?.allowedTiles?.includes(type)) return;
+    const id = generateId();
+    const position = clampTilePosition((slide.dimensions.width - 200) / 2, (slide.dimensions.height - 150) / 2, 200, 150, slide.dimensions.width, slide.dimensions.height);
+    const tile: TileInstance = { id, type, name: `${type.replaceAll('_', ' ')} tile`, position,
+      size: { width: 200, height: 150 }, opacity: 1, rotation: 0,
+      zIndex: Math.max(0, ...slide.elements.map(item => item.zIndex)) + 1,
+      visible: true, locked: false, properties: getDefaultTileProperties(type) };
+    setSlide({ ...slide, elements: [...slide.elements, tile] });
+    setSelectedTileId(id); setActiveTab('properties'); setPropertiesCollapsed(false);
+    if (window.innerWidth < 1024) setToolsCollapsed(true);
+    setEditorMessage(`${tile.name} added. Adjust it with Position and size or the canvas arrow keys.`);
+  };
 
   const handleDrop = useCallback((item: DragItem, monitor: DropTargetMonitor<DragItem>) => {
     if (!slide) return;
@@ -551,14 +596,7 @@ export const SlideEditor = ({
         };
       }
     } else {
-      const defaultProps: Record<string, unknown> = {};
-      if (item.type === 'text') defaultProps.content = 'New Text';
-      if (item.type === 'image') defaultProps.url = '';
-      if (item.type === 'video') defaultProps.url = '';
-      if (item.type === 'clock') { defaultProps.format = '12h'; defaultProps.showSeconds = true; }
-      if (item.type === 'weather') { defaultProps.location = 'New York'; defaultProps.units = 'imperial'; }
-      if (item.type === 'container') { defaultProps.backgroundColor = '#ffffff'; defaultProps.borderWidth = 1; defaultProps.borderColor = '#374151'; }
-      if (item.type === 'shape') { defaultProps.shape = 'circle'; defaultProps.fillColor = '#EA580C'; }
+      const defaultProps = getDefaultTileProperties(item.type);
 
       const newTile: TileInstance = {
         id: generateId(),
@@ -600,7 +638,7 @@ export const SlideEditor = ({
 
 
   useEffect(() => {
-    if (!slide || isTemplateMode) return;
+    if (!slide || isTemplateMode || saving) return;
 
     const currentSignature = getSlideSaveSignature(slide);
 
@@ -616,6 +654,7 @@ export const SlideEditor = ({
     }
 
     setHasUnsavedChanges(true);
+    if (currentSignature === lastFailedSignatureRef.current) return;
 
     if (autosaveTimerRef.current) {
       clearTimeout(autosaveTimerRef.current);
@@ -630,19 +669,7 @@ export const SlideEditor = ({
         clearTimeout(autosaveTimerRef.current);
       }
     };
-  }, [slide, saveSlide, isTemplateMode]);
-
-  // Escape key to deselect tiles
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && selectedTileId) {
-        setSelectedTileId(null);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedTileId]);
+  }, [slide, saveSlide, isTemplateMode, saving]);
 
   const updateSelectedTile = (updates: Partial<TileInstance>) => {
     if (!slide || !selectedTileId) return;
@@ -780,7 +807,7 @@ export const SlideEditor = ({
       const url = await StorageService.uploadFile(file, path);
       updateSelectedTileProperty(propertyKey, url);
     } catch {
-      alert('Failed to upload image');
+      setError('The image could not be uploaded. Check your connection and try again.');
     } finally {
       setUploading(false);
     }
@@ -806,7 +833,7 @@ export const SlideEditor = ({
       setSlide(updatedSlide);
     } catch (error) {
       console.error('Upload error:', error);
-      alert('Failed to upload background image');
+      setError('The background could not be uploaded. Your previous background is unchanged.');
     } finally {
       setUploading(false);
     }
@@ -833,20 +860,20 @@ export const SlideEditor = ({
     setSlide(updatedSlide);
   };
 
-  if (loading) return <div className="p-8 text-text-muted">Loading editor...</div>;
-  if (!slide) return <div className="p-8 text-red-500">{error || 'Slide not found'}</div>;
+  if (loading) return <div role="status" className="p-8 text-text-muted">Loading editor...</div>;
+  if (!slide) return <InlineFeedback tone="error" message={error || 'Slide not found'} />;
 
   const selectedTile = slide.elements.find(e => e.id === selectedTileId);
 
   return (
     <ErrorBoundary>
-      <div className={`flex flex-col bg-background text-text ${isTemplateMode ? 'h-full' : 'h-screen'}`}>
+      <div className={`flex flex-col min-w-0 bg-background text-text ${isTemplateMode ? 'h-full' : 'min-h-[calc(100dvh-4rem)] lg:h-[calc(100dvh-4rem)]'}`} onKeyDown={event => { if (event.key === 'Escape' && !event.defaultPrevented && !(event.target as HTMLElement).closest('[role="dialog"]')) setSelectedTileId(null); }}>
         <CustomDragLayer tiles={slide.elements} scale={scale} />
         {/* Header - Hide specific parts if in Template Mode if header is handled by parent */}
         {!isTemplateMode && (
-          <div className="h-16 bg-surface border-b border-surface-highlight flex items-center justify-between px-6 shadow-sm z-20">
+          <div className="min-h-16 bg-surface border-b border-surface-highlight flex flex-wrap gap-3 items-center justify-between px-4 py-2 shadow-sm z-20">
             <div className="flex items-center gap-4">
-              <button 
+              <button aria-label="Back to Slides"
                 onClick={() => navigate('/admin/slides')} 
                 className="text-text-muted hover:text-text p-2 hover:bg-surface-highlight/50 rounded-full transition-colors"
                 title="Back to Slides"
@@ -855,13 +882,13 @@ export const SlideEditor = ({
               </button>
               <div className="flex flex-col">
                 <h1 className="text-lg font-bold text-text leading-tight">{slide.name}</h1>
-                <span className="text-xs text-text-muted">
-                   {saving ? 'Saving...' : (hasUnsavedChanges ? 'Unsaved changes' : 'All changes saved')}
+                <span role="status" aria-live="polite" className="text-xs text-text-muted">
+                   {error ? 'Changes not saved' : saving ? 'Saving...' : (hasUnsavedChanges ? 'Unsaved changes' : 'All changes saved')}
                 </span>
               </div>
             </div>
             <button 
-              onClick={() => saveSlide(slide)}
+              disabled={saving} onClick={() => void saveSlide(slide)}
               className="flex items-center gap-2 bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-md transition-colors shadow-lg shadow-primary/20"
             >
               <Save size={18} />
@@ -874,7 +901,7 @@ export const SlideEditor = ({
            <div className="bg-surface border-b border-surface-highlight px-4 py-2 flex items-center justify-between">
              <div className="text-xs text-text-muted">Template Mode</div>
              <button 
-              onClick={() => saveSlide(slide)}
+              disabled={saving} onClick={() => void saveSlide(slide)}
               className="flex items-center gap-2 bg-primary hover:bg-primary-hover text-white px-3 py-1 rounded-md transition-colors text-sm"
             >
               <Save size={14} />
@@ -882,113 +909,99 @@ export const SlideEditor = ({
             </button>
            </div>
         )}
-                <div className="flex-1 flex overflow-hidden relative">
-          {/* Collapse/Expand Toggles */}
-          {toolsCollapsed && (
-            <button 
-              onClick={() => setToolsCollapsed(false)}
-              className="absolute left-0 top-1/2 -translate-y-1/2 z-30 bg-surface border border-surface-highlight border-l-0 p-1.5 rounded-r-lg shadow-md text-text-muted hover:text-text hover:bg-surface-highlight/10 transition-colors"
-              title="Expand Tools"
-            >
-              <ChevronRight size={16} />
-            </button>
-          )}
-          {propertiesCollapsed && (
-            <button 
-              onClick={() => setPropertiesCollapsed(false)}
-              className="absolute right-0 top-1/2 -translate-y-1/2 z-30 bg-surface border border-surface-highlight border-r-0 p-1.5 rounded-l-lg shadow-md text-text-muted hover:text-text hover:bg-surface-highlight/10 transition-colors"
-              title="Expand Properties"
-            >
-              <ChevronLeft size={16} />
-            </button>
-          )}
-
+        <div className="px-4 py-2 flex flex-wrap items-center gap-2 border-b border-surface-highlight">
+          <button type="button" className="ui-button ui-button-secondary" aria-expanded={!toolsCollapsed} aria-controls="editor-tools" onClick={() => setToolsCollapsed(v => !v)}>Tiles</button>
+          <button type="button" className="ui-button ui-button-secondary" aria-expanded={!propertiesCollapsed} aria-controls="editor-properties" onClick={() => setPropertiesCollapsed(v => !v)}>Inspector</button>
+          <p id="canvas-keyboard-help" className="text-sm text-text-secondary">Select a tile. Arrow keys move it; Shift moves 10 pixels.</p>
+        </div>
+        <div className="px-4"><InlineFeedback message={error} tone="error" /><InlineFeedback message={editorMessage} /></div>
+        <div className="editor-workspace flex-1 min-h-0 flex overflow-hidden relative">
           {/* Tools Sidebar */}
-          <div className={`${toolsCollapsed ? 'w-0 p-0 border-none' : 'w-64 p-4 border-r'} bg-surface border-surface-highlight flex flex-col gap-3 z-10 overflow-y-auto custom-scrollbar transition-all duration-300 relative`}>
-            <div className={`flex items-center justify-between mb-2 ${toolsCollapsed ? 'hidden' : ''}`}>
-              <h3 className="text-xs font-bold text-text-muted uppercase tracking-wider">Text</h3>
-              <button 
-                onClick={() => setToolsCollapsed(true)}
-                className="p-1 hover:bg-surface-highlight/30 rounded text-text-muted hover:text-text transition-colors"
-                title="Collapse Tools"
-              >
-                <ChevronLeft size={14} />
-              </button>
-            </div>
-            <DraggableTile type="text" icon={<Type size={20} />} label="Text Block" />
-            <DraggableTile type="dynamic_text" icon={<Type size={20} />} label="Dynamic Text" />
-            <DraggableTile type="scrolling_text" icon={<Type size={20} />} label="Scrolling Text" />
-            <DraggableTile type="rich_text" icon={<FileText size={20} />} label="Rich Text" />
-            <DraggableTile type="marquee" icon={<Type size={20} />} label="Marquee" />
-            <DraggableTile type="typewriter" icon={<Type size={20} />} label="Typewriter" />
-            <DraggableTile type="word_art" icon={<Type size={20} />} label="Word Art" />
-            <DraggableTile type="gradient_text" icon={<Type size={20} />} label="Gradient Text" />
-            <DraggableTile type="animated_text" icon={<Type size={20} />} label="Animated Text" />
-            <DraggableTile type="text_shadow" icon={<Type size={20} />} label="Shadow Text" />
+          <div id="editor-tools" hidden={toolsCollapsed} className={`editor-tools ${toolsCollapsed ? 'w-0 p-0 border-none' : 'w-64 p-4 border-r'} bg-surface border-surface-highlight flex flex-col gap-3 z-10 overflow-y-auto custom-scrollbar transition-all duration-300 relative`}>
+            <label htmlFor="tile-search" className="block text-sm font-medium">Find a tile</label>
+            <input id="tile-search" type="search" value={tileSearch} onChange={event => setTileSearch(event.target.value)} className="w-full bg-background border border-surface-highlight rounded px-3 py-2" />
+            <p className="text-xs text-text-secondary">Tap a tile to add it, or drag it to the canvas.</p>
+            <details open><summary>Text</summary>
+            <DraggableTile onAdd={addTile} search={tileSearch} type="text" icon={<Type size={20} />} label="Text Block" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="dynamic_text" icon={<Type size={20} />} label="Dynamic Text" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="scrolling_text" icon={<Type size={20} />} label="Scrolling Text" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="rich_text" icon={<FileText size={20} />} label="Rich Text" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="marquee" icon={<Type size={20} />} label="Marquee" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="typewriter" icon={<Type size={20} />} label="Typewriter" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="word_art" icon={<Type size={20} />} label="Word Art" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="gradient_text" icon={<Type size={20} />} label="Gradient Text" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="animated_text" icon={<Type size={20} />} label="Animated Text" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="text_shadow" icon={<Type size={20} />} label="Shadow Text" />
 
-            <h3 className="text-xs font-bold text-text-muted uppercase tracking-wider mb-2 mt-4">Media</h3>
-            <DraggableTile type="image" icon={<ImageIcon size={20} />} label="Image" />
-            <DraggableTile type="video" icon={<Video size={20} />} label="Video" />
-            <DraggableTile type="gif" icon={<ImageIcon size={20} />} label="GIF" />
-            <DraggableTile type="slideshow" icon={<Layers size={20} />} label="Slideshow" />
-            <DraggableTile type="youtube" icon={<Video size={20} />} label="YouTube" />
-            <DraggableTile type="vimeo" icon={<Video size={20} />} label="Vimeo" />
-            <DraggableTile type="webcam" icon={<Video size={20} />} label="Webcam" />
-            <DraggableTile type="audio" icon={<Video size={20} />} label="Audio" />
-            <DraggableTile type="lottie" icon={<Sparkles size={20} />} label="Lottie" />
-            <DraggableTile type="background_video" icon={<Video size={20} />} label="BG Video" />
+            </details>
+            <details open><summary>Media</summary>
+            <DraggableTile onAdd={addTile} search={tileSearch} type="image" icon={<ImageIcon size={20} />} label="Image" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="video" icon={<Video size={20} />} label="Video" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="gif" icon={<ImageIcon size={20} />} label="GIF" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="slideshow" icon={<Layers size={20} />} label="Slideshow" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="youtube" icon={<Video size={20} />} label="YouTube" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="vimeo" icon={<Video size={20} />} label="Vimeo" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="webcam" icon={<Video size={20} />} label="Webcam" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="audio" icon={<Video size={20} />} label="Audio" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="lottie" icon={<Sparkles size={20} />} label="Lottie" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="background_video" icon={<Video size={20} />} label="BG Video" />
 
-            <h3 className="text-xs font-bold text-text-muted uppercase tracking-wider mb-2 mt-4">Data</h3>
-            <DraggableTile type="bar_chart" icon={<BarChart size={20} />} label="Bar Chart" />
-            <DraggableTile type="line_chart" icon={<BarChart size={20} />} label="Line Chart" />
-            <DraggableTile type="pie_chart" icon={<BarChart size={20} />} label="Pie Chart" />
-            <DraggableTile type="gauge" icon={<BarChart size={20} />} label="Gauge" />
-            <DraggableTile type="kpi_card" icon={<Activity size={20} />} label="KPI Card" />
-            <DraggableTile type="progress_bar" icon={<Activity size={20} />} label="Progress" />
-            <DraggableTile type="table" icon={<ListChecks size={20} />} label="Table" />
-            <DraggableTile type="timeline" icon={<Clock size={20} />} label="Timeline" />
-            <DraggableTile type="heatmap" icon={<BarChart size={20} />} label="Heatmap" />
-            <DraggableTile type="sparklines" icon={<BarChart size={20} />} label="Sparklines" />
+            </details>
+            <details open={tileSearch ? true : undefined}><summary>Data</summary>
+            <DraggableTile onAdd={addTile} search={tileSearch} type="bar_chart" icon={<BarChart size={20} />} label="Bar Chart" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="line_chart" icon={<BarChart size={20} />} label="Line Chart" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="pie_chart" icon={<BarChart size={20} />} label="Pie Chart" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="gauge" icon={<BarChart size={20} />} label="Gauge" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="kpi_card" icon={<Activity size={20} />} label="KPI Card" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="progress_bar" icon={<Activity size={20} />} label="Progress" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="table" icon={<ListChecks size={20} />} label="Table" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="timeline" icon={<Clock size={20} />} label="Timeline" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="heatmap" icon={<BarChart size={20} />} label="Heatmap" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="sparklines" icon={<BarChart size={20} />} label="Sparklines" />
 
-            <h3 className="text-xs font-bold text-text-muted uppercase tracking-wider mb-2 mt-4">Interactive</h3>
-            <DraggableTile type="button" icon={<MousePointer2 size={20} />} label="Button" />
-            <DraggableTile type="qr_code" icon={<QrCode size={20} />} label="QR Code" />
-            <DraggableTile type="countdown" icon={<Timer size={20} />} label="Countdown" />
-            <DraggableTile type="form" icon={<FileText size={20} />} label="Form" />
-            <DraggableTile type="poll" icon={<ListChecks size={20} />} label="Poll" />
-            <DraggableTile type="social_feed" icon={<MessageSquare size={20} />} label="Social Feed" />
-            <DraggableTile type="weather" icon={<CloudSun size={20} />} label="Weather" />
-            <DraggableTile type="menu_selector" icon={<Utensils size={20} />} label="Menu Selector" />
-            <DraggableTile type="promotion_banner" icon={<Megaphone size={20} />} label="Promotion" />
-            <DraggableTile type="loyalty_card" icon={<CreditCard size={20} />} label="Loyalty Card" />
+            </details>
+            <details open={tileSearch ? true : undefined}><summary>Interactive</summary>
+            <DraggableTile onAdd={addTile} search={tileSearch} type="button" icon={<MousePointer2 size={20} />} label="Button" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="qr_code" icon={<QrCode size={20} />} label="QR Code" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="countdown" icon={<Timer size={20} />} label="Countdown" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="form" icon={<FileText size={20} />} label="Form" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="poll" icon={<ListChecks size={20} />} label="Poll" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="social_feed" icon={<MessageSquare size={20} />} label="Social Feed" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="weather" icon={<CloudSun size={20} />} label="Weather" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="menu_selector" icon={<Utensils size={20} />} label="Menu Selector" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="promotion_banner" icon={<Megaphone size={20} />} label="Promotion" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="loyalty_card" icon={<CreditCard size={20} />} label="Loyalty Card" />
 
-            <h3 className="text-xs font-bold text-text-muted uppercase tracking-wider mb-2 mt-4">Layout</h3>
-            <DraggableTile type="container" icon={<Layout size={20} />} label="Container" />
-            <DraggableTile type="divider" icon={<Layout size={20} />} label="Divider" />
-            <DraggableTile type="grid" icon={<Layout size={20} />} label="Grid" />
-            <DraggableTile type="flex" icon={<Layout size={20} />} label="Flex Box" />
-            <DraggableTile type="tabs" icon={<Layout size={20} />} label="Tabs" />
-            <DraggableTile type="accordion" icon={<Layout size={20} />} label="Accordion" />
-            <DraggableTile type="carousel" icon={<Layout size={20} />} label="Carousel" />
-            <DraggableTile type="sticky_note" icon={<Layout size={20} />} label="Sticky Note" />
-            <DraggableTile type="shape" icon={<Layout size={20} />} label="Shape" />
-            <DraggableTile type="frame" icon={<Layout size={20} />} label="Frame" />
+            </details>
+            <details open={tileSearch ? true : undefined}><summary>Layout</summary>
+            <DraggableTile onAdd={addTile} search={tileSearch} type="container" icon={<Layout size={20} />} label="Container" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="divider" icon={<Layout size={20} />} label="Divider" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="grid" icon={<Layout size={20} />} label="Grid" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="flex" icon={<Layout size={20} />} label="Flex Box" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="tabs" icon={<Layout size={20} />} label="Tabs" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="accordion" icon={<Layout size={20} />} label="Accordion" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="carousel" icon={<Layout size={20} />} label="Carousel" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="sticky_note" icon={<Layout size={20} />} label="Sticky Note" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="shape" icon={<Layout size={20} />} label="Shape" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="frame" icon={<Layout size={20} />} label="Frame" />
 
-            <h3 className="text-xs font-bold text-text-muted uppercase tracking-wider mb-2 mt-4">Special</h3>
-            <DraggableTile type="clock" icon={<Clock size={20} />} label="Clock" />
-            <DraggableTile type="calendar" icon={<CalendarIcon size={20} />} label="Calendar" />
-            <DraggableTile type="rss_feed" icon={<Rss size={20} />} label="RSS Feed" />
-            <DraggableTile type="social_proof" icon={<MessageSquare size={20} />} label="Social Proof" />
-            <DraggableTile type="testimonial" icon={<MessageSquare size={20} />} label="Testimonial" />
-            <DraggableTile type="stock_ticker" icon={<Activity size={20} />} label="Stock Ticker" />
-            <DraggableTile type="menu_item" icon={<Utensils size={20} />} label="Menu Item" />
-            <DraggableTile type="special_offer" icon={<Megaphone size={20} />} label="Special Offer" />
-            <DraggableTile type="event_countdown" icon={<Timer size={20} />} label="Event Countdown" />
-            <DraggableTile type="map" icon={<MapPin size={20} />} label="Map Location" />
+            </details>
+            <details open={tileSearch ? true : undefined}><summary>Special</summary>
+            <DraggableTile onAdd={addTile} search={tileSearch} type="clock" icon={<Clock size={20} />} label="Clock" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="calendar" icon={<CalendarIcon size={20} />} label="Calendar" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="rss_feed" icon={<Rss size={20} />} label="RSS Feed" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="social_proof" icon={<MessageSquare size={20} />} label="Social Proof" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="testimonial" icon={<MessageSquare size={20} />} label="Testimonial" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="stock_ticker" icon={<Activity size={20} />} label="Stock Ticker" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="menu_item" icon={<Utensils size={20} />} label="Menu Item" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="special_offer" icon={<Megaphone size={20} />} label="Special Offer" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="event_countdown" icon={<Timer size={20} />} label="Event Countdown" />
+            <DraggableTile onAdd={addTile} search={tileSearch} type="map" icon={<MapPin size={20} />} label="Map Location" />
+            </details>
           </div>
           {/* Canvas Area */}
           <div
-            className="flex-1 bg-surface p-8 overflow-auto relative"
+            className="editor-canvas-area flex-1 bg-surface p-4 overflow-auto relative"
             ref={containerRefCallback}
           >
             {/* Grid Pattern Background */}
@@ -1049,7 +1062,7 @@ export const SlideEditor = ({
             
             {/* Canvas Controls Overlay */}
             <div className="absolute bottom-6 right-6 bg-surface border border-surface-highlight rounded-lg p-2 flex gap-2 shadow-lg">
-              <button 
+              <button aria-label="Zoom Out"
                 onClick={() => setScale(s => Math.max(0.1, s - 0.05))}
                 className="p-1 hover:bg-surface-highlight rounded text-text-muted hover:text-text transition-colors"
                 title="Zoom Out"
@@ -1059,14 +1072,14 @@ export const SlideEditor = ({
               <div className="text-xs text-text font-medium px-2 py-1 min-w-[3rem] text-center border-x border-surface-highlight flex items-center justify-center">
                 {Math.round(scale * 100)}%
               </div>
-              <button 
+              <button aria-label="Zoom In"
                 onClick={() => setScale(s => Math.min(2, s + 0.05))}
                 className="p-1 hover:bg-surface-highlight rounded text-text-muted hover:text-text transition-colors"
                 title="Zoom In"
               >
                 <ZoomIn size={16} />
               </button>
-              <button 
+              <button aria-label="Reset Zoom"
                 onClick={() => setScale(1)}
                 className="p-1 hover:bg-surface-highlight rounded text-text-muted hover:text-text transition-colors ml-2 border-l border-surface-highlight pl-3"
                 title="Reset Zoom"
@@ -1077,10 +1090,10 @@ export const SlideEditor = ({
           </div>
 
           {/* Properties Panel */}
-          <div className={`${propertiesCollapsed ? 'w-0 border-none' : 'w-80 border-l'} bg-surface border-surface-highlight flex flex-col z-10 shadow-xl transition-all duration-300 relative`}>
+          <div id="editor-properties" hidden={propertiesCollapsed} className={`editor-properties ${propertiesCollapsed ? 'w-0 border-none' : 'w-80 border-l'} bg-surface border-surface-highlight flex flex-col z-10 shadow-xl transition-all duration-300 relative`}>
             {/* Tabs */}
             <div className={`flex border-b border-surface-highlight bg-surface ${propertiesCollapsed ? 'hidden' : ''}`}>
-              <button
+              <button aria-label="Collapse Properties"
                 onClick={() => setPropertiesCollapsed(true)}
                 className="px-3 border-r border-surface-highlight text-text-muted hover:text-text hover:bg-surface-highlight/10 transition-colors"
                 title="Collapse Properties"
@@ -1088,7 +1101,7 @@ export const SlideEditor = ({
                 <ChevronRight size={14} />
               </button>
               <button
-                onClick={() => setActiveTab('properties')}
+                aria-pressed={activeTab === 'properties'} onClick={() => setActiveTab('properties')}
                 className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
                   activeTab === 'properties' 
                     ? 'text-primary border-b-2 border-primary bg-surface-highlight/5' 
@@ -1099,7 +1112,7 @@ export const SlideEditor = ({
                 Properties
               </button>
               <button
-                onClick={() => setActiveTab('atmosphere')}
+                aria-pressed={activeTab === 'atmosphere'} onClick={() => setActiveTab('atmosphere')}
                 className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
                   activeTab === 'atmosphere' 
                     ? 'text-primary border-b-2 border-primary bg-surface-highlight/5' 
@@ -1110,7 +1123,7 @@ export const SlideEditor = ({
                 Atmosphere
               </button>
               <button
-                onClick={() => setActiveTab('layers')}
+                aria-pressed={activeTab === 'layers'} onClick={() => setActiveTab('layers')}
                 className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
                   activeTab === 'layers' 
                     ? 'text-primary border-b-2 border-primary bg-surface-highlight/5' 
@@ -1133,14 +1146,14 @@ export const SlideEditor = ({
                       </span>
                       {selectedTile && (
                         <div className="flex items-center gap-2">
-                          <button
+                          <button aria-label="Duplicate Tile"
                             onClick={duplicateSelectedTile}
                             className="bg-surface-highlight hover:bg-primary/20 text-text p-1 rounded transition-colors"
                             title="Duplicate Tile"
                           >
                             <Copy size={16} />
                           </button>
-                          <button
+                          <button aria-label="Delete Tile"
                             onClick={deleteSelectedTile}
                             className="bg-red-500 hover:bg-red-600 text-white p-1 rounded transition-colors"
                             title="Delete Tile"
@@ -1159,7 +1172,7 @@ export const SlideEditor = ({
                          <div className="space-y-3">
                            <div>
                              <label className="text-xs text-text-muted mb-1 block">Name</label>
-                             <input 
+                             <input aria-label="Name"
                                type="text" 
                                value={selectedTile.name || ''} 
                                onChange={(e) => updateSelectedTile({ name: e.target.value })}
@@ -1197,47 +1210,7 @@ export const SlideEditor = ({
                          </div>
                       </div>
 
-                      <div className="space-y-3">
-                        <label className="text-xs font-bold text-text-muted uppercase tracking-wider">Position & Size</label>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <label className="text-xs text-text-muted mb-1 block">X</label>
-                            <input 
-                              type="number" 
-                              value={selectedTile.position.x} 
-                              onChange={(e) => updateSelectedTile({ position: { ...selectedTile.position, x: Number(e.target.value) }})}
-                              className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-xs text-text-muted mb-1 block">Y</label>
-                            <input 
-                              type="number" 
-                              value={selectedTile.position.y} 
-                              onChange={(e) => updateSelectedTile({ position: { ...selectedTile.position, y: Number(e.target.value) }})}
-                              className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-xs text-text-muted mb-1 block">Width</label>
-                            <input 
-                              type="number" 
-                              value={selectedTile.size.width} 
-                              onChange={(e) => updateSelectedTile({ size: { ...selectedTile.size, width: Number(e.target.value) }})}
-                              className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-xs text-text-muted mb-1 block">Height</label>
-                            <input 
-                              type="number" 
-                              value={selectedTile.size.height} 
-                              onChange={(e) => updateSelectedTile({ size: { ...selectedTile.size, height: Number(e.target.value) }})}
-                              className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
-                            />
-                          </div>
-                        </div>
-                      </div>
+                      <TilePlacementControls tile={selectedTile} canvas={slide.dimensions} onUpdate={updateSelectedTile} />
 
                       <div className="space-y-3">
                          <label className="text-xs font-bold text-text-muted uppercase tracking-wider">Appearance</label>
@@ -1252,7 +1225,7 @@ export const SlideEditor = ({
                                min="0" 
                                max="1" 
                                step="0.01"
-                               value={selectedTile.opacity}
+                               aria-label="Tile opacity" value={selectedTile.opacity}
                                onChange={(e) => updateSelectedTile({ opacity: Number(e.target.value) })}
                                className="w-full accent-primary h-1 bg-surface-highlight rounded-lg appearance-none cursor-pointer"
                              />
@@ -1266,7 +1239,7 @@ export const SlideEditor = ({
                                type="range" 
                                min="0" 
                                max="360" 
-                               value={selectedTile.rotation}
+                               aria-label="Tile rotation" value={selectedTile.rotation}
                                onChange={(e) => updateSelectedTile({ rotation: Number(e.target.value) })}
                                className="w-full accent-primary h-1 bg-surface-highlight rounded-lg appearance-none cursor-pointer"
                              />
@@ -1276,7 +1249,7 @@ export const SlideEditor = ({
 
                       <div className="space-y-3">
                          <label className="text-xs font-bold text-text-muted uppercase tracking-wider">Layer (Z-Index)</label>
-                         <input 
+                         <input aria-label="Layer (Z-Index)"
                             type="number" 
                             value={selectedTile.zIndex} 
                             onChange={(e) => updateSelectedTile({ zIndex: Number(e.target.value) })}
@@ -1291,7 +1264,7 @@ export const SlideEditor = ({
                               {selectedTile.type === 'dynamic_text' ? 'Template' : 
                                selectedTile.type === 'rich_text' ? 'HTML Content' : 'Content'}
                             </label>
-                            <textarea 
+                            <textarea aria-label="Tile text content"
                               value={String(
                                 selectedTile.type === 'dynamic_text' ? ((selectedTile.properties as DynamicTextProperties).textTemplate || '') :
                                 selectedTile.type === 'rich_text' ? ((selectedTile.properties as RichTextProperties).htmlContent || '') :
@@ -1312,7 +1285,7 @@ export const SlideEditor = ({
                              <div className="grid grid-cols-2 gap-3">
                                <div className="col-span-2">
                                  <label className="text-xs text-text-muted mb-1 block">Font Family</label>
-                                 <select 
+                                 <select aria-label="Font Family"
                                    value={String((selectedTile.properties as BaseTextProperties).fontFamily || 'Inter, sans-serif')}
                                    onChange={(e) => updateSelectedTileProperty('fontFamily', e.target.value)}
                                    className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none appearance-none"
@@ -1330,7 +1303,7 @@ export const SlideEditor = ({
                                </div>
                                <div>
                                  <label className="text-xs text-text-muted mb-1 block">Size (px)</label>
-                                 <input 
+                                 <input aria-label="Size (px)"
                                    type="number" 
                                    value={Number((selectedTile.properties as BaseTextProperties).fontSize || 24)}
                                    onChange={(e) => updateSelectedTileProperty('fontSize', Number(e.target.value))}
@@ -1341,7 +1314,7 @@ export const SlideEditor = ({
                                  <label className="text-xs text-text-muted mb-1 block">Color</label>
                                  <div className="flex items-center gap-2 bg-background border border-surface-highlight rounded px-2 py-1 h-[38px]">
                                    <input 
-                                     type="color" 
+                                     aria-label="Text color" type="color"
                                      value={String((selectedTile.properties as BaseTextProperties).fontColor || '#ffffff')}
                                      onChange={(e) => updateSelectedTileProperty('fontColor', e.target.value)}
                                      className="w-6 h-6 cursor-pointer rounded border-none bg-transparent p-0"
@@ -1351,7 +1324,7 @@ export const SlideEditor = ({
                                </div>
                                <div>
                                  <label className="text-xs text-text-muted mb-1 block">Line Height</label>
-                                 <input 
+                                 <input aria-label="Line Height"
                                    type="number" 
                                    step="0.1"
                                    min="0.5"
@@ -1363,7 +1336,7 @@ export const SlideEditor = ({
                                </div>
                                <div>
                                  <label className="text-xs text-text-muted mb-1 block">Spacing (px)</label>
-                                 <input 
+                                 <input aria-label="Spacing (px)"
                                    type="number" 
                                    step="0.5"
                                    value={Number((selectedTile.properties as BaseTextProperties).letterSpacing || 0)}
@@ -1373,7 +1346,7 @@ export const SlideEditor = ({
                                </div>
                                <div>
                                  <label className="text-xs text-text-muted mb-1 block">Align</label>
-                                 <select 
+                                 <select aria-label="Align"
                                    value={String((selectedTile.properties as BaseTextProperties).textAlign || 'left')}
                                    onChange={(e) => updateSelectedTileProperty('textAlign', e.target.value)}
                                    className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none appearance-none"
@@ -1386,7 +1359,7 @@ export const SlideEditor = ({
                                </div>
                                <div>
                                  <label className="text-xs text-text-muted mb-1 block">Weight</label>
-                                 <select 
+                                 <select aria-label="Weight"
                                    value={Number((selectedTile.properties as BaseTextProperties).fontWeight || 400)}
                                    onChange={(e) => updateSelectedTileProperty('fontWeight', Number(e.target.value))}
                                    className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none appearance-none"
@@ -1399,7 +1372,7 @@ export const SlideEditor = ({
                                </div>
                                <div>
                                  <label className="text-xs text-text-muted mb-1 block">Transform</label>
-                                 <select 
+                                 <select aria-label="Transform"
                                    value={String((selectedTile.properties as BaseTextProperties).textTransform || 'none')}
                                    onChange={(e) => updateSelectedTileProperty('textTransform', e.target.value)}
                                    className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none appearance-none"
@@ -1412,7 +1385,7 @@ export const SlideEditor = ({
                                </div>
                                <div>
                                  <label className="text-xs text-text-muted mb-1 block">Decoration</label>
-                                 <select 
+                                 <select aria-label="Decoration"
                                    value={String((selectedTile.properties as BaseTextProperties).textDecoration || 'none')}
                                    onChange={(e) => updateSelectedTileProperty('textDecoration', e.target.value)}
                                    className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none appearance-none"
@@ -1431,7 +1404,7 @@ export const SlideEditor = ({
                                     <label className="text-[10px] text-text-muted mb-1 block">Background Color</label>
                                     <div className="flex items-center gap-2 bg-background border border-surface-highlight rounded px-2 py-1 h-[32px]">
                                       <input 
-                                        type="color" 
+                                        aria-label="Color" type="color"
                                         value={
                                           (selectedTile.properties as BaseTextProperties).backgroundColor && 
                                           (selectedTile.properties as BaseTextProperties).backgroundColor !== 'transparent'
@@ -1446,7 +1419,7 @@ export const SlideEditor = ({
                                           ? 'Transparent' 
                                           : String((selectedTile.properties as BaseTextProperties).backgroundColor || 'Transparent')}
                                       </span>
-                                      <button
+                                      <button aria-label="Clear Background (Transparent)"
                                         onClick={() => updateSelectedTileProperty('backgroundColor', 'transparent')}
                                         className="ml-1 p-1 hover:bg-surface-highlight rounded text-text-muted hover:text-text transition-colors"
                                         title="Clear Background (Transparent)"
@@ -1465,7 +1438,7 @@ export const SlideEditor = ({
                                      <label className="text-[10px] text-text-muted mb-1 block">Border Color</label>
                                      <div className="flex items-center gap-2 bg-background border border-surface-highlight rounded px-2 py-1 h-[32px]">
                                        <input 
-                                         type="color" 
+                                         aria-label="Color" type="color"
                                          value={
                                            (selectedTile.properties as BaseTextProperties).borderColor && 
                                            (selectedTile.properties as BaseTextProperties).borderColor !== 'transparent'
@@ -1480,7 +1453,7 @@ export const SlideEditor = ({
                                            ? 'Transparent' 
                                            : String((selectedTile.properties as BaseTextProperties).borderColor || 'Transparent')}
                                        </span>
-                                       <button
+                                       <button aria-label="Clear Border (Transparent)"
                                          onClick={() => updateSelectedTileProperty('borderColor', 'transparent')}
                                          className="ml-1 p-1 hover:bg-surface-highlight rounded text-text-muted hover:text-text transition-colors"
                                          title="Clear Border (Transparent)"
@@ -1496,7 +1469,7 @@ export const SlideEditor = ({
                                    </div>
                                    <div>
                                      <label className="text-[10px] text-text-muted mb-1 block">Width (px)</label>
-                                     <input 
+                                     <input aria-label="Width (px)"
                                        type="number" 
                                        value={Number((selectedTile.properties as BaseTextProperties).borderWidth || 0)}
                                        onChange={(e) => updateSelectedTileProperty('borderWidth', Number(e.target.value))}
@@ -1505,7 +1478,7 @@ export const SlideEditor = ({
                                    </div>
                                    <div>
                                      <label className="text-[10px] text-text-muted mb-1 block">Radius (px)</label>
-                                     <input 
+                                     <input aria-label="Radius (px)"
                                        type="number" 
                                        value={Number((selectedTile.properties as BaseTextProperties).borderRadius || 0)}
                                        onChange={(e) => updateSelectedTileProperty('borderRadius', Number(e.target.value))}
@@ -1514,7 +1487,7 @@ export const SlideEditor = ({
                                    </div>
                                    <div>
                                      <label className="text-[10px] text-text-muted mb-1 block">Padding (px)</label>
-                                     <input 
+                                     <input aria-label="Padding (px)"
                                        type="number" 
                                        value={Number((selectedTile.properties as BaseTextProperties).padding || 0)}
                                        onChange={(e) => updateSelectedTileProperty('padding', Number(e.target.value))}
@@ -1530,8 +1503,8 @@ export const SlideEditor = ({
                                <div className="grid grid-cols-2 gap-3">
                                  <div>
                                    <label className="text-[10px] text-text-muted mb-1 block">Color</label>
-                                   <input 
-                                     type="color" 
+                                   <input aria-label="Color"
+                                      type="color"
                                      value={String(((selectedTile.properties as BaseTextProperties).textShadow as TextShadowProps | undefined)?.color || '#000000')}
                                      onChange={(e) => updateSelectedTileProperty('textShadow', { ...(((selectedTile.properties as BaseTextProperties).textShadow as TextShadowProps | undefined) || {}), color: e.target.value })}
                                      className="w-full h-8 cursor-pointer rounded border border-surface-highlight bg-transparent"
@@ -1539,7 +1512,7 @@ export const SlideEditor = ({
                                  </div>
                                  <div>
                                    <label className="text-[10px] text-text-muted mb-1 block">Blur (px)</label>
-                                   <input 
+                                   <input aria-label="Blur (px)"
                                      type="number" 
                                      value={Number(((selectedTile.properties as BaseTextProperties).textShadow as TextShadowProps | undefined)?.blur || 0)}
                                      onChange={(e) => updateSelectedTileProperty('textShadow', { ...(((selectedTile.properties as BaseTextProperties).textShadow as TextShadowProps | undefined) || {}), blur: Number(e.target.value) })}
@@ -1548,7 +1521,7 @@ export const SlideEditor = ({
                                  </div>
                                  <div>
                                    <label className="text-[10px] text-text-muted mb-1 block">X Offset</label>
-                                   <input 
+                                   <input aria-label="X Offset"
                                      type="number" 
                                      value={Number(((selectedTile.properties as BaseTextProperties).textShadow as TextShadowProps | undefined)?.offsetX || 0)}
                                      onChange={(e) => updateSelectedTileProperty('textShadow', { ...(((selectedTile.properties as BaseTextProperties).textShadow as TextShadowProps | undefined) || {}), offsetX: Number(e.target.value) })}
@@ -1557,7 +1530,7 @@ export const SlideEditor = ({
                                  </div>
                                  <div>
                                    <label className="text-[10px] text-text-muted mb-1 block">Y Offset</label>
-                                   <input 
+                                   <input aria-label="Y Offset"
                                      type="number" 
                                      value={Number(((selectedTile.properties as BaseTextProperties).textShadow as TextShadowProps | undefined)?.offsetY || 0)}
                                      onChange={(e) => updateSelectedTileProperty('textShadow', { ...(((selectedTile.properties as BaseTextProperties).textShadow as TextShadowProps | undefined) || {}), offsetY: Number(e.target.value) })}
@@ -1572,7 +1545,7 @@ export const SlideEditor = ({
                           {selectedTile.type === 'dynamic_text' && (
                             <div className="space-y-3">
                               <label className="text-xs font-bold text-text-muted uppercase tracking-wider">Data Source</label>
-                              <select 
+                              <select aria-label="Data Source"
                                 value={String((selectedTile.properties as DynamicTextProperties).dataSource || 'none')}
                                 onChange={(e) => updateSelectedTileProperty('dataSource', e.target.value)}
                                 className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -1587,7 +1560,7 @@ export const SlideEditor = ({
                               <div className="grid grid-cols-2 gap-3 mt-2">
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Refresh (sec)</label>
-                                  <input 
+                                  <input aria-label="Refresh (sec)"
                                     type="number" 
                                     min="0"
                                     value={Number((selectedTile.properties as DynamicTextProperties).updateInterval || 60)}
@@ -1597,7 +1570,7 @@ export const SlideEditor = ({
                                 </div>
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Fallback</label>
-                                  <input 
+                                  <input aria-label="Fallback"
                                     type="text" 
                                     value={String((selectedTile.properties as DynamicTextProperties).fallbackText || '...')}
                                     onChange={(e) => updateSelectedTileProperty('fallbackText', e.target.value)}
@@ -1610,7 +1583,7 @@ export const SlideEditor = ({
                                 <div className="space-y-3 pt-2 border-t border-surface-highlight mt-2">
                                   <div>
                                     <label className="text-xs text-text-muted mb-1 block">Web App Script URL</label>
-                                    <input 
+                                    <input aria-label="Web App Script URL"
                                       type="text" 
                                       value={String((selectedTile.properties as DynamicTextProperties).scriptUrl || '')}
                                       onChange={(e) => updateSelectedTileProperty('scriptUrl', e.target.value)}
@@ -1620,7 +1593,7 @@ export const SlideEditor = ({
                                   </div>
                                   <div>
                                     <label className="text-xs text-text-muted mb-1 block">Workbook ID</label>
-                                    <input 
+                                    <input aria-label="Workbook ID"
                                       type="text" 
                                       value={String((selectedTile.properties as DynamicTextProperties).workbookId || '')}
                                       onChange={(e) => updateSelectedTileProperty('workbookId', e.target.value)}
@@ -1630,7 +1603,7 @@ export const SlideEditor = ({
                                   </div>
                                   <div>
                                     <label className="text-xs text-text-muted mb-1 block">Sheet Name</label>
-                                    <input 
+                                    <input aria-label="Sheet Name"
                                       type="text" 
                                       value={String((selectedTile.properties as DynamicTextProperties).sheetName || 'Sheet1')}
                                       onChange={(e) => updateSelectedTileProperty('sheetName', e.target.value)}
@@ -1640,7 +1613,7 @@ export const SlideEditor = ({
                                   <div className="grid grid-cols-2 gap-3">
                                     <div>
                                       <label className="text-xs text-text-muted mb-1 block">Column (A, B...)</label>
-                                      <input 
+                                      <input aria-label="Column (A, B...)"
                                         type="text" 
                                         value={String((selectedTile.properties as DynamicTextProperties).column || 'A')}
                                         onChange={(e) => updateSelectedTileProperty('column', e.target.value.toUpperCase())}
@@ -1649,7 +1622,7 @@ export const SlideEditor = ({
                                     </div>
                                     <div>
                                       <label className="text-xs text-text-muted mb-1 block">Row (1, 2...)</label>
-                                      <input 
+                                      <input aria-label="Row (1, 2...)"
                                         type="number" 
                                         min="1"
                                         value={Number((selectedTile.properties as DynamicTextProperties).row || 1)}
@@ -1669,7 +1642,7 @@ export const SlideEditor = ({
                               <div className="space-y-3">
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Speed (px/s)</label>
-                                  <input 
+                                  <input aria-label="Speed (px/s)"
                                     type="range" 
                                     min="10" 
                                     max="500" 
@@ -1680,7 +1653,7 @@ export const SlideEditor = ({
                                 </div>
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Direction</label>
-                                  <select 
+                                  <select aria-label="Direction"
                                     value={(selectedTile.properties as ScrollingTextProperties).scrollDirection || 'left'}
                                     onChange={(e) => updateSelectedTileProperty('scrollDirection', e.target.value)}
                                     className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none appearance-none"
@@ -1730,7 +1703,7 @@ export const SlideEditor = ({
                               <div className="grid grid-cols-2 gap-3">
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Speed</label>
-                                  <input 
+                                  <input aria-label="Speed"
                                     type="number" 
                                     value={Number((selectedTile.properties as MarqueeProperties).speed || 6)}
                                     onChange={(e) => updateSelectedTileProperty('speed', Number(e.target.value))}
@@ -1739,7 +1712,7 @@ export const SlideEditor = ({
                                 </div>
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Direction</label>
-                                  <select 
+                                  <select aria-label="Direction"
                                     value={String((selectedTile.properties as MarqueeProperties).direction || 'left')}
                                     onChange={(e) => updateSelectedTileProperty('direction', e.target.value)}
                                     className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -1781,7 +1754,7 @@ export const SlideEditor = ({
                                     <div className="grid grid-cols-2 gap-2 mb-2">
                                        <div>
                                          <label className="text-[10px] text-text-muted block">Color</label>
-                                         <input type="color" value={shadow.color || '#000000'} 
+                                         <input aria-label="Color"  type="color" value={shadow.color || '#000000'}
                                             onChange={(e) => {
                                               const newShadows = [...((selectedTile.properties as TextShadowTileProperties).shadows || [])];
                                               newShadows[index] = { ...newShadows[index], color: e.target.value };
@@ -1792,7 +1765,7 @@ export const SlideEditor = ({
                                        </div>
                                        <div>
                                          <label className="text-[10px] text-text-muted block">Blur</label>
-                                         <input type="number" value={shadow.blur || 0} 
+                                         <input aria-label="Blur" type="number" value={shadow.blur || 0}
                                             onChange={(e) => {
                                               const newShadows = [...((selectedTile.properties as TextShadowTileProperties).shadows || [])];
                                               newShadows[index] = { ...newShadows[index], blur: Number(e.target.value) };
@@ -1805,7 +1778,7 @@ export const SlideEditor = ({
                                     <div className="grid grid-cols-2 gap-2">
                                        <div>
                                          <label className="text-[10px] text-text-muted block">X Offset</label>
-                                         <input type="number" value={shadow.offsetX || 0} 
+                                         <input aria-label="X Offset" type="number" value={shadow.offsetX || 0}
                                             onChange={(e) => {
                                               const newShadows = [...((selectedTile.properties as TextShadowTileProperties).shadows || [])];
                                               newShadows[index] = { ...newShadows[index], offsetX: Number(e.target.value) };
@@ -1816,7 +1789,7 @@ export const SlideEditor = ({
                                        </div>
                                        <div>
                                          <label className="text-[10px] text-text-muted block">Y Offset</label>
-                                         <input type="number" value={shadow.offsetY || 0} 
+                                         <input aria-label="Y Offset" type="number" value={shadow.offsetY || 0}
                                             onChange={(e) => {
                                               const newShadows = [...((selectedTile.properties as TextShadowTileProperties).shadows || [])];
                                               newShadows[index] = { ...newShadows[index], offsetY: Number(e.target.value) };
@@ -1844,7 +1817,7 @@ export const SlideEditor = ({
                           {selectedTile.type === 'word_art' && (
                              <div className="space-y-3">
                                <label className="text-xs font-bold text-text-muted uppercase tracking-wider">Effect Style</label>
-                               <select 
+                               <select aria-label="Effect Style"
                                  value={String((selectedTile.properties as WordArtProperties).effect || 'glow')}
                                  onChange={(e) => updateSelectedTileProperty('effect', e.target.value)}
                                  className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -1856,8 +1829,8 @@ export const SlideEditor = ({
                                {(selectedTile.properties as WordArtProperties).effect === 'glow' && (
                                  <div>
                                    <label className="text-xs text-text-muted mb-1 block">Glow Color</label>
-                                   <input 
-                                     type="color" 
+                                   <input aria-label="Glow Color"
+                                      type="color"
                                      value={String((selectedTile.properties as WordArtProperties).glowColor || '#00ffff')}
                                      onChange={(e) => updateSelectedTileProperty('glowColor', e.target.value)}
                                      className="w-full h-8 cursor-pointer rounded border border-surface-highlight bg-transparent"
@@ -1867,8 +1840,8 @@ export const SlideEditor = ({
                                {(selectedTile.properties as WordArtProperties).effect === 'outline' && (
                                  <div>
                                    <label className="text-xs text-text-muted mb-1 block">Outline Color</label>
-                                   <input 
-                                     type="color" 
+                                   <input aria-label="Outline Color"
+                                      type="color"
                                      value={String((selectedTile.properties as WordArtProperties).outlineColor || '#000000')}
                                      onChange={(e) => updateSelectedTileProperty('outlineColor', e.target.value)}
                                      className="w-full h-8 cursor-pointer rounded border border-surface-highlight bg-transparent"
@@ -1888,7 +1861,7 @@ export const SlideEditor = ({
                                     <div key={index} className="flex gap-2">
                                       <div className="flex items-center gap-2 bg-background border border-surface-highlight rounded px-2 py-1 flex-1">
                                         <input 
-                                          type="color" 
+                                          aria-label="Color" type="color"
                                           value={color}
                                           onChange={(e) => {
                                             const newColors = [...((selectedTile.properties as GradientTextProperties).gradientColors || ['#ffffff', '#000000'])];
@@ -1932,7 +1905,7 @@ export const SlideEditor = ({
                               </div>
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Angle</label>
-                                <input 
+                                <input aria-label="Angle"
                                    type="range" 
                                    min="0" 
                                    max="360"
@@ -1947,7 +1920,7 @@ export const SlideEditor = ({
                           {selectedTile.type === 'animated_text' && (
                             <div className="space-y-3">
                               <label className="text-xs font-bold text-text-muted uppercase tracking-wider">Animation</label>
-                              <select 
+                              <select aria-label="Animation"
                                 value={String((selectedTile.properties as AnimatedTextProperties).animationType || 'bounce')}
                                 onChange={(e) => updateSelectedTileProperty('animationType', e.target.value)}
                                 className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -1959,7 +1932,7 @@ export const SlideEditor = ({
                               </select>
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Duration (sec)</label>
-                                <input 
+                                <input aria-label="Duration (sec)"
                                    type="number" 
                                    step="0.1"
                                    min="0.1"
@@ -2048,7 +2021,7 @@ export const SlideEditor = ({
                               </div>
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Device ID (Optional)</label>
-                                <input 
+                                <input aria-label="Device ID (Optional)"
                                   type="text" 
                                   value={String((selectedTile.properties as WebcamTileProperties).deviceId || '')}
                                   onChange={(e) => updateSelectedTileProperty('deviceId', e.target.value)}
@@ -2067,7 +2040,7 @@ export const SlideEditor = ({
                               <div className="grid grid-cols-2 gap-3">
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Fit Mode</label>
-                                  <select 
+                                  <select aria-label="Fit Mode"
                                     value={String((selectedTile.properties as ImageTileProperties).fitMode || 'cover')}
                                     onChange={(e) => updateSelectedTileProperty('fitMode', e.target.value)}
                                     className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none appearance-none"
@@ -2079,7 +2052,7 @@ export const SlideEditor = ({
                                 </div>
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Radius</label>
-                                  <input 
+                                  <input aria-label="Radius"
                                     type="number" 
                                     value={Number((selectedTile.properties as ImageTileProperties).borderRadius || 0)}
                                     onChange={(e) => updateSelectedTileProperty('borderRadius', Number(e.target.value))}
@@ -2189,7 +2162,7 @@ export const SlideEditor = ({
                               <label className="text-xs font-bold text-text-muted uppercase tracking-wider">Slideshow Settings</label>
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Interval (ms)</label>
-                                <input 
+                                <input aria-label="Interval (ms)"
                                   type="number" 
                                   min="1000"
                                   step="500"
@@ -2295,7 +2268,7 @@ export const SlideEditor = ({
                               <label className="text-xs text-text-muted mb-1 block">Primary Color</label>
                               <div className="flex items-center gap-2 bg-background border border-surface-highlight rounded px-2 py-1 h-[38px]">
                                 <input 
-                                  type="color" 
+                                  aria-label="Color" type="color"
                                   value={String((selectedTile.properties as ChartProperties).color || '#8884d8')}
                                   onChange={(e) => updateSelectedTileProperty('color', e.target.value)}
                                   className="w-6 h-6 cursor-pointer rounded border-none bg-transparent p-0"
@@ -2309,7 +2282,7 @@ export const SlideEditor = ({
                               <div className="mt-4 space-y-3 border-t border-surface-highlight pt-4">
                                 <label className="text-xs font-bold text-text-muted uppercase tracking-wider">Data Source</label>
                                 
-                                <select 
+                                <select aria-label="Data Source"
                                   value={String((selectedTile.properties as DataTileSourceProperties).dataSourceType || 'manual')}
                                   onChange={(e) => updateSelectedTileProperty('dataSourceType', e.target.value)}
                                   className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -2324,7 +2297,7 @@ export const SlideEditor = ({
                                     <label className="text-xs text-text-muted mb-1 block">
                                       CSV Data (Label,Value)
                                     </label>
-                                    <textarea 
+                                    <textarea aria-label="CSV Data (Label,Value)"
                                       value={String((selectedTile.properties as DataTileSourceProperties).manualData || '')}
                                       onChange={(e) => updateSelectedTileProperty('manualData', e.target.value)}
                                       className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-xs text-text font-mono focus:border-primary focus:outline-none"
@@ -2340,7 +2313,7 @@ export const SlideEditor = ({
                                     <label className="text-xs text-text-muted mb-1 block">
                                       JSON Data
                                     </label>
-                                    <textarea 
+                                    <textarea aria-label="JSON Data"
                                       value={String((selectedTile.properties as DataTileSourceProperties).jsonData || '')}
                                       onChange={(e) => updateSelectedTileProperty('jsonData', e.target.value)}
                                       className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-xs text-text font-mono focus:border-primary focus:outline-none"
@@ -2355,7 +2328,7 @@ export const SlideEditor = ({
                                   <div className="space-y-2">
                                     <div>
                                       <label className="text-xs text-text-muted mb-1 block">Script URL</label>
-                                      <input 
+                                      <input aria-label="Script URL"
                                         type="text" 
                                         value={String((selectedTile.properties as DataTileSourceProperties).googleSheetConfig?.scriptUrl || '')}
                                         onChange={(e) => {
@@ -2368,7 +2341,7 @@ export const SlideEditor = ({
                                     </div>
                                     <div>
                                       <label className="text-xs text-text-muted mb-1 block">Sheet ID</label>
-                                      <input 
+                                      <input aria-label="Sheet ID"
                                         type="text" 
                                         value={String((selectedTile.properties as DataTileSourceProperties).googleSheetConfig?.workbookId || '')}
                                         onChange={(e) => {
@@ -2382,7 +2355,7 @@ export const SlideEditor = ({
                                     <div className="grid grid-cols-2 gap-2">
                                       <div>
                                         <label className="text-xs text-text-muted mb-1 block">Sheet Name</label>
-                                        <input 
+                                        <input aria-label="Sheet Name"
                                           type="text" 
                                           value={String((selectedTile.properties as DataTileSourceProperties).googleSheetConfig?.sheetName || '')}
                                           onChange={(e) => {
@@ -2395,7 +2368,7 @@ export const SlideEditor = ({
                                       </div>
                                       <div>
                                         <label className="text-xs text-text-muted mb-1 block">Range</label>
-                                        <input 
+                                        <input aria-label="Range"
                                           type="text" 
                                           value={String((selectedTile.properties as DataTileSourceProperties).googleSheetConfig?.range || '')}
                                           onChange={(e) => {
@@ -2409,7 +2382,7 @@ export const SlideEditor = ({
                                     </div>
                                     <div>
                                       <label className="text-xs text-text-muted mb-1 block">Update Interval (sec)</label>
-                                      <input 
+                                      <input aria-label="Update Interval (sec)"
                                         type="number" 
                                         min="10"
                                         value={Number((selectedTile.properties as DataTileSourceProperties).googleSheetConfig?.updateInterval || 60)}
@@ -2428,7 +2401,7 @@ export const SlideEditor = ({
                             {selectedTile.type === 'pie_chart' && (
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Inner Radius (Donut)</label>
-                                <input 
+                                <input aria-label="Inner Radius (Donut)"
                                   type="number" 
                                   min="0"
                                   max="100"
@@ -2445,7 +2418,7 @@ export const SlideEditor = ({
                               <div className="grid grid-cols-2 gap-3">
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Min</label>
-                                  <input 
+                                  <input aria-label="Min"
                                     type="number" 
                                     value={Number(
                                       (selectedTile.properties as GaugeProperties).min || 0
@@ -2456,7 +2429,7 @@ export const SlideEditor = ({
                                 </div>
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Max</label>
-                                  <input 
+                                  <input aria-label="Max"
                                     type="number" 
                                     value={Number(
                                       (selectedTile.properties as GaugeProperties).max || 100
@@ -2467,7 +2440,7 @@ export const SlideEditor = ({
                                 </div>
                                 <div className="col-span-2">
                                   <label className="text-xs text-text-muted mb-1 block">Value</label>
-                                  <input 
+                                  <input aria-label="Value"
                                     type="number" 
                                     value={Number(
                                       (selectedTile.properties as GaugeProperties).value || 75
@@ -2483,7 +2456,7 @@ export const SlideEditor = ({
                               <div className="space-y-2">
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Title</label>
-                                  <input 
+                                  <input aria-label="Title"
                                     type="text" 
                                     value={String((selectedTile.properties as KPICardProperties).title || 'KPI Title')}
                                     onChange={(e) => updateSelectedTileProperty('title', e.target.value)}
@@ -2493,7 +2466,7 @@ export const SlideEditor = ({
                                 <div className="grid grid-cols-2 gap-3">
                                   <div>
                                     <label className="text-xs text-text-muted mb-1 block">Value</label>
-                                    <input 
+                                    <input aria-label="Value"
                                       type="text" 
                                       value={String((selectedTile.properties as KPICardProperties).value || '0')}
                                       onChange={(e) => updateSelectedTileProperty('value', e.target.value)}
@@ -2502,7 +2475,7 @@ export const SlideEditor = ({
                                   </div>
                                   <div>
                                     <label className="text-xs text-text-muted mb-1 block">Unit</label>
-                                    <input 
+                                    <input aria-label="Unit"
                                       type="text" 
                                       value={String((selectedTile.properties as KPICardProperties).unit || '')}
                                       onChange={(e) => updateSelectedTileProperty('unit', e.target.value)}
@@ -2512,7 +2485,7 @@ export const SlideEditor = ({
                                 </div>
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Change (%)</label>
-                                  <input 
+                                  <input aria-label="Change (%)"
                                     type="number" 
                                     value={Number((selectedTile.properties as KPICardProperties).change || 0)}
                                     onChange={(e) => updateSelectedTileProperty('change', Number(e.target.value))}
@@ -2526,7 +2499,7 @@ export const SlideEditor = ({
                               <div className="space-y-2">
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Label</label>
-                                  <input 
+                                  <input aria-label="Label"
                                     type="text" 
                                     value={String((selectedTile.properties as ProgressBarProperties).label || 'Progress')}
                                     onChange={(e) => updateSelectedTileProperty('label', e.target.value)}
@@ -2535,7 +2508,7 @@ export const SlideEditor = ({
                                 </div>
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Value (0-100)</label>
-                                  <input 
+                                  <input aria-label="Value (0-100)"
                                     type="number" 
                                     min="0" 
                                     max="100"
@@ -2553,7 +2526,7 @@ export const SlideEditor = ({
                                   <label className="text-xs text-text-muted mb-1 block">Low Color</label>
                                   <div className="flex items-center gap-2 bg-background border border-surface-highlight rounded px-2 py-1">
                                     <input 
-                                      type="color" 
+                                      aria-label="Color" type="color"
                                       value={String((selectedTile.properties as HeatmapProperties).lowColor || '#ffffff')}
                                       onChange={(e) => updateSelectedTileProperty('lowColor', e.target.value)}
                                       className="w-6 h-6 cursor-pointer rounded border-none bg-transparent p-0"
@@ -2564,7 +2537,7 @@ export const SlideEditor = ({
                                   <label className="text-xs text-text-muted mb-1 block">High Color</label>
                                   <div className="flex items-center gap-2 bg-background border border-surface-highlight rounded px-2 py-1">
                                     <input 
-                                      type="color" 
+                                      aria-label="Color" type="color"
                                       value={String((selectedTile.properties as HeatmapProperties).highColor || '#EA580C')}
                                       onChange={(e) => updateSelectedTileProperty('highColor', e.target.value)}
                                       className="w-6 h-6 cursor-pointer rounded border-none bg-transparent p-0"
@@ -2580,7 +2553,7 @@ export const SlideEditor = ({
                                   <label className="text-xs text-text-muted mb-1 block">Line Color</label>
                                   <div className="flex items-center gap-2 bg-background border border-surface-highlight rounded px-2 py-1">
                                     <input 
-                                      type="color" 
+                                      aria-label="Color" type="color"
                                       value={String((selectedTile.properties as ChartProperties).color || '#EA580C')}
                                       onChange={(e) => updateSelectedTileProperty('color', e.target.value)}
                                       className="w-6 h-6 cursor-pointer rounded border-none bg-transparent p-0"
@@ -2604,7 +2577,7 @@ export const SlideEditor = ({
                                 <label className="text-xs font-bold text-text-muted uppercase tracking-wider">Table Settings</label>
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Headers (comma separated)</label>
-                                  <input 
+                                  <input aria-label="Headers (comma separated)"
                                     type="text" 
                                     value={Array.isArray((selectedTile.properties as TableTileProperties).headers) ? ((selectedTile.properties as TableTileProperties).headers || []).join(', ') : 'H1, H2'}
                                     onChange={(e) => updateSelectedTileProperty('headers', e.target.value.split(',').map(s => s.trim()))}
@@ -2622,7 +2595,7 @@ export const SlideEditor = ({
                                 <label className="text-xs font-bold text-text-muted uppercase tracking-wider">Timeline Settings</label>
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Title</label>
-                                  <input 
+                                  <input aria-label="Title"
                                     type="text" 
                                     value={String((selectedTile.properties as TimelineProperties).title || 'Timeline')}
                                     onChange={(e) => updateSelectedTileProperty('title', e.target.value)}
@@ -2646,7 +2619,7 @@ export const SlideEditor = ({
                             <div className="space-y-3">
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Button Text</label>
-                                <input 
+                                <input aria-label="Button Text"
                                   type="text" 
                                   value={String((selectedTile.properties as InteractiveTileProperties).text || 'Click Me')}
                                   onChange={(e) => updateSelectedTileProperty('text', e.target.value)}
@@ -2658,7 +2631,7 @@ export const SlideEditor = ({
                                   <label className="text-xs text-text-muted mb-1 block">Bg Color</label>
                                   <div className="flex items-center gap-2 bg-background border border-surface-highlight rounded px-2 py-1">
                                     <input 
-                                      type="color" 
+                                      aria-label="Color" type="color"
                                       value={String((selectedTile.properties as InteractiveTileProperties).backgroundColor || '#00C49F')}
                                       onChange={(e) => updateSelectedTileProperty('backgroundColor', e.target.value)}
                                       className="w-6 h-6 cursor-pointer rounded border-none bg-transparent p-0"
@@ -2669,7 +2642,7 @@ export const SlideEditor = ({
                                   <label className="text-xs text-text-muted mb-1 block">Text Color</label>
                                   <div className="flex items-center gap-2 bg-background border border-surface-highlight rounded px-2 py-1">
                                     <input 
-                                      type="color" 
+                                      aria-label="Color" type="color"
                                       value={String((selectedTile.properties as InteractiveTileProperties).textColor || '#ffffff')}
                                       onChange={(e) => updateSelectedTileProperty('textColor', e.target.value)}
                                       className="w-6 h-6 cursor-pointer rounded border-none bg-transparent p-0"
@@ -2679,7 +2652,7 @@ export const SlideEditor = ({
                               </div>
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Border Radius</label>
-                                <input 
+                                <input aria-label="Border Radius"
                                   type="number" 
                                   value={Number((selectedTile.properties as InteractiveTileProperties).borderRadius || 4)}
                                   onChange={(e) => updateSelectedTileProperty('borderRadius', Number(e.target.value))}
@@ -2693,7 +2666,7 @@ export const SlideEditor = ({
                             <div className="space-y-3">
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Source</label>
-                                <select 
+                                <select aria-label="Source"
                                   value={String((selectedTile.properties as InteractiveTileProperties).qrSource || 'custom')}
                                   onChange={(e) => updateSelectedTileProperty('qrSource', e.target.value)}
                                   className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -2706,7 +2679,7 @@ export const SlideEditor = ({
                               {(selectedTile.properties as InteractiveTileProperties).qrSource === 'calendar_event' ? (
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Calendar Feed URL</label>
-                                  <input 
+                                  <input aria-label="Calendar Feed URL"
                                     type="text" 
                                     value={String((selectedTile.properties as InteractiveTileProperties).calendarUrl || '')}
                                     onChange={(e) => updateSelectedTileProperty('calendarUrl', e.target.value)}
@@ -2717,7 +2690,7 @@ export const SlideEditor = ({
                               ) : (
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Content / URL</label>
-                                  <input 
+                                  <input aria-label="Content / URL"
                                     type="text" 
                                     value={String((selectedTile.properties as InteractiveTileProperties).content || '')}
                                     onChange={(e) => updateSelectedTileProperty('content', e.target.value)}
@@ -2731,7 +2704,7 @@ export const SlideEditor = ({
                                   <label className="text-xs text-text-muted mb-1 block">Background</label>
                                   <div className="flex items-center gap-2 bg-background border border-surface-highlight rounded px-2 py-1">
                                     <input 
-                                      type="color" 
+                                      aria-label="Color" type="color"
                                       value={String((selectedTile.properties as InteractiveTileProperties).backgroundColor || '#ffffff')}
                                       onChange={(e) => updateSelectedTileProperty('backgroundColor', e.target.value)}
                                       className="w-6 h-6 cursor-pointer rounded border-none bg-transparent p-0"
@@ -2743,7 +2716,7 @@ export const SlideEditor = ({
                                   <label className="text-xs text-text-muted mb-1 block">Foreground</label>
                                   <div className="flex items-center gap-2 bg-background border border-surface-highlight rounded px-2 py-1">
                                     <input 
-                                      type="color" 
+                                      aria-label="Color" type="color"
                                       value={String((selectedTile.properties as InteractiveTileProperties).qrForegroundColor || '#000000')}
                                       onChange={(e) => updateSelectedTileProperty('qrForegroundColor', e.target.value)}
                                       className="w-6 h-6 cursor-pointer rounded border-none bg-transparent p-0"
@@ -2754,7 +2727,7 @@ export const SlideEditor = ({
                               </div>
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Error Correction Level</label>
-                                <select
+                                <select aria-label="Error Correction Level"
                                   value={String((selectedTile.properties as InteractiveTileProperties).qrErrorCorrection || 'M')}
                                   onChange={(e) => updateSelectedTileProperty('qrErrorCorrection', e.target.value)}
                                   className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -2781,7 +2754,7 @@ export const SlideEditor = ({
                           {selectedTile.type === 'countdown' && (
                             <div>
                               <label className="text-xs text-text-muted mb-1 block">Target Date</label>
-                              <input 
+                              <input aria-label="Target Date"
                                 type="datetime-local" 
                                 value={String((selectedTile.properties as InteractiveTileProperties).targetDate || '')}
                                 onChange={(e) => updateSelectedTileProperty('targetDate', e.target.value)}
@@ -2793,7 +2766,7 @@ export const SlideEditor = ({
                           {selectedTile.type === 'form' && (
                             <div>
                               <label className="text-xs text-text-muted mb-1 block">Form Title</label>
-                              <input 
+                              <input aria-label="Form Title"
                                 type="text" 
                                 value={String((selectedTile.properties as InteractiveTileProperties).title || 'Contact Us')}
                                 onChange={(e) => updateSelectedTileProperty('title', e.target.value)}
@@ -2806,7 +2779,7 @@ export const SlideEditor = ({
                             <div className="space-y-3">
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Question</label>
-                                <input 
+                                <input aria-label="Question"
                                   type="text" 
                                   value={String((selectedTile.properties as InteractiveTileProperties).question || 'Poll Question?')}
                                   onChange={(e) => updateSelectedTileProperty('question', e.target.value)}
@@ -2815,7 +2788,7 @@ export const SlideEditor = ({
                               </div>
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Options (comma separated)</label>
-                                <textarea 
+                                <textarea aria-label="Options (comma separated)"
                                   value={Array.isArray((selectedTile.properties as InteractiveTileProperties).options) ? ((selectedTile.properties as InteractiveTileProperties).options || []).join(', ') : 'Option A, Option B'}
                                   onChange={(e) => updateSelectedTileProperty('options', e.target.value.split(',').map(s => s.trim()))}
                                   className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -2829,7 +2802,7 @@ export const SlideEditor = ({
                             <div className="space-y-3">
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Account Handle</label>
-                                <input 
+                                <input aria-label="Account Handle"
                                   type="text" 
                                   value={String((selectedTile.properties as InteractiveTileProperties).account || '')}
                                   onChange={(e) => updateSelectedTileProperty('account', e.target.value)}
@@ -2843,7 +2816,7 @@ export const SlideEditor = ({
                           {selectedTile.type === 'weather' && (
                             <div>
                               <label className="text-xs text-text-muted mb-1 block">Location</label>
-                              <input 
+                              <input aria-label="Location"
                                 type="text" 
                                 value={String((selectedTile.properties as InteractiveTileProperties).location || '')}
                                 onChange={(e) => updateSelectedTileProperty('location', e.target.value)}
@@ -2856,7 +2829,7 @@ export const SlideEditor = ({
                           {selectedTile.type === 'menu_selector' && (
                             <div>
                               <label className="text-xs text-text-muted mb-1 block">Categories (comma separated)</label>
-                              <input 
+                              <input aria-label="Categories (comma separated)"
                                 type="text" 
                                 value={Array.isArray((selectedTile.properties as InteractiveTileProperties).categories) ? ((selectedTile.properties as InteractiveTileProperties).categories || []).join(', ') : 'Starters, Mains, Desserts'}
                                 onChange={(e) => updateSelectedTileProperty('categories', e.target.value.split(',').map(s => s.trim()))}
@@ -2869,7 +2842,7 @@ export const SlideEditor = ({
                             <div className="space-y-3">
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Title</label>
-                                <input 
+                                <input aria-label="Title"
                                   type="text" 
                                   value={String((selectedTile.properties as InteractiveTileProperties).title || 'Special Offer')}
                                   onChange={(e) => updateSelectedTileProperty('title', e.target.value)}
@@ -2878,7 +2851,7 @@ export const SlideEditor = ({
                               </div>
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Description</label>
-                                <textarea 
+                                <textarea aria-label="Description"
                                   value={String((selectedTile.properties as InteractiveTileProperties).description || '')}
                                   onChange={(e) => updateSelectedTileProperty('description', e.target.value)}
                                   className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -2887,7 +2860,7 @@ export const SlideEditor = ({
                               </div>
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Button Text</label>
-                                <input 
+                                <input aria-label="Button Text"
                                   type="text" 
                                   value={String(((selectedTile.properties as InteractiveTileProperties).actionButton)?.text || 'Get Offer')}
                                   onChange={(e) => {
@@ -2904,7 +2877,7 @@ export const SlideEditor = ({
                             <div className="space-y-3">
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Member Name (Preview)</label>
-                                <input 
+                                <input aria-label="Member Name (Preview)"
                                   type="text" 
                                   value={String((selectedTile.properties as InteractiveTileProperties).memberName || 'John Doe')}
                                   onChange={(e) => updateSelectedTileProperty('memberName', e.target.value)}
@@ -2914,7 +2887,7 @@ export const SlideEditor = ({
                               <div className="grid grid-cols-2 gap-3">
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Points</label>
-                                  <input 
+                                  <input aria-label="Points"
                                     type="number" 
                                     value={Number((selectedTile.properties as InteractiveTileProperties).points || 1250)}
                                     onChange={(e) => updateSelectedTileProperty('points', Number(e.target.value))}
@@ -2923,7 +2896,7 @@ export const SlideEditor = ({
                                 </div>
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Progress (0-1)</label>
-                                  <input 
+                                  <input aria-label="Progress (0-1)"
                                     type="number" 
                                     min="0" 
                                     max="1" 
@@ -2986,7 +2959,7 @@ export const SlideEditor = ({
                                   <label className="text-xs text-text-muted mb-1 block">Bg Color</label>
                                   <div className="flex items-center gap-2 bg-background border border-surface-highlight rounded px-2 py-1">
                                     <input 
-                                      type="color" 
+                                      aria-label="Color" type="color"
                                       value={String((selectedTile.properties as LayoutTileProperties).backgroundColor || '#ffffff')}
                                       onChange={(e) => updateSelectedTileProperty('backgroundColor', e.target.value)}
                                       className="w-6 h-6 cursor-pointer rounded border-none bg-transparent p-0"
@@ -2997,7 +2970,7 @@ export const SlideEditor = ({
                                   <label className="text-xs text-text-muted mb-1 block">Border Color</label>
                                   <div className="flex items-center gap-2 bg-background border border-surface-highlight rounded px-2 py-1">
                                     <input 
-                                      type="color" 
+                                      aria-label="Color" type="color"
                                       value={String((selectedTile.properties as LayoutTileProperties).borderColor || '#374151')}
                                       onChange={(e) => updateSelectedTileProperty('borderColor', e.target.value)}
                                       className="w-6 h-6 cursor-pointer rounded border-none bg-transparent p-0"
@@ -3008,7 +2981,7 @@ export const SlideEditor = ({
                               <div className="grid grid-cols-2 gap-3">
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Border Width</label>
-                                  <input 
+                                  <input aria-label="Border Width"
                                     type="number" 
                                     value={Number((selectedTile.properties as LayoutTileProperties).borderWidth || 1)}
                                     onChange={(e) => updateSelectedTileProperty('borderWidth', Number(e.target.value))}
@@ -3017,7 +2990,7 @@ export const SlideEditor = ({
                                 </div>
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Radius</label>
-                                  <input 
+                                  <input aria-label="Radius"
                                     type="number" 
                                     value={Number((selectedTile.properties as LayoutTileProperties).borderRadius || 0)}
                                     onChange={(e) => updateSelectedTileProperty('borderRadius', Number(e.target.value))}
@@ -3027,7 +3000,7 @@ export const SlideEditor = ({
                               </div>
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Padding</label>
-                                <input 
+                                <input aria-label="Padding"
                                   type="number" 
                                   value={Number((selectedTile.properties as LayoutTileProperties).padding || 0)}
                                   onChange={(e) => updateSelectedTileProperty('padding', Number(e.target.value))}
@@ -3041,7 +3014,7 @@ export const SlideEditor = ({
                             <div className="space-y-3">
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Orientation</label>
-                                <select 
+                                <select aria-label="Orientation"
                                   value={String((selectedTile.properties as LayoutTileProperties).orientation || 'horizontal')}
                                   onChange={(e) => updateSelectedTileProperty('orientation', e.target.value)}
                                   className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -3053,7 +3026,7 @@ export const SlideEditor = ({
                               <div className="grid grid-cols-2 gap-3">
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Thickness</label>
-                                  <input 
+                                  <input aria-label="Thickness"
                                     type="number" 
                                     value={Number((selectedTile.properties as LayoutTileProperties).thickness || 2)}
                                     onChange={(e) => updateSelectedTileProperty('thickness', Number(e.target.value))}
@@ -3062,8 +3035,8 @@ export const SlideEditor = ({
                                 </div>
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Color</label>
-                                  <input 
-                                    type="color" 
+                                  <input aria-label="Color"
+                                     type="color"
                                     value={String((selectedTile.properties as LayoutTileProperties).color || '#374151')}
                                     onChange={(e) => updateSelectedTileProperty('color', e.target.value)}
                                     className="w-full h-8 cursor-pointer rounded border border-surface-highlight bg-transparent"
@@ -3078,7 +3051,7 @@ export const SlideEditor = ({
                               <div className="grid grid-cols-2 gap-3">
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Rows</label>
-                                  <input 
+                                  <input aria-label="Rows"
                                     type="number" 
                                     min="1"
                                     max="10"
@@ -3089,7 +3062,7 @@ export const SlideEditor = ({
                                 </div>
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Cols</label>
-                                  <input 
+                                  <input aria-label="Cols"
                                     type="number" 
                                     min="1"
                                     max="10"
@@ -3106,7 +3079,7 @@ export const SlideEditor = ({
                             <div className="space-y-3">
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Direction</label>
-                                <select 
+                                <select aria-label="Direction"
                                   value={String((selectedTile.properties as LayoutTileProperties).direction || 'row')}
                                   onChange={(e) => updateSelectedTileProperty('direction', e.target.value)}
                                   className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -3117,7 +3090,7 @@ export const SlideEditor = ({
                               </div>
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Justify</label>
-                                <select 
+                                <select aria-label="Justify"
                                   value={String((selectedTile.properties as LayoutTileProperties).justifyContent || 'center')}
                                   onChange={(e) => updateSelectedTileProperty('justifyContent', e.target.value)}
                                   className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -3131,7 +3104,7 @@ export const SlideEditor = ({
                               </div>
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Align Items</label>
-                                <select 
+                                <select aria-label="Align Items"
                                   value={String((selectedTile.properties as LayoutTileProperties).alignItems || 'start')}
                                   onChange={(e) => updateSelectedTileProperty('alignItems', e.target.value)}
                                   className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -3149,7 +3122,7 @@ export const SlideEditor = ({
                           {selectedTile.type === 'tabs' && (
                             <div className="space-y-3">
                               <label className="text-xs text-text-muted mb-1 block">Tabs (comma separated)</label>
-                              <input 
+                              <input aria-label="Tabs (comma separated)"
                                 type="text" 
                                 value={Array.isArray((selectedTile.properties as LayoutTileProperties).tabs) ? ((selectedTile.properties as LayoutTileProperties).tabs || []).join(', ') : 'Tab 1, Tab 2'}
                                 onChange={(e) => updateSelectedTileProperty('tabs', e.target.value.split(',').map(s => s.trim()))}
@@ -3161,7 +3134,7 @@ export const SlideEditor = ({
                           {selectedTile.type === 'accordion' && (
                             <div className="space-y-3">
                               <label className="text-xs text-text-muted mb-1 block">Items (comma separated)</label>
-                              <input 
+                              <input aria-label="Items (comma separated)"
                                 type="text" 
                                 value={Array.isArray((selectedTile.properties as LayoutTileProperties).items) ? ((selectedTile.properties as LayoutTileProperties).items || []).join(', ') : 'Item 1, Item 2'}
                                 onChange={(e) => updateSelectedTileProperty('items', e.target.value.split(',').map(s => s.trim()))}
@@ -3173,7 +3146,7 @@ export const SlideEditor = ({
                           {selectedTile.type === 'carousel' && (
                             <div className="space-y-3">
                               <label className="text-xs text-text-muted mb-1 block">Auto-Play Speed (ms)</label>
-                              <input 
+                              <input aria-label="Auto-Play Speed (ms)"
                                 type="number" 
                                 step="500"
                                 min="1000"
@@ -3187,7 +3160,7 @@ export const SlideEditor = ({
                           {selectedTile.type === 'frame' && (
                             <div className="space-y-3">
                               <label className="text-xs text-text-muted mb-1 block">Frame Style</label>
-                              <select 
+                              <select aria-label="Frame Style"
                                 value={String((selectedTile.properties as LayoutTileProperties).frameStyle || 'simple')}
                                 onChange={(e) => updateSelectedTileProperty('frameStyle', e.target.value)}
                                 className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -3204,7 +3177,7 @@ export const SlideEditor = ({
                             <div className="space-y-3">
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Note Text</label>
-                                <textarea 
+                                <textarea aria-label="Note Text"
                                   value={String((selectedTile.properties as LayoutTileProperties).text || '')}
                                   onChange={(e) => updateSelectedTileProperty('text', e.target.value)}
                                   className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -3213,8 +3186,8 @@ export const SlideEditor = ({
                               </div>
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Color</label>
-                                <input 
-                                  type="color" 
+                                <input aria-label="Color"
+                                   type="color"
                                   value={String((selectedTile.properties as LayoutTileProperties).color || '#fef3c7')}
                                   onChange={(e) => updateSelectedTileProperty('color', e.target.value)}
                                   className="w-full h-8 cursor-pointer rounded border border-surface-highlight bg-transparent"
@@ -3227,7 +3200,7 @@ export const SlideEditor = ({
                             <div className="space-y-3">
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Shape Type</label>
-                                <select 
+                                <select aria-label="Shape Type"
                                   value={String((selectedTile.properties as LayoutTileProperties).shape || 'circle')}
                                   onChange={(e) => updateSelectedTileProperty('shape', e.target.value)}
                                   className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -3238,8 +3211,8 @@ export const SlideEditor = ({
                               </div>
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Fill Color</label>
-                                <input 
-                                  type="color" 
+                                <input aria-label="Fill Color"
+                                   type="color"
                                   value={String((selectedTile.properties as LayoutTileProperties).fillColor || '#EA580C')}
                                   onChange={(e) => updateSelectedTileProperty('fillColor', e.target.value)}
                                   className="w-full h-8 cursor-pointer rounded border border-surface-highlight bg-transparent"
@@ -3258,7 +3231,7 @@ export const SlideEditor = ({
                             <div className="space-y-3">
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Format</label>
-                                <select 
+                                <select aria-label="Format"
                                   value={String((selectedTile.properties as SpecialTileProperties).format || '24h')}
                                   onChange={(e) => updateSelectedTileProperty('format', e.target.value)}
                                   className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -3283,7 +3256,7 @@ export const SlideEditor = ({
                             <div className="space-y-3">
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Calendar Feed URL</label>
-                                <input 
+                                <input aria-label="Calendar Feed URL"
                                   type="text" 
                                   value={String((selectedTile.properties as SpecialTileProperties).calendarUrl || '')}
                                   onChange={(e) => updateSelectedTileProperty('calendarUrl', e.target.value)}
@@ -3293,7 +3266,7 @@ export const SlideEditor = ({
                               </div>
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Initial View</label>
-                                <select 
+                                <select aria-label="Initial View"
                                   value={String((selectedTile.properties as SpecialTileProperties).view || 'month')}
                                   onChange={(e) => updateSelectedTileProperty('view', e.target.value)}
                                   className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -3306,7 +3279,7 @@ export const SlideEditor = ({
                               </div>
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Background Folder</label>
-                                <input 
+                                <input aria-label="Background Folder"
                                   type="text" 
                                   value={String((selectedTile.properties as SpecialTileProperties).backgroundFolderName || '')}
                                   onChange={(e) => updateSelectedTileProperty('backgroundFolderName', e.target.value)}
@@ -3322,7 +3295,7 @@ export const SlideEditor = ({
                             <div className="space-y-3">
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Feed URL</label>
-                                <input 
+                                <input aria-label="Feed URL"
                                   type="text" 
                                   value={String((selectedTile.properties as SpecialTileProperties).url || '')}
                                   onChange={(e) => updateSelectedTileProperty('url', e.target.value)}
@@ -3332,7 +3305,7 @@ export const SlideEditor = ({
                               </div>
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Max Items</label>
-                                <input 
+                                <input aria-label="Max Items"
                                   type="number" 
                                   min="1"
                                   max="10"
@@ -3348,7 +3321,7 @@ export const SlideEditor = ({
                             <div className="space-y-3">
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Author</label>
-                                <input 
+                                <input aria-label="Author"
                                   type="text" 
                                   value={String((selectedTile.properties as SpecialTileProperties).author || '')}
                                   onChange={(e) => updateSelectedTileProperty('author', e.target.value)}
@@ -3357,7 +3330,7 @@ export const SlideEditor = ({
                               </div>
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Quote / Text</label>
-                                <textarea 
+                                <textarea aria-label="Quote / Text"
                                   value={String((selectedTile.properties as SpecialTileProperties).quote || '')}
                                   onChange={(e) => updateSelectedTileProperty('quote', e.target.value)}
                                   className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -3371,7 +3344,7 @@ export const SlideEditor = ({
                             <div className="space-y-3">
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Symbols (comma separated)</label>
-                                <input 
+                                <input aria-label="Symbols (comma separated)"
                                   type="text" 
                                   value={Array.isArray((selectedTile.properties as SpecialTileProperties).symbols) ? ((selectedTile.properties as SpecialTileProperties).symbols || []).join(', ') : 'AAPL, GOOGL, MSFT'}
                                   onChange={(e) => updateSelectedTileProperty('symbols', e.target.value.split(',').map(s => s.trim().toUpperCase()))}
@@ -3394,7 +3367,7 @@ export const SlideEditor = ({
                             <div className="space-y-3">
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Item Name</label>
-                                <input 
+                                <input aria-label="Item Name"
                                   type="text" 
                                   value={String((selectedTile.properties as SpecialTileProperties).itemName || '')}
                                   onChange={(e) => updateSelectedTileProperty('itemName', e.target.value)}
@@ -3404,7 +3377,7 @@ export const SlideEditor = ({
                               <div className="grid grid-cols-2 gap-3">
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Price ($)</label>
-                                  <input 
+                                  <input aria-label="Price ($)"
                                     type="text" 
                                     value={String((selectedTile.properties as SpecialTileProperties).price || '')}
                                     onChange={(e) => updateSelectedTileProperty('price', e.target.value)}
@@ -3430,7 +3403,7 @@ export const SlideEditor = ({
                               </div>
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Description</label>
-                                <textarea 
+                                <textarea aria-label="Description"
                                   value={String((selectedTile.properties as SpecialTileProperties).description || '')}
                                   onChange={(e) => updateSelectedTileProperty('description', e.target.value)}
                                   className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -3444,7 +3417,7 @@ export const SlideEditor = ({
                             <div className="space-y-3">
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Main Title</label>
-                                <input 
+                                <input aria-label="Main Title"
                                   type="text" 
                                   value={String((selectedTile.properties as SpecialTileProperties).title || '')}
                                   onChange={(e) => updateSelectedTileProperty('title', e.target.value)}
@@ -3454,7 +3427,7 @@ export const SlideEditor = ({
                               <div className="grid grid-cols-2 gap-3">
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Sub-Title</label>
-                                  <input 
+                                  <input aria-label="Sub-Title"
                                     type="text" 
                                     value={String((selectedTile.properties as SpecialTileProperties).subTitle || '')}
                                     onChange={(e) => updateSelectedTileProperty('subTitle', e.target.value)}
@@ -3463,7 +3436,7 @@ export const SlideEditor = ({
                                 </div>
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Discount (e.g. 50% OFF)</label>
-                                  <input 
+                                  <input aria-label="Discount (e.g. 50% OFF)"
                                     type="text" 
                                     value={String((selectedTile.properties as SpecialTileProperties).discount || '')}
                                     onChange={(e) => updateSelectedTileProperty('discount', e.target.value)}
@@ -3478,7 +3451,7 @@ export const SlideEditor = ({
                             <div className="space-y-3">
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Event Name</label>
-                                <input 
+                                <input aria-label="Event Name"
                                   type="text" 
                                   value={String((selectedTile.properties as SpecialTileProperties).eventName || '')}
                                   onChange={(e) => updateSelectedTileProperty('eventName', e.target.value)}
@@ -3487,7 +3460,7 @@ export const SlideEditor = ({
                               </div>
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Target Date & Time</label>
-                                <input 
+                                <input aria-label="Target Date & Time"
                                   type="datetime-local" 
                                   value={String((selectedTile.properties as SpecialTileProperties).targetDate || '')}
                                   onChange={(e) => updateSelectedTileProperty('targetDate', e.target.value)}
@@ -3501,7 +3474,7 @@ export const SlideEditor = ({
                             <div className="space-y-3">
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Address / Location</label>
-                                <input 
+                                <input aria-label="Address / Location"
                                   type="text" 
                                   value={String((selectedTile.properties as SpecialTileProperties).address || '')}
                                   onChange={(e) => updateSelectedTileProperty('address', e.target.value)}
@@ -3512,7 +3485,7 @@ export const SlideEditor = ({
                               <div className="grid grid-cols-2 gap-3">
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Zoom (1-20)</label>
-                                  <input 
+                                  <input aria-label="Zoom (1-20)"
                                     type="number" 
                                     min="1"
                                     max="20"
@@ -3523,7 +3496,7 @@ export const SlideEditor = ({
                                 </div>
                                 <div>
                                   <label className="text-xs text-text-muted mb-1 block">Map Type</label>
-                                  <select 
+                                  <select aria-label="Map Type"
                                     value={String((selectedTile.properties as SpecialTileProperties).mapType || 'roadmap')}
                                     onChange={(e) => updateSelectedTileProperty('mapType', e.target.value)}
                                     className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -3535,7 +3508,7 @@ export const SlideEditor = ({
                               </div>
                               <div>
                                 <label className="text-xs text-text-muted mb-1 block">Location Label</label>
-                                <input 
+                                <input aria-label="Location Label"
                                   type="text" 
                                   value={String((selectedTile.properties as SpecialTileProperties).locationName || '')}
                                   onChange={(e) => updateSelectedTileProperty('locationName', e.target.value)}
@@ -3553,7 +3526,7 @@ export const SlideEditor = ({
                        {/* Slide Name */}
                        <div className="space-y-3">
                           <label className="text-xs font-bold text-text-muted uppercase tracking-wider">Slide Name</label>
-                          <input 
+                          <input aria-label="Slide Name"
                             type="text" 
                             value={slide.name}
                             onChange={(e) => setSlide({ ...slide, name: e.target.value })}
@@ -3567,7 +3540,7 @@ export const SlideEditor = ({
                           <div className="grid grid-cols-2 gap-3">
                             <div>
                               <label className="text-xs text-text-muted block mb-1">Width</label>
-                              <input 
+                              <input aria-label="Width"
                                 type="number" 
                                 min="1"
                                 value={slide.dimensions.width}
@@ -3580,7 +3553,7 @@ export const SlideEditor = ({
                             </div>
                             <div>
                               <label className="text-xs text-text-muted block mb-1">Height</label>
-                              <input 
+                              <input aria-label="Height"
                                 type="number" 
                                 min="1"
                                 value={slide.dimensions.height}
@@ -3597,7 +3570,7 @@ export const SlideEditor = ({
                        {/* Orientation */}
                        <div className="space-y-3">
                           <label className="text-xs font-bold text-text-muted uppercase tracking-wider">Orientation</label>
-                          <select 
+                          <select aria-label="Orientation"
                             value={slide.orientation}
                             onChange={(e) => {
                               const updatedSlide = { ...slide, orientation: e.target.value as 'landscape' | 'portrait' };
@@ -3614,7 +3587,7 @@ export const SlideEditor = ({
                           <label className="text-xs font-bold text-text-muted uppercase tracking-wider">Background Color</label>
                           <div className="flex items-center gap-3 bg-background border border-surface-highlight rounded px-3 py-2">
                             <input 
-                              type="color" 
+                              aria-label="Color" type="color"
                               value={slide.backgroundColor}
                               onChange={(e) => {
                                 const updatedSlide = { ...slide, backgroundColor: e.target.value };
@@ -3632,7 +3605,7 @@ export const SlideEditor = ({
                           {slide.backgroundImageUrl && (
                             <div className="relative aspect-video bg-black/20 rounded border border-surface-highlight overflow-hidden mb-2 group">
                               <img src={slide.backgroundImageUrl} alt="Background" className="w-full h-full object-cover" />
-                              <button 
+                              <button aria-label="Remove Background"
                                 onClick={() => {
                                   setUploadedBackgroundUrl('');
                                   setBackgroundUrlInput('');
@@ -3693,7 +3666,7 @@ export const SlideEditor = ({
                   <div className="space-y-6">
                     <div className="space-y-3">
                       <label className="text-xs font-bold text-text-muted uppercase tracking-wider">Effect</label>
-                      <select 
+                      <select aria-label="Effect"
                         value={slide.particleConfig?.effectType || 'none'}
                         onChange={(e) => updateAtmosphere({ effectType: e.target.value as ParticleConfig['effectType'] })}
                         className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none"
@@ -3761,7 +3734,7 @@ export const SlideEditor = ({
                           <label className="text-xs font-bold text-text-muted uppercase tracking-wider">Particle Color</label>
                           <div className="flex items-center gap-3">
                             <input
-                              type="color"
+                              aria-label="Color" type="color"
                               value={`#${(slide.particleConfig?.color?.[0] ?? 255).toString(16).padStart(2, '0')}${(slide.particleConfig?.color?.[1] ?? 255).toString(16).padStart(2, '0')}${(slide.particleConfig?.color?.[2] ?? 255).toString(16).padStart(2, '0')}`}
                               onChange={(e) => {
                                 const hex = e.target.value;
@@ -3814,7 +3787,7 @@ export const SlideEditor = ({
 
                     <div className="space-y-3">
                       <label className="text-xs font-bold text-text-muted uppercase tracking-wider">Blend Mode</label>
-                      <select 
+                      <select aria-label="Blend Mode"
                         value={slide.particleConfig?.blendMode || 'screen'}
                         onChange={(e) => updateAtmosphere({ blendMode: e.target.value as ParticleConfig['blendMode'] })}
                         className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-sm text-text focus:border-primary focus:outline-none appearance-none"
@@ -3914,9 +3887,9 @@ export const SlideEditor = ({
                                 : 'bg-surface border-surface-highlight text-text-muted hover:bg-surface-highlight hover:border-primary/50 hover:text-text'
                             } ${!tile.visible ? 'opacity-60' : ''}`}
                           >
-                            <div className="flex items-center gap-3">
+                            <div className="flex flex-wrap items-center gap-2">
                               {/* Tile Icon */}
-                              <button
+                              <button aria-label={`Select ${tile.name || tile.type} layer`}
                                 onClick={() => setSelectedTileId(tile.id)}
                                 className="w-10 h-10 rounded border border-surface-highlight flex items-center justify-center bg-background hover:border-primary/50 transition-colors"
                                 title="Select layer"
@@ -3945,7 +3918,7 @@ export const SlideEditor = ({
                               <div className="flex items-center gap-1">
                                 {/* Z-Index Controls */}
                                 <div className="flex flex-col">
-                                  <button
+                                  <button aria-label={`Move ${tile.name || tile.type} layer up`}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       moveLayerUp(tile.id);
@@ -3960,7 +3933,7 @@ export const SlideEditor = ({
                                   >
                                     <ChevronUp size={14} />
                                   </button>
-                                  <button
+                                  <button aria-label={`Move ${tile.name || tile.type} layer down`}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       moveLayerDown(tile.id);
@@ -3988,7 +3961,7 @@ export const SlideEditor = ({
                                       ? 'hover:bg-surface-highlight hover:text-primary'
                                       : 'opacity-50 hover:bg-surface-highlight hover:opacity-100'
                                   }`}
-                                  title={tile.visible ? 'Hide layer' : 'Show layer'}
+                                  aria-label={`${tile.visible ? 'Hide' : 'Show'} ${tile.name || tile.type} layer`} aria-pressed={tile.visible} title={tile.visible ? 'Hide layer' : 'Show layer'}
                                 >
                                   {tile.visible ? <Eye size={14} /> : <EyeOff size={14} />}
                                 </button>
@@ -4004,7 +3977,7 @@ export const SlideEditor = ({
                                       ? 'text-red-500 hover:bg-red-500/10'
                                       : 'hover:bg-surface-highlight hover:text-primary'
                                   }`}
-                                  title={tile.locked ? 'Unlock layer' : 'Lock layer'}
+                                  aria-label={`${tile.locked ? 'Unlock' : 'Lock'} ${tile.name || tile.type} layer`} aria-pressed={tile.locked} title={tile.locked ? 'Unlock layer' : 'Lock layer'}
                                 >
                                   {tile.locked ? <Lock size={14} /> : <Unlock size={14} />}
                                 </button>

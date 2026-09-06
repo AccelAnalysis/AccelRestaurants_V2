@@ -65,7 +65,7 @@ export const ContactForm = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-text-muted mb-2">Topic</label>
-              <select
+              <select aria-label="Topic"
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
                 className="w-full bg-background border border-surface-highlight rounded-lg px-4 py-3 text-text focus:border-primary focus:outline-none"
@@ -79,7 +79,7 @@ export const ContactForm = () => {
             </div>
             <div>
               <label className="block text-sm font-medium text-text-muted mb-2">Subject</label>
-              <input
+              <input aria-label="Subject"
                 type="text"
                 required
                 value={subject}
@@ -92,7 +92,7 @@ export const ContactForm = () => {
 
           <div>
             <label className="block text-sm font-medium text-text-muted mb-2">Message</label>
-            <textarea
+            <textarea aria-label="Message"
               required
               value={message}
               onChange={(e) => setMessage(e.target.value)}

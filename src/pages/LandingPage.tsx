@@ -1,3 +1,4 @@
+import { useReducedMotion } from '../hooks/useMediaQuery';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useConfigStore } from '../store/useConfigStore';
@@ -20,6 +21,7 @@ import { TemplateService } from '../services/templateService';
 
 export const LandingPage = () => {
   const navigate = useNavigate();
+  const reducedMotion = useReducedMotion();
   const { generalConfig, fetchConfigs } = useConfigStore();
   const [email, setEmail] = useState('');
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -86,11 +88,11 @@ export const LandingPage = () => {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-2">
               <img src={generalConfig?.logoUrl || logo} alt="AccelRestaurants" className="h-8 w-auto object-contain" />
-              <span className="text-2xl font-bold tracking-tight text-[var(--primary-color)]">AccelRestaurants</span>
+              <span className="text-base sm:text-2xl font-bold tracking-tight text-[var(--primary-color)]">AccelRestaurants</span>
             </div>
             <div className="hidden md:flex items-center space-x-8">
-              <button onClick={() => document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })} className="text-sm font-medium hover:text-primary transition-colors">Features</button>
-              <button onClick={() => document.getElementById('templates')?.scrollIntoView({ behavior: 'smooth' })} className="text-sm font-medium hover:text-primary transition-colors">Templates</button>
+              <button onClick={() => document.getElementById('features')?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth' })} className="text-sm font-medium hover:text-primary transition-colors">Features</button>
+              <button onClick={() => document.getElementById('templates')?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth' })} className="text-sm font-medium hover:text-primary transition-colors">Templates</button>
               {generalConfig?.featureFlags?.showPricingPage !== false && (
                 <button onClick={handleSeePricing} className="text-sm font-medium hover:text-primary transition-colors">Pricing</button>
               )}
@@ -98,7 +100,7 @@ export const LandingPage = () => {
               {generalConfig?.featureFlags?.publicSignupEnabled !== false && (
                 <button 
                   onClick={handleStartFree}
-                  className="bg-[var(--primary-color)] hover:opacity-90 text-white text-sm font-bold py-2 px-4 rounded-full transition-all transform hover:scale-105"
+                  className="bg-[var(--primary-color)] hover:opacity-90 text-white text-sm font-bold py-2 px-4 rounded-full transition-all transform "
                 >
                   Start Free
                 </button>
@@ -121,7 +123,7 @@ export const LandingPage = () => {
       <section className="pt-32 pb-20 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
         {/* Background Gradients */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-full pointer-events-none">
-          <div className="absolute top-20 left-10 w-72 h-72 bg-primary/20 rounded-full blur-3xl opacity-50 animate-pulse"></div>
+          <div className="absolute top-20 left-10 w-72 h-72 bg-primary/20 rounded-full blur-3xl opacity-50 "></div>
           <div className="absolute top-40 right-10 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl opacity-50"></div>
         </div>
 
@@ -139,7 +141,7 @@ export const LandingPage = () => {
                 <div className="relative w-full sm:w-auto">
                   <input 
                     type="email" 
-                    placeholder="Enter your email" 
+                    aria-label="Email for signup" autoComplete="email" placeholder="Enter your email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full sm:w-64 glass rounded-full py-3 px-5 text-text placeholder:text-text-muted focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
@@ -148,7 +150,7 @@ export const LandingPage = () => {
                 {generalConfig?.featureFlags?.publicSignupEnabled !== false && (
                   <button 
                     onClick={handleStartFree}
-                    className="w-full sm:w-auto bg-[var(--primary-color)] hover:opacity-90 text-white text-lg font-bold py-3 px-8 rounded-full transition-all transform hover:scale-105 flex items-center justify-center gap-2 shadow-lg shadow-primary/25"
+                    className="w-full sm:w-auto bg-[var(--primary-color)] hover:opacity-90 text-white text-lg font-bold py-3 px-8 rounded-full transition-all transform  flex items-center justify-center gap-2 shadow-lg shadow-primary/25"
                   >
                     Start Free <ArrowRight className="w-5 h-5" />
                   </button>
@@ -164,11 +166,12 @@ export const LandingPage = () => {
             {/* Hero Visual/Demo Placeholder */}
             <div className="relative group">
               <div className="absolute -inset-1 bg-gradient-to-r from-primary to-purple-600 rounded-2xl blur opacity-30 group-hover:opacity-50 transition duration-1000"></div>
-              <div className="relative glass-panel overflow-hidden aspect-video flex items-center justify-center group-hover:scale-[1.01] transition-transform duration-500">
+              <div className="relative glass-panel overflow-hidden aspect-video flex items-center justify-center  transition-transform duration-500">
                 {generalConfig?.landingPageVideoUrl && !videoErrored ? (
                   <video 
                     src={generalConfig.landingPageVideoUrl} 
-                    autoPlay 
+                    autoPlay={!reducedMotion}
+                    controls
                     loop 
                     muted 
                     playsInline 
@@ -178,7 +181,7 @@ export const LandingPage = () => {
                 ) : (
                   <>
                     <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button className="bg-white/10 backdrop-blur-md border border-white/20 text-white rounded-full p-4 hover:bg-white/20 transition-all">
+                      <button type="button" aria-label="Get started with a screen" onClick={handleStartFree} className="bg-white/10 backdrop-blur-md border border-white/20 text-white rounded-full p-4 hover:bg-white/20 transition-all">
                         <Play className="w-8 h-8 fill-white" />
                       </button>
                     </div>
@@ -206,7 +209,7 @@ export const LandingPage = () => {
                   </>
                 )}
               </div>
-              <div className="absolute -bottom-6 -right-6 bg-surface border border-surface-highlight p-4 rounded-lg shadow-xl hidden md:block animate-bounce-slow">
+              <div className="absolute -bottom-6 -right-6 bg-surface border border-surface-highlight p-4 rounded-lg shadow-xl hidden md:block ">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-success/20 flex items-center justify-center text-success">
                     <Zap className="w-6 h-6" />
@@ -304,8 +307,8 @@ export const LandingPage = () => {
               <h2 className="text-3xl md:text-4xl font-bold mb-4">Start with a template</h2>
               <p className="text-text-muted text-lg">Don't start from a blank screen. Our designers have done the heavy lifting.</p>
             </div>
-            <button className="text-primary hover:text-primary-hover font-bold flex items-center gap-2 group">
-              View all templates <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+            <button type="button" onClick={handleStartFree} className="text-primary hover:text-primary-hover font-bold flex items-center gap-2 group">
+              Choose a template <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </button>
           </div>
 
@@ -351,7 +354,7 @@ export const LandingPage = () => {
           {generalConfig?.featureFlags?.publicSignupEnabled !== false && (
             <button 
               onClick={handleStartFree}
-              className="bg-primary hover:bg-primary-hover text-white text-xl font-bold py-4 px-10 rounded-full transition-all transform hover:scale-105 shadow-xl shadow-primary/20"
+              className="bg-primary hover:bg-primary-hover text-white text-xl font-bold py-4 px-10 rounded-full transition-all transform  shadow-xl shadow-primary/20"
             >
               Start Free in 2 Minutes
             </button>

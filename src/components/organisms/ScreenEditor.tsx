@@ -1,3 +1,5 @@
+import { AccessibleDialog } from '../atoms/AccessibleDialog';
+import { InlineFeedback } from '../atoms/InlineFeedback';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDrag, useDrop } from 'react-dnd';
@@ -7,13 +9,14 @@ import { SlideService } from '../../services/slideService';
 import { TemplateService } from '../../services/templateService';
 import { LocationService } from '../../services/locationService';
 import { useAuthStore } from '../../store/useAuthStore';
-import { Save, ArrowLeft, Plus, X, GripVertical, Play, RotateCw, RotateCcw, Settings, AlertTriangle } from 'lucide-react';
+import { Save, ArrowLeft, Plus, X, GripVertical, Play, RotateCw, RotateCcw, Settings, ArrowUp, ArrowDown } from 'lucide-react';
 import type { AppScreen, Slide, Location, PlaylistEntry, ScreenAdjustments } from '../../types/schema';
 import { Timestamp } from 'firebase/firestore';
 import { normalizePlaylist } from '../../utils/playlist';
 
 // Internal state for playlist items: slide data + per-slide overrides
 interface PlaylistItemData {
+  key: string;
   slide: Slide;
   duration?: number;
   transition?: 'fade' | 'slide' | 'none';
@@ -34,6 +37,7 @@ const PlaylistItem = ({
   onUpdate,
   onMove,
   index,
+  total,
   globalDuration,
   globalTransition,
   onSlideClick
@@ -43,6 +47,7 @@ const PlaylistItem = ({
   onUpdate: (updates: Partial<PlaylistItemData>) => void;
   onMove: (fromIndex: number, toIndex: number) => void;
   index: number;
+  total: number;
   globalDuration: number;
   globalTransition: 'fade' | 'slide' | 'none';
   onSlideClick: (slideId: string) => void;
@@ -94,15 +99,15 @@ const PlaylistItem = ({
   return (
     <div
       ref={setDropRef}
+      role="group" aria-label={`Playlist entry ${index + 1}: ${slide.name}`}
       className="bg-surface border border-surface-highlight rounded mb-2 group"
       style={{ opacity: isDragging ? 0.45 : 1 }}
     >
-      <div className="flex items-center gap-4 p-3">
+      <div className="flex flex-wrap items-center gap-3 p-3">
         <div ref={drag} className="cursor-move text-text-muted hover:text-text">
           <GripVertical size={20} />
         </div>
-        <div 
-          onClick={() => onSlideClick(slide.id)}
+        <div aria-hidden="true"
           className="w-16 h-9 bg-black/50 rounded overflow-hidden flex-shrink-0 relative cursor-pointer hover:ring-2 hover:ring-primary transition-all"
           title="Click to edit this slide"
         >
@@ -115,11 +120,7 @@ const PlaylistItem = ({
           )}
         </div>
         <div className="flex-1">
-          <h4 
-            onClick={() => onSlideClick(slide.id)}
-            className="font-medium text-text cursor-pointer hover:text-primary transition-colors"
-            title="Click to edit this slide"
-          >{slide.name}</h4>
+          <h4><button type="button" onClick={() => onSlideClick(slide.id)} className="text-left font-medium text-text hover:text-primary" aria-label={`Edit ${slide.name}`}>{slide.name}</button></h4>
           <div className="flex items-center gap-2 mt-1">
             <span className={`text-[10px] px-1.5 py-0.5 rounded border ${slide.orientation === 'portrait' ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20'}`}>
               {slide.orientation === 'portrait' ? 'Portrait' : 'Landscape'}
@@ -138,16 +139,18 @@ const PlaylistItem = ({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs font-mono text-text-muted">#{index + 1}</span>
+          <span className="text-xs text-text-secondary">{index + 1} of {total}</span>
+          <button type="button" onClick={() => onMove(index, index - 1)} disabled={index === 0} aria-label={`Move ${slide.name} up`} className="ui-button ui-button-secondary p-2"><ArrowUp size={16} aria-hidden="true" /></button>
+          <button type="button" onClick={() => onMove(index, index + 1)} disabled={index === total - 1} aria-label={`Move ${slide.name} down`} className="ui-button ui-button-secondary p-2"><ArrowDown size={16} aria-hidden="true" /></button>
           <button
-            onClick={() => setExpanded(!expanded)}
+            aria-label={`Settings for ${slide.name}`} aria-expanded={expanded} onClick={() => setExpanded(!expanded)}
             className={`p-1 rounded transition-colors ${expanded ? 'bg-primary/20 text-primary' : 'hover:bg-surface-highlight text-text-muted hover:text-text'}`}
             title="Slide Settings"
           >
             <Settings size={16} />
           </button>
           <button 
-            onClick={onRemove}
+            aria-label={`Remove ${slide.name} from playlist`} onClick={onRemove}
             className="p-1 hover:bg-surface-highlight rounded text-text-muted hover:text-error transition-colors"
           >
             <X size={16} />
@@ -168,6 +171,7 @@ const PlaylistItem = ({
                 {item.duration !== undefined && <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">Override</span>}
               </label>
               <input
+                aria-label={`Duration for ${slide.name} in milliseconds`}
                 type="number"
                 value={item.duration ?? ''}
                 onChange={(e) => onUpdate({ duration: e.target.value ? Number(e.target.value) : undefined })}
@@ -187,6 +191,7 @@ const PlaylistItem = ({
                 {item.transition !== undefined && <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">Override</span>}
               </label>
               <select
+                aria-label={`Transition for ${slide.name}`}
                 value={item.transition ?? ''}
                 onChange={(e) => onUpdate({ transition: e.target.value ? e.target.value as 'fade' | 'slide' | 'none' : undefined })}
                 className={`w-full border rounded px-2 py-1.5 text-sm text-text focus:border-primary focus:outline-none ${
@@ -211,7 +216,7 @@ const PlaylistItem = ({
             <div className="grid grid-cols-3 gap-2 mb-2">
               <div className="space-y-1">
                 <label className="text-[11px] font-medium text-text-muted">Scale</label>
-                <input
+                <input aria-label="Scale"
                   type="number"
                   value={item.screenAdjustments?.scale ?? ''}
                   onChange={(e) => onUpdate({ screenAdjustments: { ...item.screenAdjustments, scale: e.target.value ? Number(e.target.value) : undefined } })}
@@ -224,7 +229,7 @@ const PlaylistItem = ({
               </div>
               <div className="space-y-1">
                 <label className="text-[11px] font-medium text-text-muted">Offset X</label>
-                <input
+                <input aria-label="Offset X"
                   type="number"
                   value={item.screenAdjustments?.offsetX ?? ''}
                   onChange={(e) => onUpdate({ screenAdjustments: { ...item.screenAdjustments, offsetX: e.target.value ? Number(e.target.value) : undefined } })}
@@ -236,7 +241,7 @@ const PlaylistItem = ({
               </div>
               <div className="space-y-1">
                 <label className="text-[11px] font-medium text-text-muted">Offset Y</label>
-                <input
+                <input aria-label="Offset Y"
                   type="number"
                   value={item.screenAdjustments?.offsetY ?? ''}
                   onChange={(e) => onUpdate({ screenAdjustments: { ...item.screenAdjustments, offsetY: e.target.value ? Number(e.target.value) : undefined } })}
@@ -279,6 +284,9 @@ export const ScreenEditor = ({
   const [locations, setLocations] = useState<Location[]>([]);
   
   // Form State
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [locationId, setLocationId] = useState('');
   const [rotation, setRotation] = useState<0 | 90 | 180 | 270>(0);
@@ -301,8 +309,8 @@ export const ScreenEditor = ({
           try {
             const locs = await LocationService.getLocations(organization.id);
             setLocations(locs);
-            if (locs.length > 0 && !locationId && isNew) {
-               setLocationId(locs[0].id);
+            if (locs.length > 0 && isNew) {
+               setLocationId(current => current || locs[0].id);
             }
           } catch (err) {
             console.error('Failed to fetch locations', err);
@@ -347,7 +355,7 @@ export const ScreenEditor = ({
             const currentPlaylist: PlaylistItemData[] = [];
             for (const entry of entries) {
               const slide = slides.find(s => s.id === entry.slideId);
-              if (slide) currentPlaylist.push({ slide, duration: entry.duration, transition: entry.transition, screenAdjustments: entry.screenAdjustments });
+              if (slide) currentPlaylist.push({ key: crypto.randomUUID(), slide, duration: entry.duration, transition: entry.transition, screenAdjustments: entry.screenAdjustments });
             }
             setPlaylist(currentPlaylist);
           } else {
@@ -374,7 +382,7 @@ export const ScreenEditor = ({
               const currentPlaylist: PlaylistItemData[] = [];
               for (const entry of entries) {
                 const slide = slides.find(s => s.id === entry.slideId);
-                if (slide) currentPlaylist.push({ slide, duration: entry.duration, transition: entry.transition, screenAdjustments: entry.screenAdjustments });
+                if (slide) currentPlaylist.push({ key: crypto.randomUUID(), slide, duration: entry.duration, transition: entry.transition, screenAdjustments: entry.screenAdjustments });
               }
               setPlaylist(currentPlaylist);
             }
@@ -383,20 +391,25 @@ export const ScreenEditor = ({
         setAvailableSlides(slides);
       } catch (error) {
         console.error("Failed to init screen editor:", error);
+        setError("Screen details could not be loaded. Reload before editing this screen.");
       } finally {
         setLoading(false);
       }
     };
     init();
-  }, [screenId, isNew, organization, isTemplateMode, initialData, locationId]);
+  }, [screenId, isNew, organization, isTemplateMode, initialData]);
 
   const handleSave = async () => {
+    if (saving) return;
+    setError(null);
+    if (!name.trim()) { setError('Enter a screen name before saving.'); return; }
     if (!isTemplateMode && !organization) {
       console.error('Cannot save: Organization context missing');
-      alert('Error: Organization context missing. Please reload or contact support.');
+      setError('Your organization is not available. Reload or sign in again.');
       return;
     }
     
+    setSaving(true);
     try {
       const screenData: AppScreen = {
         id: isTemplateMode ? (initialData?.id || 'template-draft') : (screenId || 'new'),
@@ -438,12 +451,15 @@ export const ScreenEditor = ({
       }
     } catch (error) {
       console.error('Failed to save screen:', error);
-      alert('Failed to save screen');
+      setError('Screen changes could not be saved. Your edits are still here. Try Save again.');
+    } finally {
+      setSaving(false);
     }
   };
 
   const addToPlaylist = (slide: Slide) => {
-    setPlaylist([...playlist, { slide }]);
+    setPlaylist([...playlist, { key: crypto.randomUUID(), slide }]);
+    setMessage(`${slide.name} added to playlist. Save to apply changes.`);
   };
 
   const updatePlaylistItem = (index: number, updates: Partial<PlaylistItemData>) => {
@@ -459,6 +475,7 @@ export const ScreenEditor = ({
   };
 
   const movePlaylistItem = (fromIndex: number, toIndex: number) => {
+    if (fromIndex !== toIndex && playlist[fromIndex] && toIndex >= 0 && toIndex < playlist.length) setMessage(`${playlist[fromIndex].slide.name} moved to position ${toIndex + 1}. Save to apply changes.`);
     setPlaylist((prev) => {
       if (
         fromIndex < 0 ||
@@ -477,16 +494,16 @@ export const ScreenEditor = ({
     });
   };
 
-  if (loading) return <div className="text-text p-8">Loading editor...</div>;
+  if (loading) return <div role="status" className="text-text p-8">Loading editor...</div>;
 
   return (
     <div className={`flex flex-col bg-background ${isTemplateMode ? 'h-full' : 'h-full'}`}>
       {/* Header */}
       {!isTemplateMode ? (
-        <div className="h-16 border-b border-surface-highlight bg-surface px-6 flex items-center justify-between">
+        <div className="min-h-16 py-2 gap-3 flex-wrap border-b border-surface-highlight bg-surface px-6 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button 
-              onClick={() => navigate('/admin/screens')}
+              aria-label="Back to screens" onClick={() => navigate('/admin/screens')}
               className="p-2 hover:bg-surface-highlight rounded-full text-text-muted hover:text-text transition-colors"
             >
               <ArrowLeft size={20} />
@@ -496,11 +513,11 @@ export const ScreenEditor = ({
             </h2>
           </div>
           <button
-            onClick={handleSave}
+            disabled={saving} onClick={() => void handleSave()}
             className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded hover:bg-primary-hover transition-colors"
           >
             <Save size={18} />
-            Save Screen
+            {saving ? 'Saving…' : 'Save screen'}
           </button>
         </div>
       ) : (
@@ -510,27 +527,29 @@ export const ScreenEditor = ({
             <p className="text-xs text-text-muted">Configure default playlist and settings</p>
           </div>
           <button
-            onClick={handleSave}
+            disabled={saving} onClick={() => void handleSave()}
             className="flex items-center gap-2 bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-md transition-colors text-sm"
           >
             <Save size={16} />
-            <span>Save Changes</span>
+            <span>{saving ? 'Saving…' : 'Save changes'}</span>
           </button>
         </div>
       )}
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="px-4 sm:px-6"><InlineFeedback message={error} tone="error" /><InlineFeedback message={message} /></div>
+      <p className="px-4 sm:px-6 py-2 text-sm text-text-secondary">Saving updates the playlist used by this screen.</p>
+      <div className="screen-workspace flex-1 min-w-0 flex overflow-hidden">
         {/* Main Settings */}
-        <div className="flex-1 p-8 overflow-y-auto">
+        <div className="flex-1 min-w-0 p-4 sm:p-8 overflow-y-auto">
           <div className="max-w-2xl mx-auto space-y-8">
             {/* Basic Info */}
             <section className="space-y-4">
               <h3 className="text-lg font-semibold text-text border-b border-surface-highlight pb-2">Basic Information</h3>
               
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-text-secondary">Screen Name</label>
-                  <input
+                  <input aria-label="Screen Name"
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
@@ -542,7 +561,7 @@ export const ScreenEditor = ({
                   <label className="text-sm font-medium text-text-secondary">Location</label>
                   {locations.length > 0 ? (
                     <select
-                      value={locationId}
+                      aria-label="Location" value={locationId}
                       onChange={(e) => setLocationId(e.target.value)}
                       className="w-full bg-background border border-surface-highlight rounded p-2 text-text focus:border-primary focus:outline-none"
                     >
@@ -555,7 +574,7 @@ export const ScreenEditor = ({
                     <div className="flex gap-2">
                       <input
                         type="text"
-                        value={locationId || 'default-location'}
+                        aria-label="Location" value={locationId || 'default-location'}
                         disabled
                         className="flex-1 bg-background border border-surface-highlight rounded p-2 text-text-muted cursor-not-allowed"
                       />
@@ -572,7 +591,7 @@ export const ScreenEditor = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                  <div className="space-y-2">
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-sm font-medium text-text-secondary">Screen Rotation</label>
@@ -581,7 +600,7 @@ export const ScreenEditor = ({
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button
+                    <button aria-label="Rotate Left 90°"
                       onClick={() => setRotation((prev) => (prev - 90 < 0 ? 270 : prev - 90) as 0 | 90 | 180 | 270)}
                       className="p-2 bg-surface-highlight hover:bg-primary/20 hover:text-primary rounded text-text-muted transition-colors"
                       title="Rotate Left 90°"
@@ -591,7 +610,7 @@ export const ScreenEditor = ({
                     <div className="flex-1 text-center bg-background border border-surface-highlight rounded p-2 text-text font-mono">
                       {rotation}°
                     </div>
-                    <button
+                    <button aria-label="Rotate Right 90°"
                       onClick={() => setRotation((prev) => (prev + 90 >= 360 ? 0 : prev + 90) as 0 | 90 | 180 | 270)}
                       className="p-2 bg-surface-highlight hover:bg-primary/20 hover:text-primary rounded text-text-muted transition-colors"
                       title="Rotate Right 90°"
@@ -636,10 +655,10 @@ export const ScreenEditor = ({
                 </div>
               </div>
               
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-text-secondary">Slide Duration (ms)</label>
-                  <input
+                  <input aria-label="Slide Duration (ms)"
                     type="number"
                     value={rotationMs}
                     onChange={(e) => setRotationMs(Number(e.target.value))}
@@ -650,7 +669,7 @@ export const ScreenEditor = ({
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-text-secondary">Transition Effect</label>
-                  <select
+                  <select aria-label="Transition Effect"
                     value={transition}
                     onChange={(e) => setTransition(e.target.value as 'fade' | 'slide' | 'none')}
                     className="w-full bg-background border border-surface-highlight rounded p-2 text-text focus:border-primary focus:outline-none"
@@ -690,7 +709,7 @@ export const ScreenEditor = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-text-secondary">Offset X (px)</label>
                     <div className="flex items-center gap-1">
@@ -763,9 +782,10 @@ export const ScreenEditor = ({
                   <div className="space-y-2">
                     {playlist.map((item, idx) => (
                       <PlaylistItem 
-                        key={`playlist-${idx}`} 
+                        key={item.key}
                         item={item} 
                         index={idx}
+                        total={playlist.length}
                         onRemove={() => removeFromPlaylist(idx)}
                         onUpdate={(updates) => updatePlaylistItem(idx, updates)}
                         onMove={movePlaylistItem}
@@ -782,10 +802,10 @@ export const ScreenEditor = ({
         </div>
 
         {/* Sidebar: Available Slides */}
-        <div className="w-80 bg-surface border-l border-surface-highlight flex flex-col">
+        <div className="screen-library w-80 shrink-0 bg-surface border-l border-surface-highlight flex flex-col">
           <div className="p-4 border-b border-surface-highlight">
             <h3 className="font-semibold text-text">Available Slides</h3>
-            <p className="text-xs text-text-muted">Click + to add to playlist</p>
+            <p className="text-xs text-text-muted">Add a slide, then use Move up or Move down to reorder.</p>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
             {availableSlides.map(slide => (
@@ -794,9 +814,9 @@ export const ScreenEditor = ({
                    {slide.backgroundImageUrl && (
                     <img src={slide.backgroundImageUrl} alt="" className="w-full h-full object-cover opacity-50" />
                   )}
-                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/40">
                     <button
-                      onClick={() => addToPlaylist(slide)}
+                      aria-label={`Add ${slide.name} to playlist`} onClick={() => addToPlaylist(slide)}
                       className="p-2 bg-primary text-white rounded-full hover:bg-primary-hover transform hover:scale-110 transition-all"
                     >
                       <Plus size={20} />
@@ -820,40 +840,9 @@ export const ScreenEditor = ({
         </div>
       </div>
 
-      {/* Slide Navigation Confirmation Modal */}
-      {confirmNavigateSlideId && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-surface border border-surface-highlight rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
-            <div className="flex items-start gap-3 mb-4">
-              <div className="p-2 bg-primary/10 rounded-lg text-primary">
-                <AlertTriangle size={24} />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-text mb-1">Navigate to Slide Editor?</h3>
-                <p className="text-sm text-text-muted">
-                  Any unsaved changes to this screen will be lost. Make sure to save your work before continuing.
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => setConfirmNavigateSlideId(null)}
-                className="px-4 py-2 border border-surface-highlight hover:bg-surface-highlight rounded transition-colors text-text"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  navigate(`/admin/slides/${confirmNavigateSlideId}`);
-                }}
-                className="px-4 py-2 bg-primary hover:bg-primary/90 text-white rounded transition-colors"
-              >
-                Navigate to Slide
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {confirmNavigateSlideId && <AccessibleDialog title="Leave screen editor?" description="Unsaved screen changes will be lost. Cancel to save them first." onClose={() => setConfirmNavigateSlideId(null)} closeLabel="Cancel">
+        <button type="button" className="ui-button ui-button-danger" onClick={() => navigate(`/admin/slides/${confirmNavigateSlideId}`)}>Leave without saving</button>
+      </AccessibleDialog>}
     </div>
   );
 };

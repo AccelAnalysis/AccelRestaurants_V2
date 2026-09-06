@@ -92,7 +92,7 @@ export const JobCreationModal = ({ onClose, onSuccess, preSelectedDesigner }: Jo
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs text-text-muted uppercase tracking-wider mb-2">Job Title</label>
-            <input 
+            <input aria-label="Job Title"
               type="text" 
               required
               value={formData.title}
@@ -104,7 +104,7 @@ export const JobCreationModal = ({ onClose, onSuccess, preSelectedDesigner }: Jo
 
           <div>
             <label className="block text-xs text-text-muted uppercase tracking-wider mb-2">Description</label>
-            <textarea 
+            <textarea aria-label="Description"
               required
               rows={4}
               value={formData.description}
@@ -131,7 +131,7 @@ export const JobCreationModal = ({ onClose, onSuccess, preSelectedDesigner }: Jo
             </div>
             <div>
               <label className="block text-xs text-text-muted uppercase tracking-wider mb-2">Deadline (Optional)</label>
-              <input 
+              <input aria-label="Deadline (Optional)"
                 type="date" 
                 value={formData.deadline}
                 onChange={(e) => setFormData({ ...formData, deadline: e.target.value })}

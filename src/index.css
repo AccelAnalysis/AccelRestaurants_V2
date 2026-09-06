@@ -7,7 +7,7 @@
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: light dark;
+  color-scheme: dark;
   color: #F9FAFB;
   background-color: #111827;
 
@@ -72,4 +72,61 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   @apply bg-surface-highlight/80;
+}
+
+/* HIG-aligned web controls. Deliberately scoped away from published signage. */
+.app-ui { color-scheme: dark; min-width: 0; --action-background: #c2410c; }
+.app-ui :where(button, select, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), summary):not(.signage-content *) {
+  min-height: 44px;
+}
+.app-ui :where(button, summary):not(.signage-content *) { min-width: 44px; touch-action: manipulation; }
+.app-ui :where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid #fdba74 !important; outline-offset: 3px;
+}
+.app-ui button:disabled { cursor: not-allowed; opacity: .6; }
+.app-ui .bg-primary:not(.signage-content *) { background-color: var(--action-background); }
+.app-ui .hover\:bg-primary-hover:hover:not(.signage-content *) { background-color: #9a3412; }
+.app-ui .text-primary:not(.signage-content *) { color: #fb923c; }
+.app-ui .text-error, .app-ui .text-red-500 { color: #fca5a5; }
+.app-ui .glass, .app-ui .glass-panel { backdrop-filter: none; background-color: #1f2937; }
+.ui-button { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-width: 44px; min-height: 44px; padding: .5rem 1rem; border-radius: .5rem; font-weight: 600; }
+.ui-button-primary { background: #c2410c; color: white; }
+.ui-button-primary:hover { background: #9a3412; }
+.ui-button-secondary { border: 1px solid #6b7280; color: #f9fafb; }
+.ui-button-secondary:hover { background: #374151; }
+.ui-button-danger { background: #b91c1c; color: white; }
+.ui-dialog { position: fixed; z-index: 101; inset: 50% auto auto 50%; transform: translate(-50%, -50%); width: calc(100% - 2rem); max-width: 32rem; max-height: calc(100dvh - 2rem); display: flex; flex-direction: column; background: #1f2937; color: #f9fafb; border: 1px solid #6b7280; border-radius: .75rem; box-shadow: 0 20px 50px #0008; }
+.ui-dialog-wide { max-width: 68rem; }
+.ui-feedback { margin-block: .75rem; padding: .75rem 1rem; border-left: 3px solid #9ca3af; color: #e5e7eb; background: #111827; border-radius: .25rem; overflow-wrap: anywhere; }
+.ui-feedback-error { border-color: #fca5a5; color: #fecaca; }
+.ui-feedback-success { border-color: #6ee7b7; color: #a7f3d0; }
+.skip-link { position: fixed; top: -100px; left: 1rem; z-index: 200; background: #f9fafb; color: #111827; padding: .75rem; border-radius: .5rem; }
+.skip-link:focus { top: 1rem; }
+.admin-nav a { display: flex; align-items: center; gap: .75rem; padding: .625rem .75rem; min-height: 44px; border-radius: .5rem; color: #d1d5db; }
+.admin-nav a[aria-current="page"] { background: #374151; color: white; font-weight: 600; box-shadow: inset 3px 0 #fb923c; }
+.admin-nav a:hover { background: #374151; }
+.editor-tools, .editor-properties { flex-shrink: 0; }
+.editor-tools[hidden], .editor-properties[hidden] { display: none; }
+.editor-canvas-area { min-width: 0; min-height: 24rem; }
+.editor-tools details summary { display: flex; align-items: center; cursor: pointer; font-weight: 600; color: #e5e7eb; }
+.editor-tools details summary::before { content: '▸'; margin-right: .5rem; }
+.editor-tools details[open] summary::before { content: '▾'; }
+@media (max-width: 1023px) {
+  .editor-workspace { flex-direction: column; overflow: auto; }
+  .editor-tools, .editor-properties { width: 100% !important; max-height: 45dvh; overflow-y: auto; }
+  .editor-canvas-area { flex: none; height: 55dvh; overflow: auto; }
+  .screen-workspace { flex-direction: column; }
+  .screen-library { width: 100% !important; }
+}
+@media (pointer: coarse) {
+  .app-ui :where(input, select, textarea):not(.signage-content *) { font-size: max(1rem, 16px); }
+  .resize-handle:not([data-direction="se"]) { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-ui *, .app-ui *::before, .app-ui *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+@media (prefers-contrast: more) {
+  .app-ui { --action-background: #9a3412; }
+  .app-ui .text-text-muted { color: #f3f4f6; }
+  .app-ui input, .app-ui select, .app-ui textarea { border-color: #d1d5db; }
 }

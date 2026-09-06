@@ -1,3 +1,4 @@
+import { useReducedMotion } from '../../hooks/useMediaQuery';
 import { useEffect, useRef } from 'react';
 import type { ParticleConfig } from '../../types/schema';
 import { WebGLEngine } from '../../lib/webgl/WebGLEngine';
@@ -8,11 +9,12 @@ interface AtmosphereCanvasProps {
 }
 
 export const AtmosphereCanvas = ({ config, className = '' }: AtmosphereCanvasProps) => {
+  const reducedMotion = useReducedMotion();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<WebGLEngine | null>(null);
 
   useEffect(() => {
-    if (!canvasRef.current) return;
+    if (!canvasRef.current || reducedMotion) return;
 
     try {
       // Initialize engine
@@ -27,6 +29,7 @@ export const AtmosphereCanvas = ({ config, className = '' }: AtmosphereCanvasPro
 
       return () => {
         engineRef.current?.dispose();
+        engineRef.current = null;
         resizeObserver.disconnect();
       };
     } catch (err) {
@@ -34,7 +37,7 @@ export const AtmosphereCanvas = ({ config, className = '' }: AtmosphereCanvasPro
       // Silent fail if WebGL initialization fails
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [reducedMotion]);
 
   // Sync config updates
   useEffect(() => {
@@ -68,11 +71,12 @@ export const AtmosphereCanvas = ({ config, className = '' }: AtmosphereCanvasPro
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!engineRef.current) return;
     engineRef.current.handlePointerUp();
-    (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
   };
 
   return (
     <canvas 
+      aria-hidden="true"
       ref={canvasRef} 
       className={`block w-full h-full pointer-events-auto ${className}`} // Changed to pointer-events-auto to capture input
       onPointerDown={handlePointerDown}

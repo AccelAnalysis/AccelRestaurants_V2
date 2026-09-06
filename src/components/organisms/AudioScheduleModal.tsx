@@ -1,5 +1,7 @@
+import { AccessibleDialog } from '../atoms/AccessibleDialog';
+import { InlineFeedback } from '../atoms/InlineFeedback';
 import { useState, useEffect } from 'react';
-import { X, Save, Clock, Calendar } from 'lucide-react';
+import { Save, Calendar } from 'lucide-react';
 import type { AudioSchedule } from '../../types/schema';
 
 interface AudioScheduleModalProps {
@@ -24,6 +26,7 @@ export const AudioScheduleModal = ({ isOpen, onClose, onSave, scheduleToEdit }: 
   const [endTime, setEndTime] = useState('');
   const [daysOfWeek, setDaysOfWeek] = useState<number[]>([1, 2, 3, 4, 5]); // Weekdays by default
   const [enabled, setEnabled] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -50,13 +53,15 @@ export const AudioScheduleModal = ({ isOpen, onClose, onSave, scheduleToEdit }: 
   };
 
   const handleSave = async () => {
+    if (saving) return;
+    setError(null);
     if (daysOfWeek.length === 0) {
-      alert('Please select at least one day');
+      setError('Please select at least one day.');
       return;
     }
 
     if (!startTime) {
-      alert('Please enter a start time');
+      setError('Please enter a start time.');
       return;
     }
 
@@ -71,7 +76,7 @@ export const AudioScheduleModal = ({ isOpen, onClose, onSave, scheduleToEdit }: 
       onClose();
     } catch (error) {
       console.error('Failed to save schedule:', error);
-      alert('Failed to save schedule');
+      setError('Failed to save schedule.');
     } finally {
       setSaving(false);
     }
@@ -80,36 +85,15 @@ export const AudioScheduleModal = ({ isOpen, onClose, onSave, scheduleToEdit }: 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-surface border border-surface-highlight rounded-lg p-6 max-w-lg w-full mx-4 shadow-xl">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-primary/10 rounded-lg text-primary">
-              <Clock size={24} />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-text">
-                {scheduleToEdit ? 'Edit Schedule' : 'Add Schedule'}
-              </h2>
-              <p className="text-sm text-text-muted">Configure when audio should play</p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-surface-highlight rounded-full text-text-muted hover:text-text transition-colors"
-          >
-            <X size={20} />
-          </button>
-        </div>
-
+    <AccessibleDialog title={scheduleToEdit ? 'Edit audio schedule' : 'Add audio schedule'} description="Choose when audio should play." onClose={onClose} closeLabel="Cancel" busy={saving}>
+      <InlineFeedback message={error} tone="error" />
         {/* Form */}
         <div className="space-y-6">
           {/* Time Range */}
           <div className="space-y-4">
             <div>
               <label className="text-sm font-medium text-text mb-2 block">Start Time</label>
-              <input
+              <input aria-label="Start Time"
                 type="time"
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
@@ -122,7 +106,7 @@ export const AudioScheduleModal = ({ isOpen, onClose, onSave, scheduleToEdit }: 
                 End Time <span className="text-text-muted font-normal">(optional)</span>
               </label>
               <input
-                type="time"
+                aria-label="End time (optional)" type="time"
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
                 placeholder="Leave empty for continuous playback"
@@ -140,10 +124,11 @@ export const AudioScheduleModal = ({ isOpen, onClose, onSave, scheduleToEdit }: 
               <Calendar size={16} />
               Days of Week
             </label>
-            <div className="grid grid-cols-7 gap-2">
+            <div className="flex flex-wrap gap-2">
               {DAYS_OF_WEEK.map(({ value, label }) => (
                 <button
                   key={value}
+                  aria-pressed={daysOfWeek.includes(value)}
                   onClick={() => handleToggleDay(value)}
                   className={`py-2 px-1 rounded text-sm font-medium transition-colors ${
                     daysOfWeek.includes(value)
@@ -164,6 +149,7 @@ export const AudioScheduleModal = ({ isOpen, onClose, onSave, scheduleToEdit }: 
               <p className="text-xs text-text-muted">Schedule will only run when enabled</p>
             </div>
             <button
+              aria-label="Enable schedule" role="switch" aria-checked={enabled}
               onClick={() => setEnabled(!enabled)}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                 enabled ? 'bg-primary' : 'bg-surface-highlight'
@@ -202,13 +188,6 @@ export const AudioScheduleModal = ({ isOpen, onClose, onSave, scheduleToEdit }: 
         {/* Actions */}
         <div className="flex gap-3 mt-6">
           <button
-            onClick={onClose}
-            disabled={saving}
-            className="flex-1 px-4 py-2 border border-surface-highlight hover:bg-surface-highlight rounded transition-colors text-text disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
             onClick={handleSave}
             disabled={saving || daysOfWeek.length === 0}
             className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 text-white rounded transition-colors disabled:opacity-50"
@@ -217,7 +196,6 @@ export const AudioScheduleModal = ({ isOpen, onClose, onSave, scheduleToEdit }: 
             {saving ? 'Saving...' : 'Save Schedule'}
           </button>
         </div>
-      </div>
-    </div>
+    </AccessibleDialog>
   );
 };

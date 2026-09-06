@@ -295,7 +295,7 @@ export const MenuEditor = ({
       {!isTemplateMode ? (
         <div className="flex justify-between items-center mb-8 sticky top-0 bg-background pt-6 pb-6 border-b border-surface-highlight z-10">
           <div className="flex items-center gap-4">
-            <button
+            <button aria-label="Back to Menus"
               onClick={() => navigate('/admin/menus')}
               className="text-text-muted hover:text-text p-2 hover:bg-surface-highlight/50 rounded-full transition-colors"
               title="Back to Menus"
@@ -558,7 +558,7 @@ export const MenuEditor = ({
                     <div className="flex justify-between items-start mb-6">
                       <div className="flex-1 mr-4">
                         <label className="text-xs font-bold text-text-muted uppercase tracking-wider mb-1 block">Schedule Name</label>
-                        <input
+                        <input aria-label="Schedule Name"
                           type="text"
                           value={schedule.name}
                           onChange={(e) => updateSchedule(schedule.id, { name: e.target.value })}
@@ -611,7 +611,7 @@ export const MenuEditor = ({
                         
                         <div className="mt-3">
                            <label className="text-xs text-text-muted mb-1 block">Timezone</label>
-                           <select
+                           <select aria-label="Timezone"
                              value={schedule.timezone || ''}
                              onChange={(e) => updateSchedule(schedule.id, { timezone: e.target.value || undefined })}
                              className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-text text-sm focus:border-primary focus:outline-none"
@@ -696,7 +696,7 @@ export const MenuEditor = ({
                     className="flex-1 bg-transparent font-bold text-lg text-text border-none focus:ring-0 px-0 placeholder:text-text-muted/50"
                     placeholder="Section Name (e.g. Appetizers)"
                   />
-                  <button
+                  <button aria-label="Delete Section"
                     onClick={() => removeSection(section.id)}
                     className="text-text-muted hover:text-red-500 p-2 rounded-full hover:bg-surface-highlight/30 transition-colors"
                     title="Delete Section"

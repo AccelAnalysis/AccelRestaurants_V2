@@ -1,5 +1,6 @@
+import { AccessibleDialog } from '../atoms/AccessibleDialog';
 import { useNavigate } from 'react-router-dom';
-import { X, Layout, FileText, Monitor, CheckCircle2 } from 'lucide-react';
+import { Layout, FileText, Monitor, CheckCircle2 } from 'lucide-react';
 import type { Template } from '../../types/schema';
 
 interface TemplatePreviewModalProps {
@@ -26,25 +27,7 @@ export const TemplatePreviewModal = ({ template, onClose }: TemplatePreviewModal
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-      <div className="bg-surface border border-surface-highlight rounded-xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-        
-        {/* Header */}
-        <div className="p-6 border-b border-surface-highlight flex justify-between items-center bg-surface">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-primary/10 rounded-lg">
-              {getIcon()}
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-text">{template.name}</h2>
-              <p className="text-sm text-text-muted capitalize">{template.category} • {template.type}</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-surface-highlight rounded-lg text-text-muted hover:text-text transition-colors">
-            <X size={20} />
-          </button>
-        </div>
-
+    <AccessibleDialog title={template.name} description={`${template.category} · ${template.type} template`} onClose={onClose} wide>
         <div className="flex-1 overflow-y-auto flex flex-col md:flex-row">
           {/* Preview Image/Area */}
           <div className="flex-1 bg-black/50 p-8 flex items-center justify-center relative min-h-[300px]">
@@ -121,7 +104,6 @@ export const TemplatePreviewModal = ({ template, onClose }: TemplatePreviewModal
             </div>
           </div>
         </div>
-      </div>
-    </div>
+    </AccessibleDialog>
   );
 };

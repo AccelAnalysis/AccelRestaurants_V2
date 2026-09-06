@@ -1,5 +1,6 @@
+import { InlineFeedback } from '../atoms/InlineFeedback';
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { SlideService } from '../../services/slideService';
 import type { Slide } from '../../types/schema';
 import { useAuthStore } from '../../store/useAuthStore';
@@ -20,6 +21,7 @@ export const SlideListView = () => {
     
     try {
       setLoading(true);
+      setError(null);
       const data = await SlideService.getSlides(organization.id);
       setSlides(data);
     } catch {
@@ -40,7 +42,7 @@ export const SlideListView = () => {
         await SlideService.deleteSlide(id);
         fetchSlides();
       } catch {
-        alert('Failed to delete slide');
+        setError('Failed to delete slide. Please try again.');
       }
     }
   };
@@ -52,7 +54,7 @@ export const SlideListView = () => {
       fetchSlides();
       navigate(`/admin/slides/${newSlideId}`);
     } catch {
-      alert('Failed to duplicate slide');
+      setError('Failed to duplicate slide. Please try again.');
     }
   };
 
@@ -91,18 +93,16 @@ export const SlideListView = () => {
     </div>
   );
 
-  if (error) return (
-    <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-500 rounded-lg">
-      Error: {error}
-    </div>
-  );
+
 
   return (
     <div className="space-y-8">
+      <InlineFeedback message={error} tone="error"><button type="button" onClick={() => void fetchSlides()} className="ui-button ui-button-secondary ml-3">Retry</button></InlineFeedback>
       {showTemplateModal && (
         <TemplateSelectorModal 
           type="slide" 
-          onClose={handleCreateNew} 
+          onClose={() => setShowTemplateModal(false)}
+          onCreateBlank={handleCreateNew}
           onImport={handleTemplateImport} 
         />
       )}
@@ -127,7 +127,7 @@ export const SlideListView = () => {
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-text-muted" size={18} />
         <input 
           type="text" 
-          placeholder="Search slides..." 
+          aria-label="Search slides" placeholder="Search slides..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="w-full md:w-96 bg-surface border border-surface-highlight rounded-lg pl-10 pr-4 py-2.5 text-text focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all placeholder:text-text-muted/50"
@@ -158,17 +158,16 @@ export const SlideListView = () => {
             <div 
               key={slide.id} 
               className="group bg-surface rounded-xl border border-surface-highlight hover:border-primary/50 transition-all cursor-pointer overflow-hidden hover:shadow-lg hover:shadow-primary/5 relative"
-              onClick={() => navigate(`/admin/slides/${slide.id}`)}
             >
-              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex gap-1">
-                <button 
+              <div className="absolute top-2 right-2 opacity-100 transition-opacity z-20 flex gap-1">
+                <button aria-label="Duplicate Slide"
                   onClick={(e) => handleDuplicate(e, slide.id)}
                   className="p-1.5 bg-black/50 hover:bg-primary/80 text-white rounded-md backdrop-blur-sm transition-colors"
                   title="Duplicate Slide"
                 >
                   <Copy size={14} />
                 </button>
-                <button 
+                <button aria-label="Delete Slide"
                   onClick={(e) => handleDelete(e, slide.id)}
                   className="p-1.5 bg-black/50 hover:bg-error/80 text-white rounded-md backdrop-blur-sm transition-colors"
                   title="Delete Slide"
@@ -196,11 +195,11 @@ export const SlideListView = () => {
               </div>
               
               <div className="p-5">
-                <h3 className="text-lg font-bold text-text mb-2 group-hover:text-primary transition-colors">{slide.name}</h3>
+                <h3 className="text-lg font-bold text-text mb-2 group-hover:text-primary transition-colors"><Link to={`/admin/slides/${slide.id}`} className="inline-flex items-center min-h-11">{slide.name}</Link></h3>
                 <div className="flex items-center justify-between text-sm text-text-muted">
                   <span>{slide.elements.length} Elements</span>
                   <span className="text-xs bg-surface-highlight/30 px-2 py-1 rounded">
-                    {new Date().toLocaleDateString()} {/* Placeholder for updatedAt */}
+                    {slide.updatedAt?.toDate?.().toLocaleDateString() || ''}
                   </span>
                 </div>
               </div>

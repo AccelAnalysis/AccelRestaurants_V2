@@ -5,6 +5,7 @@ import { DesignerRoute } from './components/molecules/DesignerRoute';
 import { SuperAdminRoute } from './components/molecules/SuperAdminRoute';
 import { useAuthListener } from './hooks/useAuthListener';
 import { useConfigStore } from './store/useConfigStore';
+import { ApplicationSurface } from './components/molecules/ApplicationSurface';
 
 // Lazy load pages to split bundles
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(module => ({ default: module.AdminDashboard })));
@@ -32,9 +33,10 @@ function App() {
 
   return (
     <Router>
+      <ApplicationSurface>
       <Suspense fallback={
         <div className="min-h-screen bg-black text-white flex items-center justify-center">
-          <div className="animate-pulse">Loading App...</div>
+          <div role="status">Loading…</div>
         </div>
       }>
         <Routes>
@@ -90,6 +92,7 @@ function App() {
           />
         </Routes>
       </Suspense>
+      </ApplicationSurface>
     </Router>
   );
 }

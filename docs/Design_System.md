@@ -9,7 +9,7 @@ This design system defines the visual language and reusable components for the A
 - **Acceleration**: Fast, intuitive interactions
 - **Innovation**: Modern UI patterns for content creation
 - **Hospitality-Focused**: Designed for restaurant operations
-- **Accessibility**: WCAG 2.1 AA compliance
+- **Accessibility**: WCAG AA is a design goal; verified scope and exceptions are recorded in `design/APPLE_HIG_AUDIT.md`.
 - **Consistency**: Unified experience across admin console and player interfaces
 
 ## Design Tokens
@@ -211,7 +211,7 @@ glass rounded-xl shadow-xl
 ## Accessibility
 
 ### Standards
-- WCAG 2.1 AA compliance
+- WCAG AA design goal, not a blanket certification claim
 - Minimum contrast ratio: 4.5:1
 - Color not used as sole differentiator
 
@@ -267,3 +267,14 @@ glass rounded-xl shadow-xl
 - Semantic color usage (success, warning, error)
 
 This design system ensures a cohesive, accessible, and scalable UI across the AccelRestaurants platform, supporting both complex slide editing and streamlined player interfaces while maintaining brand consistency.
+
+
+## September 2026 HIG remediation conventions
+
+Use `AccessibleDialog` for new application dialogs and `InlineFeedback` for persistent task results. A close/cancel action must never create a resource; offer a separately named creation action. Prefer real links for destinations and buttons for mutations. Expose expanded, selected and toggle states. Icon-only controls need an action-and-object accessible name.
+
+Application controls target 44 CSS-pixel hit regions and retain a visible focus outline. Buttons use dark orange #C2410C with white text; orange text on dark surfaces uses #FB923C. These are UI contrast tokens, not replacements for customer-authored slide colors. Admin panels prioritize solid surfaces and restrained motion.
+
+Keep complex tools discoverable with search, grouped disclosures and explicit Tiles/Inspector toggles. Always provide non-drag controls for core authoring tasks. Respect prefers-reduced-motion; do not rely on motion alone for status. UI-only CSS is scoped under ApplicationSurface, excluding the player route and rendered signage content.
+
+See [focused audit](design/APPLE_HIG_AUDIT.md) and [regression tests](../tests/hig/README.md) for coverage and outstanding device acceptance.

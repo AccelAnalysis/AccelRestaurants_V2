@@ -1,3 +1,4 @@
+import { InlineFeedback } from '../atoms/InlineFeedback';
 import { useEffect, useState, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { MenuService } from '../../services/menuService';
@@ -20,6 +21,7 @@ export const MenuListView = () => {
     
     try {
       setLoading(true);
+      setError(null);
       const data = await MenuService.getMenus(organization.id);
       setMenus(data);
     } catch {
@@ -40,7 +42,7 @@ export const MenuListView = () => {
         await MenuService.deleteMenu(id);
         fetchMenus();
       } catch {
-        alert('Failed to delete menu');
+        setError('Failed to delete menu. Please try again.');
       }
     }
   };
@@ -60,15 +62,13 @@ export const MenuListView = () => {
   );
 
   if (loading) return (
-    <div className="flex items-center justify-center h-64">
+    <div role="status" className="flex items-center justify-center gap-3 h-64">Loading menus...
       <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
     </div>
   );
 
   if (error) return (
-    <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-500 rounded-lg">
-      Error: {error}
-    </div>
+    <InlineFeedback tone="error" message={error}><button type="button" className="ui-button ui-button-secondary ml-3" onClick={() => void fetchMenus()}>Try again</button></InlineFeedback>
   );
 
   return (
@@ -76,7 +76,8 @@ export const MenuListView = () => {
       {showTemplateModal && (
         <TemplateSelectorModal 
           type="menu" 
-          onClose={handleCreateNew} 
+          onClose={() => setShowTemplateModal(false)}
+          onCreateBlank={handleCreateNew}
           onImport={handleTemplateImport} 
         />
       )}
@@ -101,7 +102,7 @@ export const MenuListView = () => {
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-text-muted" size={18} />
         <input 
           type="text" 
-          placeholder="Search menus..." 
+          aria-label="Search menus" placeholder="Search menus..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="w-full md:w-96 bg-surface border border-surface-highlight rounded-lg pl-10 pr-4 py-2.5 text-text focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all placeholder:text-text-muted/50"
@@ -131,11 +132,11 @@ export const MenuListView = () => {
           {filteredMenus.map((menu) => (
             <div 
               key={menu.id} 
-              className="group bg-surface rounded-xl border border-surface-highlight hover:border-primary/50 transition-all cursor-pointer overflow-hidden hover:shadow-lg hover:shadow-primary/5 relative"
-              onClick={() => navigate(`/admin/menus/${menu.id}`)}
+              className="group bg-surface rounded-xl border border-surface-highlight hover:border-primary/50 transition-all overflow-hidden hover:shadow-lg hover:shadow-primary/5 relative"
+
             >
-              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
-                <button 
+              <div className="absolute top-2 right-2  z-20">
+                <button aria-label={`Delete ${menu.name}`}
                   onClick={(e) => handleDelete(e, menu.id)}
                   className="p-1.5 bg-black/50 hover:bg-error/80 text-white rounded-md backdrop-blur-sm transition-colors"
                   title="Delete Menu"
@@ -149,7 +150,7 @@ export const MenuListView = () => {
               </div>
               
               <div className="p-5">
-                <h3 className="text-lg font-bold text-text mb-2 group-hover:text-primary transition-colors">{menu.name}</h3>
+                <h3 className="text-lg font-bold text-text mb-2 group-hover:text-primary transition-colors"><Link to={`/admin/menus/${menu.id}`} className="inline-flex items-center min-h-11">{menu.name}</Link></h3>
                 <div className="flex items-center justify-between text-sm text-text-muted">
                   <span>{menu.sections?.length || 0} Sections</span>
                   <span className="flex items-center gap-1 text-xs bg-surface-highlight/30 px-2 py-1 rounded">

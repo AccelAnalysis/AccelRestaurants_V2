@@ -3,6 +3,7 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswor
 import { auth } from '../lib/firebase';
 import { useNavigate } from 'react-router-dom';
 import logo from '../assets/logo.png';
+import { InlineFeedback } from '../components/atoms/InlineFeedback';
 
 export const LoginPage = () => {
   const navigate = useNavigate();
@@ -35,17 +36,16 @@ export const LoginPage = () => {
       }
       navigate('/onboarding');
     } catch (err) {
-      setError((err as Error).message || 'Authentication failed');
+      const code = (err as { code?: string }).code;
+      setError(code === 'auth/network-request-failed' ? 'Connection lost. Check your connection and try again.' : code === 'auth/too-many-requests' ? 'Too many attempts. Please try again later.' : (isResetPassword ? 'We could not complete that request. Check your email and connection, then try again.' : 'We could not complete that request. Check your email and password, then try again.'));
     } finally {
-      if (!isResetPassword) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
   };
 
   return (
     <div className="min-h-screen bg-transparent text-text flex flex-col items-center justify-center p-4 bg-speed-pattern">
-      <div className="w-full max-w-md glass-panel p-8 border-surface-highlight">
+      <div className="w-full max-w-md glass-panel p-5 sm:p-8 border-surface-highlight">
         <div className="flex flex-col items-center mb-6">
           <img src={logo} alt="AccelRestaurants" className="h-12 w-auto object-contain mb-4" />
           <h1 className="text-3xl font-bold text-primary">AccelRestaurants</h1>
@@ -54,22 +54,14 @@ export const LoginPage = () => {
           {isResetPassword ? 'Reset Password' : (isSignUp ? 'Create Account' : 'Sign In')}
         </h2>
 
-        {error && (
-          <div className="bg-red-500/10 border border-red-500 text-red-500 p-3 rounded mb-4 text-sm">
-            {error}
-          </div>
-        )}
+        <InlineFeedback id="login-error" message={error} tone="error" />
+        <InlineFeedback message={successMessage} tone="success" />
 
-        {successMessage && (
-          <div className="bg-green-500/10 border border-green-500 text-green-500 p-3 rounded mb-4 text-sm">
-            {successMessage}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form aria-busy={loading} onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-text-muted mb-1">Email</label>
+            <label htmlFor="login-email" className="block text-sm font-medium text-text-muted mb-1">Email</label>
             <input
+              id="login-email" name="email" autoComplete="email" aria-describedby={error ? "login-error" : undefined}
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -80,8 +72,9 @@ export const LoginPage = () => {
           
           {!isResetPassword && (
             <div>
-              <label className="block text-sm font-medium text-text-muted mb-1">Password</label>
+              <label htmlFor="login-password" className="block text-sm font-medium text-text-muted mb-1">Password</label>
               <input
+                id="login-password" name="password" autoComplete={isSignUp ? "new-password" : "current-password"}
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
