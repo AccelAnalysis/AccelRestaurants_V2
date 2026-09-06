@@ -1,4 +1,4 @@
-import * as functionsTest from 'firebase-functions-test';
+import firebaseFunctionsTest from 'firebase-functions-test';
 
 // Mock Firebase Admin before loading the Functions module. The current unit
 // tests exercise authorization/validation paths and should not require a real
@@ -45,10 +45,10 @@ jest.mock('firebase-admin', () => {
 });
 
 // Offline mode: no Firebase project ID or service-account.json is required.
-const testEnv = functionsTest.default();
+const testEnv = firebaseFunctionsTest();
 
-// Load the Functions module only after mocks and the offline test environment
-// are established.
+// Firebase recommends loading the Functions module after the offline test SDK
+// and Admin SDK stubs are established.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const myFunctions = require('./index') as typeof import('./index');
 
