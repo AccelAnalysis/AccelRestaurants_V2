@@ -1,3 +1,4 @@
+import { useBrandStyle } from '../../hooks/useBrandStyle';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useRef, type ReactNode } from 'react';
 
@@ -14,6 +15,7 @@ interface AccessibleDialogProps {
 /** One dialog pattern: named, focus-contained, Escape-dismissable, and focus-restoring. */
 export const AccessibleDialog = ({ title, description, onClose, children, busy = false,
   closeLabel = 'Close', wide = false }: AccessibleDialogProps) => {
+  const style = useBrandStyle();
   const returnFocus = useRef<HTMLElement | null>(
     typeof document === 'undefined' ? null : document.activeElement as HTMLElement
   );
@@ -21,7 +23,7 @@ export const AccessibleDialog = ({ title, description, onClose, children, busy =
     <Dialog.Root open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[100] bg-black/70" />
-        <Dialog.Content className={`app-ui ui-dialog ${wide ? 'ui-dialog-wide' : ''}`}
+        <Dialog.Content style={style} className={`app-ui ui-dialog ${wide ? 'ui-dialog-wide' : ''}`}
           onCloseAutoFocus={(event) => {
             if (returnFocus.current?.isConnected) { event.preventDefault(); returnFocus.current.focus(); }
           }}

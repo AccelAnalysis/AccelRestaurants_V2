@@ -58,6 +58,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       set({ planConfigs: configs, loading: false });
     } catch {
       set({ error: 'Failed to save system configuration', loading: false });
+      throw new Error('Could not save plan settings. Your edits are still here. Try again.');
     }
   },
 
@@ -68,6 +69,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       set({ generalConfig: { ...get().generalConfig, ...config }, loading: false });
     } catch {
       set({ error: 'Failed to save general configuration', loading: false });
+      throw new Error('Could not save general settings. Your edits are still here. Try again.');
     }
   },
 

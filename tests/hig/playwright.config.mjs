@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export default defineConfig({
-  testDir: '.', testMatch: 'hig.spec.mjs', timeout: 30000, retries: 0, workers: 2,
+  testDir: '.', testMatch: '*.spec.mjs', timeout: 30000, retries: 0, workers: 2,
   reporter: [['list'], ['html', { outputFolder: 'report', open: 'never' }]], outputDir: 'results',
   use: { baseURL: 'http://127.0.0.1:4173', trace: 'retain-on-failure', screenshot: 'only-on-failure' },
   projects: [

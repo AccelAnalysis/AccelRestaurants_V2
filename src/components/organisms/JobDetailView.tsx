@@ -1,3 +1,6 @@
+import { useFeedback } from '../../hooks/useFeedback';
+import { FeedbackRegion } from '../atoms/FeedbackRegion';
+import { useConfirmation } from '../../hooks/useConfirmation';
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
@@ -18,10 +21,13 @@ import { useAuthStore } from '../../store/useAuthStore';
 import type { DesignJob, DesignSubmission } from '../../types/schema';
 
 export const JobDetailView = () => {
+  const { feedback, notify } = useFeedback();
+  const { requestText, confirmation } = useConfirmation();
   const { jobId } = useParams();
   const navigate = useNavigate();
   const { user, organization } = useAuthStore();
   
+  const [loadError, setLoadError] = useState(false);
   const [job, setJob] = useState<DesignJob | null>(null);
   const [submissions, setSubmissions] = useState<DesignSubmission[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,6 +38,7 @@ export const JobDetailView = () => {
 
   const fetchJobDetails = useCallback(async () => {
     if (!jobId) return;
+    setLoadError(false);
     try {
       const [jobData, submissionsData] = await Promise.all([
         JobService.getJob(jobId),
@@ -40,11 +47,11 @@ export const JobDetailView = () => {
       setJob(jobData);
       setSubmissions(submissionsData);
     } catch {
-      // Silent fail, UI will show 'Job not found' if job remains null
+      setLoadError(true); notify('Could not load the job. Try again.', 'error');
     } finally {
       setLoading(false);
     }
-  }, [jobId]);
+  }, [jobId, notify]);
 
   useEffect(() => {
     void fetchJobDetails();
@@ -58,7 +65,7 @@ export const JobDetailView = () => {
 
   const handleSubmitDesign = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!job || !user || selectedFiles.length === 0) return;
+    if (uploading || !job || !user || selectedFiles.length === 0) return;
 
     setUploading(true);
     try {
@@ -82,33 +89,34 @@ export const JobDetailView = () => {
       await fetchJobDetails();
       setSubmissionMessage('');
       setSelectedFiles([]);
-      alert('Design submitted successfully!');
+      notify('Design submitted successfully!', 'success');
     } catch {
-      alert('Failed to submit design');
+      notify('Failed to submit design', 'error');
     } finally {
       setUploading(false);
     }
   };
 
   const handleReview = async (submissionId: string, status: 'approved' | 'rejected') => {
-    if (!jobId) return;
+    if (!jobId || reviewingId) return;
     
-    const feedback = status === 'rejected' ? prompt('Please provide feedback for the designer:') : undefined;
+    const feedback = status === 'rejected' ? (await requestText('Please provide feedback for the designer:')) : undefined;
     if (status === 'rejected' && !feedback) return; // specific feedback required for rejection
 
     try {
       setReviewingId(submissionId);
       await JobService.reviewSubmission(jobId, submissionId, status, feedback || undefined);
       await fetchJobDetails();
-      alert(`Submission ${status} successfully`);
+      notify(`Submission ${status} successfully`, 'success');
     } catch {
-      alert('Failed to review submission');
+      notify('Failed to review submission', 'error');
     } finally {
       setReviewingId(null);
     }
   };
 
-  if (loading) return <div className="p-8 text-center text-text-muted">Loading job details...</div>;
+  if (loading) return <div role="status" className="p-8 text-center text-text-muted">Loading job details...</div>;
+  if (loadError) return <div className="p-6"><FeedbackRegion feedback={feedback} onRetry={() => void fetchJobDetails()} /></div>;
   if (!job) return <div className="p-8 text-center text-text-muted">Job not found</div>;
 
   const isDesigner = user?.uid === job.designerId;
@@ -116,6 +124,8 @@ export const JobDetailView = () => {
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
+      <FeedbackRegion feedback={feedback} />
+      {confirmation}
       {/* Header */}
       <div>
         <button 
@@ -126,10 +136,10 @@ export const JobDetailView = () => {
           Back
         </button>
         
-        <div className="flex justify-between items-start">
+        <div className="flex flex-wrap gap-3 justify-between items-start">
           <div>
             <h1 className="text-3xl font-bold text-text mb-2">{job.title}</h1>
-            <div className="flex items-center gap-4 text-sm text-text-muted">
+            <div className="flex flex-wrap items-center gap-4 text-sm text-text-muted">
               <span className="flex items-center gap-1">
                 <Briefcase size={14} />
                 {job.orgName}
@@ -176,7 +186,7 @@ export const JobDetailView = () => {
             {submissions.length > 0 ? (
               submissions.map((submission) => (
                 <div key={submission.id} className="bg-surface border border-surface-highlight rounded-xl p-6">
-                  <div className="flex justify-between items-start mb-4">
+                  <div className="flex flex-wrap gap-3 justify-between items-start mb-4">
                     <div>
                       <h4 className="font-bold text-text">Version {submission.version}</h4>
                       <p className="text-xs text-text-muted">
@@ -263,7 +273,7 @@ export const JobDetailView = () => {
               <form onSubmit={handleSubmitDesign} className="space-y-4">
                 <div>
                   <label className="block text-xs text-text-muted uppercase tracking-wider mb-2">Message (Optional)</label>
-                  <textarea 
+                  <textarea aria-label={"Message (Optional)"}
                     value={submissionMessage}
                     onChange={(e) => setSubmissionMessage(e.target.value)}
                     className="w-full bg-background border border-surface-highlight rounded-lg px-3 py-2 text-text text-sm resize-none focus:border-primary focus:outline-none"
@@ -274,7 +284,7 @@ export const JobDetailView = () => {
 
                 <div>
                   <label className="block text-xs text-text-muted uppercase tracking-wider mb-2">Upload Files</label>
-                  <input 
+                  <input aria-label={"Upload Files"}
                     type="file" 
                     multiple
                     onChange={handleFileSelect}

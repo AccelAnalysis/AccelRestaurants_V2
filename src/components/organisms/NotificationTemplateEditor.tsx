@@ -1,27 +1,28 @@
-import { useState, useEffect } from 'react';
+import { useFeedback } from '../../hooks/useFeedback';
+import { FeedbackRegion } from '../atoms/FeedbackRegion';
+import { useState, useEffect, useCallback } from 'react';
 import { AdminService } from '../../services/adminService';
 import type { SystemTemplate } from '../../types/schema';
 import { Save, RefreshCw, AlertCircle } from 'lucide-react';
 
 export const NotificationTemplateEditor = () => {
+  const { feedback, notify } = useFeedback();
   const [templates, setTemplates] = useState<SystemTemplate[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<SystemTemplate | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    fetchTemplates();
-  }, []);
-
-  const fetchTemplates = async () => {
-    setLoading(true);
-    const data = await AdminService.getSystemTemplates();
-    setTemplates(data);
-    setLoading(false);
-  };
+  const [loadError, setLoadError] = useState(false);
+  const fetchTemplates = useCallback(async () => {
+    setLoading(true); setLoadError(false);
+    try { setTemplates(await AdminService.getSystemTemplates()); }
+    catch { setLoadError(true); notify('Could not load notification templates. Try again.', 'error'); }
+    finally { setLoading(false); }
+  }, [notify]);
+  useEffect(() => { void fetchTemplates(); }, [fetchTemplates]);
 
   const handleSave = async () => {
-    if (!selectedTemplate) return;
+    if (!selectedTemplate || saving) return;
 
     setSaving(true);
     try {
@@ -29,19 +30,21 @@ export const NotificationTemplateEditor = () => {
         subject: selectedTemplate.subject,
         content: selectedTemplate.content
       });
-      alert('Template saved successfully');
-      fetchTemplates(); // Refresh to ensure sync
+      notify('Template saved successfully', 'success');
+      setTemplates(items => items.map(item => item.id === selectedTemplate.id ? selectedTemplate : item));
     } catch {
-      alert('Failed to save template');
+      notify('Failed to save template', 'error');
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) return <div className="p-8 text-center text-text-muted">Loading templates...</div>;
+  if (loading) return <div role="status" className="p-8 text-center text-text-muted">Loading templates…</div>;
+  if (loadError) return <FeedbackRegion feedback={feedback} onRetry={() => void fetchTemplates()} />;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[600px]">
+    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 min-h-[600px]">
+      <div className="lg:col-span-4"><FeedbackRegion feedback={feedback} /></div>
       {/* Sidebar List */}
       <div className="bg-surface border border-surface-highlight rounded-xl overflow-hidden flex flex-col">
         <div className="p-4 border-b border-surface-highlight bg-surface-highlight/10">
@@ -50,12 +53,13 @@ export const NotificationTemplateEditor = () => {
         <div className="overflow-y-auto flex-1">
           {templates.length === 0 ? (
              <div className="p-4 text-sm text-text-muted text-center">
-               No templates found. <br/> Run database seed.
+               No notification templates are available yet.
              </div>
           ) : (
             templates.map(template => (
               <button
                 key={template.id}
+                disabled={saving} aria-pressed={selectedTemplate?.id === template.id}
                 onClick={() => setSelectedTemplate(template)}
                 className={`w-full text-left p-4 border-b border-surface-highlight hover:bg-surface-highlight/5 transition-colors ${
                   selectedTemplate?.id === template.id ? 'bg-primary/5 border-l-4 border-l-primary' : ''
@@ -73,10 +77,10 @@ export const NotificationTemplateEditor = () => {
       <div className="lg:col-span-3 bg-surface border border-surface-highlight rounded-xl flex flex-col overflow-hidden">
         {selectedTemplate ? (
           <>
-            <div className="p-6 border-b border-surface-highlight flex justify-between items-start bg-surface-highlight/5">
+            <div className="p-6 border-b border-surface-highlight flex flex-wrap gap-4 justify-between items-start bg-surface-highlight/5">
               <div>
                 <h2 className="text-xl font-bold text-text">{selectedTemplate.name}</h2>
-                <div className="flex gap-2 mt-2">
+                <div className="flex flex-wrap gap-2 mt-2">
                   {selectedTemplate.variables.map(v => (
                     <span key={v} className="px-2 py-1 bg-surface-highlight rounded text-xs font-mono text-text-muted">
                       {`{{${v}}}`}
@@ -90,7 +94,7 @@ export const NotificationTemplateEditor = () => {
                 className="flex items-center gap-2 bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
               >
                 {saving ? <RefreshCw className="animate-spin" size={18} /> : <Save size={18} />}
-                Save
+                {saving ? 'Saving…' : 'Save'}
               </button>
             </div>
 
@@ -98,7 +102,7 @@ export const NotificationTemplateEditor = () => {
               {selectedTemplate.type === 'email' && (
                 <div>
                   <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-2">Subject Line</label>
-                  <input
+                  <input disabled={saving} aria-label={"Subject Line"}
                     type="text"
                     value={selectedTemplate.subject || ''}
                     onChange={(e) => setSelectedTemplate({ ...selectedTemplate, subject: e.target.value })}
@@ -111,7 +115,7 @@ export const NotificationTemplateEditor = () => {
                 <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-2">
                   Content (HTML)
                 </label>
-                <textarea
+                <textarea disabled={saving} aria-label={"Content (HTML)"}
                   value={selectedTemplate.content}
                   onChange={(e) => setSelectedTemplate({ ...selectedTemplate, content: e.target.value })}
                   className="flex-1 w-full bg-background border border-surface-highlight rounded-lg p-4 font-mono text-sm text-text focus:border-primary focus:outline-none min-h-[300px]"

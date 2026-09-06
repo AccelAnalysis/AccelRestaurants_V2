@@ -1,3 +1,4 @@
+import { InlineFeedback } from '../components/atoms/InlineFeedback';
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '../store/useAuthStore';
@@ -20,7 +21,7 @@ export const JoinPage = () => {
   const inviteType = queryParams.get('type'); // 'org' or 'designer'
   const orgId = queryParams.get('orgId'); // Organization ID for direct document access
 
-  const [inviteState, setInviteState] = useState<'loading' | 'valid' | 'invalid' | 'expired'>('loading');
+  const [inviteState, setInviteState] = useState<'loading' | 'valid' | 'invalid' | 'expired' | 'error'>('loading');
   const [inviteDetails, setInviteDetails] = useState<{
     orgId?: string;
     orgName: string;
@@ -49,9 +50,13 @@ export const JoinPage = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [retry, setRetry] = useState(0);
+  useEffect(() => { setIsSubmitting(false); }, [user]);
+
   // Validate invite
   useEffect(() => {
     const validateInvite = async () => {
+      setInviteState('loading');
       if (!token || !inviteId) {
         setInviteState('invalid');
         return;
@@ -90,17 +95,17 @@ export const JoinPage = () => {
             setInviteState('invalid');
         }
       } catch {
-        setInviteState('invalid');
+        setInviteState('error');
       }
     };
 
     validateInvite();
-  }, [token, inviteId, inviteType, orgId]);
+  }, [token, inviteId, inviteType, orgId, retry]);
 
   const handleAccept = async () => {
-    if (!token || !inviteId) return;
+    if (!token || !inviteId || isSubmitting) return;
     const resolvedOrgId = inviteDetails?.orgId || orgId || undefined;
-    if (!resolvedOrgId) {
+    if (inviteDetails?.type !== 'designer' && !resolvedOrgId) {
       setError('Organization not found for this invitation. Please use the latest invite link.');
       return;
     }
@@ -128,6 +133,7 @@ export const JoinPage = () => {
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setError(null);
     setIsSubmitting(true);
 
@@ -170,12 +176,14 @@ export const JoinPage = () => {
     }
   };
 
+  if (inviteState === 'error') return <main className="max-w-md mx-auto p-6"><h1 className="text-2xl font-bold">Check your invitation</h1><InlineFeedback tone="error" message="We could not check this invitation. It may still be valid. Try again."><button className="ui-button ui-button-secondary" onClick={() => setRetry(v => v + 1)}>Retry</button></InlineFeedback></main>;
+
   if (inviteState === 'loading') {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center space-y-4">
           <Loader className="w-8 h-8 text-primary animate-spin mx-auto" />
-          <p className="text-text-muted">Validating invitation...</p>
+          <p role="status" className="text-text-muted">Validating invitation...</p>
         </div>
       </div>
     );
@@ -219,13 +227,13 @@ export const JoinPage = () => {
                   <AlertTriangle className="text-red-500 shrink-0 mt-0.5" size={18} />
                   <div className="space-y-1">
                     <p className="text-sm font-medium text-red-200">Wrong Account</p>
-                    <p className="text-xs text-red-200/70">
+                    <p className="text-xs text-red-200">
                       This invite was sent to <span className="font-bold">{inviteDetails.email}</span>, but you are signed in as <span className="font-bold">{user.email}</span>.
                     </p>
                   </div>
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={() => auth.signOut()} className="flex-1 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-200 text-xs rounded font-medium transition-colors">
+                    <button onClick={() => void auth.signOut().catch(() => setError('Could not sign out. Please try again.'))} className="flex-1 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-200 text-xs rounded font-medium transition-colors">
                         Sign Out
                     </button>
                 </div>
@@ -233,7 +241,7 @@ export const JoinPage = () => {
             ) : (
               <div className="space-y-6">
                 {error && (
-                  <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
+                  <div role="alert" className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
                     <div className="flex items-start gap-3">
                       <AlertTriangle className="text-red-500 shrink-0 mt-0.5" size={18} />
                       <p className="text-sm text-red-200">{error}</p>
@@ -298,13 +306,13 @@ export const JoinPage = () => {
 
         {/* Tabs */}
         <div className="flex border-b border-surface-highlight px-8">
-            <button 
+            <button aria-pressed={activeTab === 'signup'}
                 onClick={() => setActiveTab('signup')}
                 className={`flex-1 pb-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'signup' ? 'border-primary text-primary' : 'border-transparent text-text-muted hover:text-text'}`}
             >
                 Create Account
             </button>
-            <button 
+            <button aria-pressed={activeTab === 'signin'}
                 onClick={() => setActiveTab('signin')}
                 className={`flex-1 pb-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'signin' ? 'border-primary text-primary' : 'border-transparent text-text-muted hover:text-text'}`}
             >
@@ -317,7 +325,7 @@ export const JoinPage = () => {
                 {activeTab === 'signup' && (
                     <div>
                         <label className="text-xs font-bold text-text-muted uppercase tracking-wider mb-1 block">Full Name</label>
-                        <input 
+                        <input aria-label={"Full Name"}
                             type="text" 
                             required
                             value={formData.fullName}
@@ -329,7 +337,7 @@ export const JoinPage = () => {
                 
                 <div>
                     <label className="text-xs font-bold text-text-muted uppercase tracking-wider mb-1 block">Email</label>
-                    <input 
+                    <input aria-label={"Email"}
                         type="email" 
                         required
                         value={formData.email}
@@ -341,7 +349,7 @@ export const JoinPage = () => {
 
                 <div>
                     <label className="text-xs font-bold text-text-muted uppercase tracking-wider mb-1 block">Password</label>
-                    <input 
+                    <input aria-label={"Password"}
                         type="password" 
                         required
                         value={formData.password}
@@ -353,7 +361,7 @@ export const JoinPage = () => {
                 {activeTab === 'signup' && (
                     <div>
                         <label className="text-xs font-bold text-text-muted uppercase tracking-wider mb-1 block">Confirm Password</label>
-                        <input 
+                        <input aria-label={"Confirm Password"}
                             type="password" 
                             required
                             value={formData.confirmPassword}
@@ -374,7 +382,7 @@ export const JoinPage = () => {
                                 className="mt-1 accent-primary"
                             />
                             <label htmlFor="termsJoin" className="text-xs text-text-muted">
-                                I agree to the <Link to="/admin/kb/terms-of-service" target="_blank" className="text-primary hover:underline">Terms of Service</Link> and <Link to="/admin/kb/privacy-policy" target="_blank" className="text-primary hover:underline">Privacy Policy</Link>.
+                                I agree to the <Link to="/terms" target="_blank" className="text-primary hover:underline">Terms of Service</Link> and <Link to="/privacy" target="_blank" className="text-primary hover:underline">Privacy Policy</Link>.
                             </label>
                         </div>
                     </>

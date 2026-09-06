@@ -1,4 +1,8 @@
-import { useState, useEffect } from 'react';
+import { AccessibleDialog } from '../atoms/AccessibleDialog';
+import { useFeedback } from '../../hooks/useFeedback';
+import { FeedbackRegion } from '../atoms/FeedbackRegion';
+import { useConfirmation } from '../../hooks/useConfirmation';
+import { useState, useEffect, useCallback } from 'react';
 import { ArticleService, type Article } from '../../services/articleService';
 import { 
   Plus, 
@@ -6,13 +10,14 @@ import {
   Edit, 
   Trash2, 
   Book, 
-  X,
   Save,
   Loader2
 } from 'lucide-react';
 import { CATEGORIES, ARTICLES as STATIC_ARTICLES } from '../../data/knowledgeBaseArticles';
 
 export const ArticleManager = () => {
+  const { feedback, notify } = useFeedback();
+  const { confirmAction, confirmation } = useConfirmation();
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -21,25 +26,22 @@ export const ArticleManager = () => {
   const [saving, setSaving] = useState(false);
   const [migrating, setMigrating] = useState(false);
 
-  useEffect(() => {
-    fetchArticles();
-  }, []);
-
-  const fetchArticles = async () => {
+  const fetchArticles = useCallback(async () => {
     setLoading(true);
     try {
       const data = await ArticleService.getArticles();
       setArticles(data);
     } catch (error) {
       console.error('Failed to fetch articles:', error);
-      alert('Failed to load articles');
+      notify('Failed to load articles', 'error');
     } finally {
       setLoading(false);
     }
-  };
+  }, [notify]);
+  useEffect(() => { void fetchArticles(); }, [fetchArticles]);
 
   const handleMigrate = async () => {
-    if (!window.confirm('This will import all static articles to Firestore. Continue?')) return;
+    if (!(await confirmAction('This will import all static articles to Firestore. Continue?'))) return;
     setMigrating(true);
     try {
       let count = 0;
@@ -56,11 +58,11 @@ export const ArticleManager = () => {
           count++;
         }
       }
-      alert(`Migration complete. Imported ${count} articles.`);
+      notify(`Migration complete. Imported ${count} articles.`, 'success');
       fetchArticles();
     } catch (error) {
       console.error('Migration failed:', error);
-      alert('Migration failed');
+      notify('Migration failed', 'error');
     } finally {
       setMigrating(false);
     }
@@ -82,13 +84,13 @@ export const ArticleManager = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Are you sure you want to delete this article?')) return;
+    if (!(await confirmAction('Are you sure you want to delete this article?'))) return;
     try {
       await ArticleService.deleteArticle(id);
       setArticles(articles.filter(a => a.id !== id));
     } catch (error) {
       console.error('Failed to delete article:', error);
-      alert('Failed to delete article');
+      notify('Failed to delete article', 'error');
     }
   };
 
@@ -117,7 +119,7 @@ export const ArticleManager = () => {
       fetchArticles();
     } catch (error) {
       console.error('Failed to save article:', error);
-      alert('Failed to save article');
+      notify('Failed to save article', 'error');
     } finally {
       setSaving(false);
     }
@@ -130,10 +132,12 @@ export const ArticleManager = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div className="relative w-96">
+      <FeedbackRegion feedback={feedback} onRetry={!isEditing ? () => void fetchArticles() : undefined} />
+      {confirmation}
+      <div className="flex flex-wrap gap-3 justify-between items-center">
+        <div className="relative w-full sm:w-96">
           <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-          <input 
+          <input aria-label={"Search articles"}
             type="text" 
             placeholder="Search articles..." 
             value={searchTerm}
@@ -142,7 +146,7 @@ export const ArticleManager = () => {
           />
         </div>
         <div className="flex gap-2">
-          <button
+          <button aria-label={articles.length > 0 ? "Articles already exist" : "Import from static file"}
             onClick={handleMigrate}
             disabled={migrating || articles.length > 0}
             className="bg-surface border border-surface-highlight text-text hover:bg-surface-highlight px-4 py-2 rounded-lg flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -172,7 +176,7 @@ export const ArticleManager = () => {
       ) : (
         <div className="grid grid-cols-1 gap-4">
           {filteredArticles.map(article => (
-            <div key={article.id} className="bg-surface border border-surface-highlight rounded-lg p-4 flex justify-between items-center">
+            <div key={article.id} className="bg-surface border border-surface-highlight rounded-lg p-4 flex flex-wrap gap-3 justify-between items-center">
               <div>
                 <h3 className="font-bold text-text">{article.title}</h3>
                 <div className="flex items-center gap-2 mt-1">
@@ -185,13 +189,13 @@ export const ArticleManager = () => {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <button 
+                <button aria-label={`Edit ${article.title}`}
                   onClick={() => handleEdit(article)}
                   className="p-2 hover:bg-surface-highlight rounded text-text-muted hover:text-primary transition-colors"
                 >
                   <Edit size={18} />
                 </button>
-                <button 
+                <button aria-label={`Delete ${article.title}`}
                   onClick={() => handleDelete(article.id)}
                   className="p-2 hover:bg-surface-highlight rounded text-text-muted hover:text-red-500 transition-colors"
                 >
@@ -204,24 +208,15 @@ export const ArticleManager = () => {
       )}
 
       {isEditing && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface border border-surface-highlight rounded-xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl">
-            <div className="p-6 border-b border-surface-highlight flex justify-between items-center">
-              <h2 className="text-xl font-bold text-text">
-                {currentArticle.id ? 'Edit Article' : 'New Article'}
-              </h2>
-              <button 
-                onClick={() => setIsEditing(false)}
-                className="p-2 hover:bg-surface-highlight rounded-lg text-text-muted hover:text-text"
-              >
-                <X size={20} />
-              </button>
-            </div>
+        <AccessibleDialog title={currentArticle.id ? "Edit article" : "New article"} description="Update the article, then save your changes." onClose={() => setIsEditing(false)} busy={saving} wide>
+
+        <FeedbackRegion feedback={feedback} onRetry={!isEditing ? () => void fetchArticles() : undefined} />
+
             
             <form onSubmit={handleSave} className="flex-1 overflow-y-auto p-6 space-y-4">
               <div>
                 <label className="block text-xs text-text-muted uppercase tracking-wider mb-2">Title</label>
-                <input
+                <input aria-label={"Title"}
                   type="text"
                   value={currentArticle.title}
                   onChange={(e) => setCurrentArticle({ ...currentArticle, title: e.target.value })}
@@ -233,7 +228,7 @@ export const ArticleManager = () => {
 
               <div>
                 <label className="block text-xs text-text-muted uppercase tracking-wider mb-2">Category</label>
-                <select
+                <select aria-label={"Category"}
                   value={currentArticle.category}
                   onChange={(e) => setCurrentArticle({ ...currentArticle, category: e.target.value })}
                   className="w-full bg-background border border-surface-highlight rounded-lg px-4 py-2 text-text focus:border-primary focus:outline-none"
@@ -247,7 +242,7 @@ export const ArticleManager = () => {
 
               <div>
                 <label className="block text-xs text-text-muted uppercase tracking-wider mb-2">Description</label>
-                <input
+                <input aria-label={"Description"}
                   type="text"
                   value={currentArticle.description}
                   onChange={(e) => setCurrentArticle({ ...currentArticle, description: e.target.value })}
@@ -258,7 +253,7 @@ export const ArticleManager = () => {
 
               <div>
                 <label className="block text-xs text-text-muted uppercase tracking-wider mb-2">Content (HTML/Markdown support)</label>
-                <textarea
+                <textarea aria-label={"Content (HTML/Markdown support)"}
                   value={currentArticle.content}
                   onChange={(e) => setCurrentArticle({ ...currentArticle, content: e.target.value })}
                   placeholder="# Heading\n\nContent goes here..."
@@ -270,7 +265,7 @@ export const ArticleManager = () => {
               <div className="flex justify-end gap-3 pt-4 border-t border-surface-highlight">
                 <button 
                   type="button"
-                  onClick={() => setIsEditing(false)}
+                  disabled={saving} onClick={() => setIsEditing(false)}
                   className="px-4 py-2 text-text-muted hover:text-text transition-colors"
                 >
                   Cancel
@@ -286,8 +281,7 @@ export const ArticleManager = () => {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+          </AccessibleDialog>
       )}
     </div>
   );

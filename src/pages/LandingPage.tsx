@@ -75,12 +75,7 @@ export const LandingPage = () => {
   return (
     <div
       className="min-h-screen bg-transparent text-text font-sans selection:bg-primary selection:text-white overflow-x-hidden bg-speed-pattern"
-      style={
-        {
-          ['--primary-color' as string]: generalConfig?.primaryBrandColor || '#EA580C',
-          ['--primary-color-hover' as string]: generalConfig?.primaryBrandColor || '#DC2626', // Fallback/Match for now
-        } as React.CSSProperties
-      }
+
     >
       {/* Navigation */}
       <nav className="fixed w-full z-50 glass border-b-0">

@@ -1,9 +1,11 @@
+import { InlineFeedback } from '../atoms/InlineFeedback';
+import { useFeedback } from '../../hooks/useFeedback';
+import { FeedbackRegion } from '../atoms/FeedbackRegion';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Star, 
   Search,
-  Filter,
   Plus
 } from 'lucide-react';
 import { DesignerService } from '../../services/designerService';
@@ -13,8 +15,11 @@ import { useAuthStore } from '../../store/useAuthStore';
 import { JobCreationModal } from './JobCreationModal';
 
 export const DesignerMarketplace = () => {
+  const { feedback, notify } = useFeedback();
   const navigate = useNavigate();
   const { organization } = useAuthStore();
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [designers, setDesigners] = useState<DesignerProfile[]>([]);
   const [activeJobs, setActiveJobs] = useState<DesignJob[]>([]);
   const [activeTab, setActiveTab] = useState<'browse' | 'jobs'>('browse');
@@ -24,7 +29,7 @@ export const DesignerMarketplace = () => {
   const [selectedDesigner, setSelectedDesigner] = useState<DesignerProfile | undefined>(undefined);
 
   const fetchData = async () => {
-    // setLoading(true); // Removed as loading state is unused in UI currently
+    setLoading(true); setLoadError(false);
     try {
       const [designersData, jobsData] = await Promise.all([
         DesignerService.getActiveDesigners(),
@@ -33,9 +38,9 @@ export const DesignerMarketplace = () => {
       setDesigners(designersData);
       setActiveJobs(jobsData);
     } catch {
-      // Silent fail
+      setLoadError(true);
     } finally {
-      // setLoading(false);
+      setLoading(false);
     }
   };
 
@@ -43,7 +48,7 @@ export const DesignerMarketplace = () => {
     // Check for payment success
     const params = new URLSearchParams(window.location.search);
     if (params.get('payment_success') === 'true') {
-      alert('Payment successful! Your job has been posted.');
+      notify('Returned from checkout. Job status below is confirmed by the service; the return link is not proof of payment.', 'info');
       // Clean URL
       window.history.replaceState({}, '', window.location.pathname);
     }
@@ -73,7 +78,8 @@ export const DesignerMarketplace = () => {
   );
 
   return (
-    <div className="space-y-8">
+    <div className="full-hig-page space-y-8">
+      <FeedbackRegion feedback={feedback} />
       {showJobModal && (
         <JobCreationModal 
           onClose={() => setShowJobModal(false)} 
@@ -82,6 +88,8 @@ export const DesignerMarketplace = () => {
         />
       )}
 
+      <InlineFeedback message={loading ? 'Loading designers and jobs…' : null} />
+      <InlineFeedback tone="error" message={loadError ? 'Designers and jobs could not be loaded.' : null}><button className="ui-button ui-button-secondary ml-3" onClick={() => void fetchData()}>Retry</button></InlineFeedback>
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -89,9 +97,9 @@ export const DesignerMarketplace = () => {
           <p className="text-text-muted">Hire professional designers for your menus and marketing</p>
         </div>
         
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <div className="bg-surface border border-surface-highlight rounded-lg p-1 flex">
-            <button
+            <button aria-pressed={activeTab === 'browse'}
               onClick={() => setActiveTab('browse')}
               className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                 activeTab === 'browse' 
@@ -101,7 +109,7 @@ export const DesignerMarketplace = () => {
             >
               Browse Designers
             </button>
-            <button
+            <button aria-pressed={activeTab === 'jobs'}
               onClick={() => setActiveTab('jobs')}
               className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                 activeTab === 'jobs' 
@@ -121,7 +129,7 @@ export const DesignerMarketplace = () => {
           <div className="flex gap-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
-              <input 
+              <input aria-label={"Search designers by name or specialty"}
                 type="text" 
                 placeholder="Search by name or specialty (e.g. 'Menu Design')"
                 value={searchQuery}
@@ -129,12 +137,10 @@ export const DesignerMarketplace = () => {
                 className="w-full bg-surface border border-surface-highlight rounded-lg pl-10 pr-4 py-3 text-text focus:outline-none focus:border-primary"
               />
             </div>
-            <button className="px-4 py-2 bg-surface border border-surface-highlight rounded-lg text-text-muted hover:text-text flex items-center gap-2">
-              <Filter size={18} />
-              Filters
-            </button>
+
           </div>
 
+          {!loading && !loadError && filteredDesigners.length === 0 && <p role="status">{searchQuery ? 'No matching designers. Try another name or specialty.' : 'No designers are available yet.'}</p>}
           {/* Designers Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredDesigners.map(designer => (
@@ -187,7 +193,7 @@ export const DesignerMarketplace = () => {
                       <span className="font-bold text-text">${designer.rates?.menuDesign || 50}</span>
                     </div>
                     <button 
-                      onClick={() => handleHireClick(designer)}
+                      disabled={!organization || loading} aria-label={`Hire ${designer.displayName}`} onClick={() => handleHireClick(designer)}
                       className="px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-lg text-sm font-medium transition-colors"
                     >
                       Hire Now

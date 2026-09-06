@@ -82,13 +82,13 @@ export const PricingPage = () => {
   return (
     <div className="min-h-screen bg-background text-text">
        {/* Navigation */}
-       <nav className="fixed w-full z-50 bg-background/80 backdrop-blur-md border-b border-surface-highlight">
+       <nav className="w-full z-50 bg-background/80 backdrop-blur-md border-b border-surface-highlight">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center cursor-pointer" onClick={() => navigate('/')}>
+          <div className="flex flex-wrap gap-3 justify-between items-center py-4">
+            <button type="button" className="flex items-center cursor-pointer" onClick={() => navigate('/')}>
               <span className="text-2xl font-bold text-primary tracking-tight">AccelRestaurants</span>
-            </div>
-            <div className="hidden md:flex items-center space-x-8">
+            </button>
+            <div className="flex flex-wrap items-center gap-4">
                <button onClick={() => navigate('/')} className="text-sm font-medium hover:text-primary transition-colors">Home</button>
                <button onClick={() => navigate('/login')} className="text-sm font-medium hover:text-primary transition-colors">Log In</button>
                <button onClick={() => navigate('/onboarding')} className="bg-primary hover:bg-primary-hover text-white text-sm font-bold py-2 px-4 rounded-full transition-all">Start Free</button>
@@ -97,7 +97,7 @@ export const PricingPage = () => {
         </div>
       </nav>
 
-      <div className="pt-32 pb-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+      <div className="pt-12 pb-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
         <div className="text-center mb-16">
           <h1 className="text-4xl md:text-5xl font-bold mb-6">Simple, transparent pricing</h1>
           <p className="text-xl text-text-muted max-w-2xl mx-auto">
@@ -115,7 +115,7 @@ export const PricingPage = () => {
                 <label className="font-bold">Number of Screens</label>
                 <span className="text-primary font-bold text-xl">{screens}</span>
               </div>
-              <input 
+              <input aria-label={"Number of screens"}
                 type="range" 
                 min="1" 
                 max="50" 
@@ -134,7 +134,7 @@ export const PricingPage = () => {
                 <label className="font-bold">Team Members</label>
                 <span className="text-primary font-bold text-xl">{seats}</span>
               </div>
-              <input 
+              <input aria-label={"Number of team members"}
                 type="range" 
                 min="1" 
                 max="20" 
@@ -162,14 +162,14 @@ export const PricingPage = () => {
             const config = PLAN_CONFIGS[planName];
             const costData = calculateCost(planName, config);
             const isRecommended = recommendedPlan === planName;
-            const isInvalid = costData.invalid !== null;
+            const isInvalid = Boolean(costData.invalid);
 
             return (
               <div 
                 key={planName} 
                 className={`relative flex flex-col p-6 rounded-2xl border transition-all duration-300 ${
                   isRecommended 
-                    ? 'border-primary bg-surface shadow-2xl scale-105 z-10' 
+                    ? 'border-primary bg-surface shadow-2xl z-10'
                     : isInvalid
                       ? 'border-surface-highlight bg-surface/30 opacity-50'
                       : 'border-surface-highlight bg-surface hover:border-primary/50'
@@ -237,7 +237,7 @@ export const PricingPage = () => {
                 </div>
 
                 <button 
-                  onClick={() => navigate('/onboarding', { state: { plan: planName, screens, seats } })}
+                  aria-label={planName === 'Franchise' ? 'Contact sales for Franchise' : `Choose ${planName} plan`} onClick={() => planName === 'Franchise' ? navigate('/#contact') : navigate('/onboarding', { state: { plan: planName, screens, seats } })}
                   disabled={!!costData.invalid}
                   className={`w-full py-3 rounded-lg font-bold transition-colors ${
                     isRecommended 

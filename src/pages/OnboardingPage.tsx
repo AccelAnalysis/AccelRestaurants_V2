@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuthStore } from '../store/useAuthStore';
 import { auth, db } from '../lib/firebase';
@@ -7,8 +7,8 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { BillingService } from '../services/billingService';
 import { PLAN_CONFIGS } from '../lib/plans';
 import type { PlanType, PlanLimits } from '../lib/plans';
-import type { Template } from '../types/schema';
-import { TemplateService } from '../services/templateService';
+import { TemplateSelectorModal } from '../components/organisms/TemplateSelectorModal';
+import { InlineFeedback } from '../components/atoms/InlineFeedback';
 import { 
   CheckCircle2, 
   ArrowRight, 
@@ -78,14 +78,11 @@ export const OnboardingPage = () => {
   const [selectedPlan, setSelectedPlan] = useState<PlanType>('Free');
   const [screens, setScreens] = useState(1);
   const [seats, setSeats] = useState(1);
-  const [planSelected, setPlanSelected] = useState(false);
-  const [selectedTemplate] = useState<Template | null>(null);
   const [showTemplateSelector, setShowTemplateSelector] = useState(false);
-  const [, setImportingTemplate] = useState(false);
 
   // Calculate costs dynamically
   const calculateCost = useCallback((planName: PlanType, config: PlanLimits) => {
-    if (planName === 'Franchise') return { total: 0, breakdown: [] };
+    if (planName === 'Franchise') return { total: 0, breakdown: [], invalid: null };
     
     let total = config.price;
     const breakdown = [{ label: `Base Plan (${planName})`, price: config.price }];
@@ -160,31 +157,25 @@ export const OnboardingPage = () => {
     }
   }, [billingSameAsOrg, orgAddress]);
 
-  // Determine current step based on auth/org status
+  const headingRef = useRef<HTMLDivElement>(null);
+  const initializedAccount = useRef<string | null>(null);
+  // Initialize a returning account once. A profile refresh must not undo progress.
   useEffect(() => {
-    if (user) {
-      if (organization?.isSetupComplete) {
-        // Already setup, redirect to admin
-        navigate('/admin');
-      } else if (organization) {
-        // Has org but not setup, go to step 2 or 3
-        if (!organization.industry) { // Assuming industry is a required field for setup
-            setStep(2);
-        } else {
-            setStep(3);
-        }
-      } else {
-        // Logged in but no org (shouldn't happen with auto-create, but handle it)
-        setStep(2); 
-      }
-    } else {
-      setStep(1);
-    }
-  }, [user, organization, navigate, planSelected]);
+    if (!user) { initializedAccount.current = null; setStep(1); return; }
+    if (organization?.isSetupComplete) { navigate('/admin'); return; }
+    if (!organization || initializedAccount.current === user.uid) return;
+    initializedAccount.current = user.uid;
+    setOrgData({ name: organization.name || '', industry: organization.industry || 'Restaurant', timezone: organization.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone });
+    if (organization.address) setOrgAddress({ street: '', city: '', state: '', zipCode: '', country: '', ...organization.address });
+    setStep(organization.industry ? 3 : 2);
+    setLoading(false);
+  }, [user, organization, navigate]);
+  useEffect(() => { headingRef.current?.focus(); }, [step]);
 
   // Handlers
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     if (!agreedToTerms) {
         setError('You must agree to the Terms of Service and Privacy Policy.');
         return;
@@ -205,6 +196,7 @@ export const OnboardingPage = () => {
 
   const handleOrgSetup = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
     setError(null);
     
@@ -249,6 +241,10 @@ export const OnboardingPage = () => {
   };
 
   const handlePlanSelection = async () => {
+    if (loading) return;
+    if (selectedPlan === 'Franchise') { navigate('/#contact'); return; }
+    const selection = calculateCost(selectedPlan, PLAN_CONFIGS[selectedPlan]);
+    if (selection.invalid) { setError(selection.invalid + '. Choose a suitable plan or reduce the quantities.'); return; }
     setLoading(true);
     setError(null);
 
@@ -267,7 +263,6 @@ export const OnboardingPage = () => {
                 plan: 'Free',
                 screenCount: 0,
             });
-            setPlanSelected(true);
             setStep(4); // Move to content step
             setLoading(false);
             return;
@@ -316,73 +311,52 @@ export const OnboardingPage = () => {
     }
   };
 
-  const handleContentSetup = async (option: 'template' | 'scratch' | 'designer') => {
-    if (option === 'scratch') {
-        await finishOnboarding();
-    } else if (option === 'template') {
-        setShowTemplateSelector(true);
-    } else if (option === 'designer') {
-        // Just finish and maybe set a flag or redirect to designer market
-        await finishOnboarding();
-        navigate('/admin/designers');
-        return;
-    }
-  };
-
-  const finishOnboarding = async () => {
-    if (!organization?.id) return;
-    setLoading(true);
+  const finishOnboarding = async (destination = '/admin') => {
+    if (loading || !organization?.id) return;
+    setLoading(true); setError(null);
     try {
-        const orgRef = doc(db, 'organizations', organization.id);
-        await updateDoc(orgRef, {
-            isSetupComplete: true
-        });
-        
-        // If there is a pre-selected template and we are just confirming it
-        if (selectedTemplate && !showTemplateSelector) {
-             setImportingTemplate(true);
-             await TemplateService.importTemplate(selectedTemplate.id, organization.id);
-        }
-
-        navigate('/admin');
-    } catch (err) {
-        console.error('Failed to finish onboarding:', err);
-        setError('Failed to finalize setup. Please try again.');
-    } finally {
-        setLoading(false);
-        setImportingTemplate(false);
-    }
+      await updateDoc(doc(db, 'organizations', organization.id), { isSetupComplete: true });
+      navigate(destination);
+    } catch {
+      setError('Could not finish setup. Your choices are still here. Try again.');
+    } finally { setLoading(false); }
+  };
+  const handleContentSetup = async (option: 'template' | 'scratch' | 'designer') => {
+    if (loading) return;
+    if (option === 'template') { setShowTemplateSelector(true); return; }
+    await finishOnboarding(option === 'designer' ? '/admin/designers' : '/admin');
   };
 
   // Render Steps
   return (
     <div className="min-h-screen bg-transparent text-text flex flex-col bg-speed-pattern">
       {/* Simple Header */}
-      <header className="h-16 glass border-b-0 flex items-center px-8">
+      <header className="glass border-b-0 flex flex-wrap gap-4 items-center p-4 sm:px-8">
         <div className="flex items-center gap-2">
           <img src={logo} alt="AccelRestaurants" className="h-6 w-auto object-contain" />
           <span className="text-xl font-bold text-primary">AccelRestaurants</span>
         </div>
-        <div className="ml-auto hidden md:flex items-center gap-4 text-sm text-text-muted">
-            <span className={step >= 1 ? 'text-primary font-bold' : ''}>1. Account</span>
-            <span className="text-surface-highlight">/</span>
-            <span className={step >= 2 ? 'text-primary font-bold' : ''}>2. Organization</span>
-            <span className="text-surface-highlight">/</span>
-            <span className={step >= 3 ? 'text-primary font-bold' : ''}>3. Plan</span>
-            <span className="text-surface-highlight">/</span>
-            <span className={step >= 4 ? 'text-primary font-bold' : ''}>4. Content</span>
-        </div>
+        <nav aria-label="Setup progress" className="text-sm w-full md:w-auto md:ml-auto">
+          <p className="mb-2">Step {step} of 4</p>
+          <ol className="flex flex-wrap gap-x-4 gap-y-2">
+            {['Account','Organization','Plan','Content'].map((label, index) => <li key={label} aria-current={step === index + 1 ? 'step' : undefined} className={step === index + 1 ? 'font-bold text-primary' : 'text-text-secondary'}>{index + 1}. {label}</li>)}
+          </ol>
+        </nav>
       </header>
 
       <main className="flex-1 flex items-center justify-center p-4">
-        <div className={`w-full transition-all duration-300 ${step >= 3 ? 'max-w-7xl' : 'max-w-2xl'}`}>
+        <div ref={headingRef} tabIndex={-1} aria-label={`Setup step ${step}`} className={`w-full transition-all duration-300 ${step >= 3 ? 'max-w-7xl' : 'max-w-2xl'}`}>
+            <InlineFeedback message={error} tone="error" />
+            <InlineFeedback message={loading ? 'Saving your choices…' : null} />
+            {new URLSearchParams(location.search).has('canceled') && <InlineFeedback message="Checkout was cancelled. You can choose a plan again." />}
+            {showTemplateSelector && <TemplateSelectorModal type="slide" onClose={() => setShowTemplateSelector(false)} onCreateBlank={() => { setShowTemplateSelector(false); void finishOnboarding(); }} onImport={id => { setShowTemplateSelector(false); void finishOnboarding(`/admin/slides/${id}`); }} />}
             {step === 1 && (
-                <div className="glass-panel p-8 border-surface-highlight shadow-xl animate-in fade-in slide-in-from-bottom-4">
+                <div className="glass-panel p-4 sm:p-8 border-surface-highlight shadow-xl animate-in fade-in slide-in-from-bottom-4">
                     <h2 className="text-2xl font-bold mb-6">Create your account</h2>
                     <form onSubmit={handleSignup} className="space-y-4">
                         <div>
                             <label className="block text-sm font-bold text-text-muted mb-1">Full Name</label>
-                            <input 
+                            <input autoComplete="name" aria-label={"Full Name"}
                                 type="text"
                                 required 
                                 className="w-full bg-surface/50 border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
@@ -392,7 +366,7 @@ export const OnboardingPage = () => {
                         </div>
                         <div>
                             <label className="block text-sm font-bold text-text-muted mb-1">Email</label>
-                            <input 
+                            <input autoComplete="email" aria-label={"Email"}
                                 type="email"
                                 required 
                                 className="w-full bg-surface/50 border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
@@ -402,7 +376,7 @@ export const OnboardingPage = () => {
                         </div>
                         <div>
                             <label className="block text-sm font-bold text-text-muted mb-1">Password</label>
-                            <input 
+                            <input autoComplete="new-password" aria-label={"Password"}
                                 type="password"
                                 required 
                                 minLength={6}
@@ -412,7 +386,7 @@ export const OnboardingPage = () => {
                             />
                         </div>
                         
-                        {error && <div className="text-red-500 text-sm p-2 bg-red-500/10 rounded">{error}</div>}
+
 
                         <div className="flex items-start gap-2">
                             <input 
@@ -423,7 +397,7 @@ export const OnboardingPage = () => {
                                 className="mt-1 accent-primary"
                             />
                             <label htmlFor="terms" className="text-sm text-text-muted">
-                                I agree to the <Link to="/admin/kb/terms-of-service" target="_blank" className="text-primary hover:underline">Terms of Service</Link> and <Link to="/admin/kb/privacy-policy" target="_blank" className="text-primary hover:underline">Privacy Policy</Link>.
+                                I agree to the <Link to="/terms" target="_blank" className="text-primary hover:underline">Terms of Service</Link> and <Link to="/privacy" target="_blank" className="text-primary hover:underline">Privacy Policy</Link>.
                             </label>
                         </div>
 
@@ -442,12 +416,12 @@ export const OnboardingPage = () => {
             )}
 
             {step === 2 && (
-                <div className="glass-panel p-8 border-surface-highlight shadow-xl animate-in fade-in slide-in-from-bottom-4">
+                <div className="glass-panel p-4 sm:p-8 border-surface-highlight shadow-xl animate-in fade-in slide-in-from-bottom-4">
                     <h2 className="text-2xl font-bold mb-6">Tell us about your business</h2>
                     <form onSubmit={handleOrgSetup} className="space-y-4">
                         <div>
                             <label className="block text-sm font-bold text-text-muted mb-1">Organization Name</label>
-                            <input 
+                            <input aria-label={"Organization Name"}
                                 type="text"
                                 required 
                                 placeholder="e.g. Joe's Burgers"
@@ -459,7 +433,7 @@ export const OnboardingPage = () => {
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm font-bold text-text-muted mb-1">Industry</label>
-                                <select 
+                                <select aria-label={"Industry"}
                                     className="w-full bg-surface/50 border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
                                     value={orgData.industry}
                                     onChange={e => setOrgData({...orgData, industry: e.target.value})}
@@ -473,7 +447,7 @@ export const OnboardingPage = () => {
                             </div>
                             <div>
                                 <label className="block text-sm font-bold text-text-muted mb-1">Timezone</label>
-                                <input 
+                                <input aria-label={"Timezone"}
                                     type="text"
                                     readOnly // Simplification for now, or use a select
                                     className="w-full bg-background border border-surface-highlight rounded px-4 py-3 text-text-muted cursor-not-allowed"
@@ -485,7 +459,7 @@ export const OnboardingPage = () => {
                             <h3 className="font-bold text-lg">Organization Address</h3>
                             <div>
                                 <label className="block text-sm font-bold text-text-muted mb-1">Street Address</label>
-                                <input 
+                                <input aria-label={"Street Address"}
                                     type="text"
                                     required 
                                     className="w-full bg-background border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
@@ -496,7 +470,7 @@ export const OnboardingPage = () => {
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-bold text-text-muted mb-1">City</label>
-                                    <input 
+                                    <input aria-label={"City"}
                                         type="text"
                                         required 
                                         className="w-full bg-background border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
@@ -506,7 +480,7 @@ export const OnboardingPage = () => {
                                 </div>
                                 <div>
                                     <label className="block text-sm font-bold text-text-muted mb-1">State/Province</label>
-                                    <input 
+                                    <input aria-label={"State/Province"}
                                         type="text"
                                         required 
                                         className="w-full bg-background border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
@@ -518,7 +492,7 @@ export const OnboardingPage = () => {
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-bold text-text-muted mb-1">Zip/Postal Code</label>
-                                    <input 
+                                    <input aria-label={"Zip/Postal Code"}
                                         type="text"
                                         required 
                                         className="w-full bg-background border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
@@ -528,7 +502,7 @@ export const OnboardingPage = () => {
                                 </div>
                                 <div>
                                     <label className="block text-sm font-bold text-text-muted mb-1">Country</label>
-                                    <input 
+                                    <input aria-label={"Country"}
                                         type="text"
                                         required 
                                         className="w-full bg-background border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
@@ -539,11 +513,11 @@ export const OnboardingPage = () => {
                             </div>
                         </div>
 
-                        {error && <div className="text-red-500 text-sm p-2 bg-red-500/10 rounded">{error}</div>}
+
 
                         <button 
                             type="submit" 
-                            disabled={loading}
+                            disabled={loading || Boolean(calculateCost(selectedPlan, PLAN_CONFIGS[selectedPlan]).invalid)}
                             className="w-full bg-primary hover:bg-primary-hover text-white font-bold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
                         >
                             {loading ? <Loader2 className="animate-spin" /> : 'Continue'} <ArrowRight size={20} />
@@ -568,7 +542,7 @@ export const OnboardingPage = () => {
                             <div>
                                 <label className="block font-bold mb-2">How many screens?</label>
                                 <div className="flex items-center gap-4">
-                                    <input 
+                                    <input aria-label={"Number of screens"}
                                         type="range" min="1" max="50" 
                                         value={screens} onChange={e => setScreens(parseInt(e.target.value))}
                                         className="flex-1 accent-primary"
@@ -579,7 +553,7 @@ export const OnboardingPage = () => {
                             <div>
                                 <label className="block font-bold mb-2">How many team members?</label>
                                 <div className="flex items-center gap-4">
-                                    <input 
+                                    <input aria-label={"Number of team members"}
                                         type="range" min="1" max="20" 
                                         value={seats} onChange={e => setSeats(parseInt(e.target.value))}
                                         className="flex-1 accent-primary"
@@ -595,17 +569,11 @@ export const OnboardingPage = () => {
                                 const costData = calculateCost(planName, config);
                                 const isRecommended = recommendedPlan === planName;
                                 const isSelected = selectedPlan === planName;
-                                const isInvalid = costData.invalid !== null;
+                                const isInvalid = Boolean(costData.invalid);
 
                                 return (
                                     <div 
                                         key={planName} 
-                                        onClick={() => {
-                                            if (!isInvalid) {
-                                                setSelectedPlan(planName);
-                                                setPlanSelected(true);
-                                            }
-                                        }}
                                         className={`relative flex flex-col p-6 rounded-2xl border transition-all duration-300 ${
                                             isRecommended 
                                               ? 'border-primary bg-surface shadow-2xl scale-105 z-10' 
@@ -684,10 +652,9 @@ export const OnboardingPage = () => {
                                             onClick={() => {
                                                 if (!isInvalid) {
                                                     setSelectedPlan(planName);
-                                                    setPlanSelected(true);
-                                                }
+                                                                                        }
                                             }}
-                                            disabled={isInvalid}
+                                            disabled={isInvalid || loading} aria-pressed={isSelected} aria-label={`Select ${planName} plan`}
                                             className={`w-full py-3 rounded-lg font-bold transition-colors ${
                                                 isRecommended 
                                                     ? 'bg-primary hover:bg-primary-hover text-white' 
@@ -704,7 +671,7 @@ export const OnboardingPage = () => {
                         </div>
                     </div>
 
-                    {planSelected && (
+                    {selectedPlan !== 'Free' && selectedPlan !== 'Franchise' && (
                         <div className="bg-surface p-6 rounded-xl border border-surface-highlight mb-6 animate-in fade-in slide-in-from-bottom-4">
                             <div className="flex justify-between items-center mb-4">
                                 <h3 className="font-bold text-lg">Billing Address</h3>
@@ -724,7 +691,7 @@ export const OnboardingPage = () => {
                                 <div className="space-y-4">
                                     <div>
                                         <label className="block text-sm font-bold text-text-muted mb-1">Street Address</label>
-                                        <input 
+                                        <input aria-label={"Street Address"}
                                             type="text"
                                             className="w-full bg-background border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
                                             value={billingAddress.street}
@@ -734,7 +701,7 @@ export const OnboardingPage = () => {
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
                                             <label className="block text-sm font-bold text-text-muted mb-1">City</label>
-                                            <input 
+                                            <input aria-label={"City"}
                                                 type="text"
                                                 className="w-full bg-background border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
                                                 value={billingAddress.city}
@@ -743,7 +710,7 @@ export const OnboardingPage = () => {
                                         </div>
                                         <div>
                                             <label className="block text-sm font-bold text-text-muted mb-1">State/Province</label>
-                                            <input 
+                                            <input aria-label={"State/Province"}
                                                 type="text"
                                                 className="w-full bg-background border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
                                                 value={billingAddress.state}
@@ -754,7 +721,7 @@ export const OnboardingPage = () => {
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
                                             <label className="block text-sm font-bold text-text-muted mb-1">Zip/Postal Code</label>
-                                            <input 
+                                            <input aria-label={"Zip/Postal Code"}
                                                 type="text"
                                                 className="w-full bg-background border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
                                                 value={billingAddress.zipCode}
@@ -763,7 +730,7 @@ export const OnboardingPage = () => {
                                         </div>
                                         <div>
                                             <label className="block text-sm font-bold text-text-muted mb-1">Country</label>
-                                            <input 
+                                            <input aria-label={"Country"}
                                                 type="text"
                                                 className="w-full bg-background border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
                                                 value={billingAddress.country}
@@ -776,28 +743,29 @@ export const OnboardingPage = () => {
                         </div>
                     )}
 
-                    <div className="flex justify-end gap-4">
+                    <div className="flex flex-wrap justify-between gap-4">
+                         <button type="button" className="ui-button ui-button-secondary" disabled={loading} onClick={() => { setError(null); setStep(2); }}>Back to organization</button>
                          <button 
                             onClick={() => handlePlanSelection()}
-                            disabled={loading}
+                            disabled={loading || Boolean(calculateCost(selectedPlan, PLAN_CONFIGS[selectedPlan]).invalid)}
                             className="bg-primary hover:bg-primary-hover text-white font-bold py-3 px-8 rounded-lg transition-colors flex items-center justify-center gap-2"
                         >
-                            {loading ? <Loader2 className="animate-spin" /> : (selectedPlan === 'Free' ? 'Start for Free' : 'Proceed to Payment')} <ArrowRight size={20} />
+                            {loading ? <Loader2 className="animate-spin" /> : (selectedPlan === 'Free' ? 'Start for Free' : selectedPlan === 'Franchise' ? 'Contact sales' : 'Continue to secure checkout')} <ArrowRight size={20} />
                         </button>
                     </div>
-                     {error && <div className="text-red-500 text-sm p-2 bg-red-500/10 rounded text-center">{error}</div>}
+
                 </div>
             )}
 
             {step === 4 && (
-                <div className="glass-panel p-8 border-surface-highlight shadow-xl animate-in fade-in slide-in-from-bottom-4 max-w-4xl w-full">
+                <div className="glass-panel p-4 sm:p-8 border-surface-highlight shadow-xl animate-in fade-in slide-in-from-bottom-4 max-w-4xl w-full">
                     <div className="text-center mb-8">
                         <h2 className="text-3xl font-bold mb-2">How do you want to start?</h2>
                         <p className="text-text-muted">Choose how you want to create your first digital signage content.</p>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div 
+                        <button type="button" disabled={loading}
                             onClick={() => handleContentSetup('template')}
                             className="bg-surface border border-surface-highlight rounded-xl p-6 hover:border-primary/50 hover:bg-surface-highlight/10 transition-all cursor-pointer group text-center flex flex-col items-center"
                         >
@@ -806,9 +774,9 @@ export const OnboardingPage = () => {
                             </div>
                             <h3 className="text-xl font-bold mb-2">Use a Template</h3>
                             <p className="text-sm text-text-muted">Start with a professionally designed template and customize it.</p>
-                        </div>
+                        </button>
 
-                        <div 
+                        <button type="button" disabled={loading}
                             onClick={() => handleContentSetup('scratch')}
                             className="bg-surface border border-surface-highlight rounded-xl p-6 hover:border-primary/50 hover:bg-surface-highlight/10 transition-all cursor-pointer group text-center flex flex-col items-center"
                         >
@@ -817,9 +785,9 @@ export const OnboardingPage = () => {
                             </div>
                             <h3 className="text-xl font-bold mb-2">Start from Scratch</h3>
                             <p className="text-sm text-text-muted">Build your content from the ground up with our editor.</p>
-                        </div>
+                        </button>
 
-                        <div 
+                        <button type="button" disabled={loading}
                             onClick={() => handleContentSetup('designer')}
                             className="bg-surface border border-surface-highlight rounded-xl p-6 hover:border-primary/50 hover:bg-surface-highlight/10 transition-all cursor-pointer group text-center flex flex-col items-center"
                         >
@@ -828,7 +796,7 @@ export const OnboardingPage = () => {
                             </div>
                             <h3 className="text-xl font-bold mb-2">Hire a Designer</h3>
                             <p className="text-sm text-text-muted">Connect with a verified designer to create custom content.</p>
-                        </div>
+                        </button>
                     </div>
                 </div>
             )}

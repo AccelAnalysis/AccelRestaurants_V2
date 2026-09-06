@@ -1,3 +1,5 @@
+import { useFeedback } from '../../hooks/useFeedback';
+import { FeedbackRegion } from '../atoms/FeedbackRegion';
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { TemplateService } from '../../services/templateService';
@@ -8,6 +10,7 @@ import { MenuEditor } from './MenuEditor';
 import { ScreenEditor } from './ScreenEditor';
 
 export const TemplateEditor = () => {
+  const { feedback, notify } = useFeedback();
   const { templateId } = useParams();
   const navigate = useNavigate();
   const [template, setTemplate] = useState<Partial<Template>>({
@@ -20,26 +23,31 @@ export const TemplateEditor = () => {
   });
   const [loading, setLoading] = useState(!!templateId);
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     if (templateId) {
       const fetchTemplate = async () => {
+        setLoading(true); setLoadError(false);
         try {
           const data = await TemplateService.getTemplate(templateId);
           if (data) {
             setTemplate(data);
-          }
+          } else { throw new Error('Template not found'); }
         } catch (error) {
           console.error('Failed to load template', error);
+          setLoadError(true); notify('Could not load this template. No blank replacement has been saved.', 'error');
         } finally {
           setLoading(false);
         }
       };
       fetchTemplate();
     }
-  }, [templateId]);
+  }, [templateId, reload, notify]);
 
   const handleSave = async (content: Slide | Menu | AppScreen) => {
+    if (!template.name?.trim()) { notify('Give the template a name before saving.', 'error'); throw new Error('Template name is required'); }
     setSaving(true);
     try {
       const templateData = {
@@ -59,31 +67,34 @@ export const TemplateEditor = () => {
       navigate('/super-admin/templates');
     } catch (error) {
       console.error('Failed to save template', error);
-      alert('Failed to save template');
+      notify('Could not save the template. Your changes are still here.', 'error');
+      throw error;
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) return <div>Loading...</div>;
+  if (loading) return <div role="status">Loading template…</div>;
+  if (loadError) return <div className="p-6"><FeedbackRegion feedback={feedback} onRetry={() => setReload(v => v + 1)} /><button className="ui-button ui-button-secondary" onClick={() => navigate('/super-admin/templates')}>Back to templates</button></div>;
 
   return (
-    <div className="max-w-[1600px] mx-auto space-y-6 p-8 h-screen flex flex-col">
+    <div className="max-w-[1600px] mx-auto space-y-6 p-4 sm:p-8 min-h-screen flex flex-col">
+      <FeedbackRegion feedback={feedback} />
       <div className="flex items-center gap-4 flex-shrink-0">
-        <button onClick={() => navigate('/super-admin/templates')} className="p-2 hover:bg-surface-highlight rounded-full">
+        <button aria-label={"Back to templates"} onClick={() => navigate('/super-admin/templates')} className="p-2 hover:bg-surface-highlight rounded-full">
           <ArrowLeft size={20} />
         </button>
         <h1 className="text-2xl font-bold">{templateId ? 'Edit Template' : 'New Template'}</h1>
         {saving && <span className="text-sm text-text-muted">Saving...</span>}
       </div>
 
-      <div className="grid grid-cols-12 gap-8 flex-1 min-h-0">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 flex-1 min-h-0">
         {/* Sidebar Settings */}
-        <div className="col-span-3 space-y-4 overflow-y-auto">
+        <div className="lg:col-span-3 space-y-4 overflow-y-auto">
           <div className="bg-surface border border-surface-highlight p-4 rounded-lg space-y-4">
             <div>
               <label className="block text-sm font-medium mb-1">Name</label>
-              <input
+              <input aria-label={"Name"}
                 type="text"
                 value={template.name}
                 onChange={e => setTemplate({ ...template, name: e.target.value })}
@@ -94,7 +105,7 @@ export const TemplateEditor = () => {
             
             <div>
               <label className="block text-sm font-medium mb-1">Type</label>
-              <select
+              <select aria-label={"Type"}
                 value={template.type}
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 onChange={e => setTemplate({ ...template, type: e.target.value as any })}
@@ -109,7 +120,7 @@ export const TemplateEditor = () => {
 
             <div>
               <label className="block text-sm font-medium mb-1">Category</label>
-              <input
+              <input aria-label={"Category"}
                 type="text"
                 value={template.category}
                 onChange={e => setTemplate({ ...template, category: e.target.value })}
@@ -120,7 +131,7 @@ export const TemplateEditor = () => {
 
             <div>
               <label className="block text-sm font-medium mb-1">Description</label>
-              <textarea
+              <textarea aria-label={"Description"}
                 value={template.description}
                 onChange={e => setTemplate({ ...template, description: e.target.value })}
                 className="w-full bg-background border border-surface-highlight rounded px-3 py-2"
@@ -142,7 +153,7 @@ export const TemplateEditor = () => {
         </div>
 
         {/* Editor Area */}
-        <div className="col-span-9 h-full border border-surface-highlight rounded-lg overflow-hidden relative bg-black/90">
+        <div className="lg:col-span-9 min-h-[70vh] border border-surface-highlight rounded-lg overflow-hidden relative bg-black/90">
           {template.type === 'slide' && (
             <SlideEditor 
               initialData={template.content as unknown as Slide} 

@@ -1,3 +1,6 @@
+import { useFeedback } from '../../hooks/useFeedback';
+import { FeedbackRegion } from '../atoms/FeedbackRegion';
+import { useConfirmation } from '../../hooks/useConfirmation';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TemplateService } from '../../services/templateService';
@@ -19,6 +22,8 @@ import type { Template } from '../../types/schema';
 import { THEMES } from '../../data/themeTemplates';
 
 export const TemplateManager = () => {
+  const { feedback, notify } = useFeedback();
+  const { confirmAction, confirmation } = useConfirmation();
   const navigate = useNavigate();
   const { user, userProfile } = useAuthStore();
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -54,13 +59,13 @@ export const TemplateManager = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Are you sure you want to delete this template?')) return;
+    if (!(await confirmAction('Are you sure you want to delete this template?'))) return;
     try {
       await TemplateService.deleteTemplate(id);
       setTemplates(templates.filter(t => t.id !== id));
     } catch (error) {
       console.error('Failed to delete template:', error);
-      alert('Failed to delete template');
+      notify('Failed to delete template', 'error');
     }
   };
 
@@ -77,28 +82,30 @@ export const TemplateManager = () => {
       fetchTemplates();
     } catch (error) {
       console.error('Failed to duplicate template:', error);
-      alert('Failed to duplicate template');
+      notify('Failed to duplicate template', 'error');
     }
   };
 
   const handleGenerateAllThemes = async () => {
-    if (!window.confirm('This will create templates for ALL 7 themes. Continue?')) return;
+    if (!(await confirmAction('This will create templates for ALL 7 themes. Continue?'))) return;
     setGeneratingAll(true);
     try {
       let totalCreated = 0;
+      let failed = 0;
       for (const theme of THEMES) {
         try {
           const result = await TemplateService.createThemeTemplates(theme.name);
           totalCreated += result.created;
         } catch (e) {
+          failed++;
           console.error(`Failed to create theme ${theme.name}`, e);
         }
       }
-      alert(`Process complete! Created ${totalCreated} new templates across all themes.`);
+      notify(failed ? `Created ${totalCreated} templates; ${failed} themes could not be created. Retry the failed themes individually.` : `Created ${totalCreated} templates.`, failed ? 'error' : 'success');
       fetchTemplates();
     } catch (error) {
       console.error('Error generating all themes:', error);
-      alert('Error generating all themes');
+      notify('Error generating all themes', 'error');
     } finally {
       setGeneratingAll(false);
     }
@@ -109,12 +116,12 @@ export const TemplateManager = () => {
     setGeneratingTheme(true);
     try {
       const result = await TemplateService.createThemeTemplates(selectedTheme);
-      alert(`Created ${result.created} new templates for theme "${selectedTheme}".`);
+      notify(`Created ${result.created} new templates for theme "${selectedTheme}".`, 'success');
       fetchTemplates();
       setSelectedTheme(null); // Reset selection after generation
     } catch (error) {
       console.error('Error generating theme templates:', error);
-      alert('Error generating theme templates');
+      notify('Error generating theme templates', 'error');
     } finally {
       setGeneratingTheme(false);
     }
@@ -128,7 +135,7 @@ export const TemplateManager = () => {
       ));
     } catch (error) {
       console.error('Failed to update template visibility:', error);
-      alert('Failed to update template visibility');
+      notify('Failed to update template visibility', 'error');
     }
   };
 
@@ -151,11 +158,13 @@ export const TemplateManager = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div className="flex items-center gap-4">
-          <div className="relative w-64">
+      <FeedbackRegion feedback={feedback} />
+      {confirmation}
+      <div className="flex flex-wrap gap-3 justify-between items-center">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="relative w-full sm:w-64">
             <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-            <input 
+            <input aria-label={"Search templates"}
               type="text" 
               placeholder="Search templates..." 
               value={searchTerm}
@@ -163,7 +172,7 @@ export const TemplateManager = () => {
               className="w-full bg-surface border border-surface-highlight rounded-lg pl-10 pr-4 py-2 text-text focus:border-primary focus:outline-none"
             />
           </div>
-          <select
+          <select aria-label={"Template type"}
             value={filterType}
             onChange={(e) => setFilterType(e.target.value as 'all' | 'slide' | 'menu' | 'screen')}
             className="bg-surface border border-surface-highlight rounded-lg px-3 py-2 text-text focus:border-primary focus:outline-none"
@@ -183,14 +192,10 @@ export const TemplateManager = () => {
             Public Only
           </label>
         </div>
-        <div className="flex items-center gap-2">
-          {/* Debug Info */}
-          <div className="text-xs text-text-muted text-right mr-2 hidden xl:block">
-            <div>UID: {user?.uid.slice(0, 8)}...</div>
-            <div>Role: {userProfile?.platformRole || 'none'}</div>
-          </div>
+        <div className="flex flex-wrap items-center gap-2">
 
-          <select
+
+          <select aria-label={"Theme to generate"}
             value={selectedTheme || ''}
             onChange={(e) => setSelectedTheme(e.target.value || null)}
             className="bg-surface border border-surface-highlight rounded-lg px-3 py-2 text-text focus:border-primary focus:outline-none"
@@ -205,7 +210,7 @@ export const TemplateManager = () => {
               <button
                 onClick={handleGenerateThemeTemplates}
                 disabled={generatingTheme || !selectedTheme}
-                className="bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+                className="bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
               >
                 {generatingTheme ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
                 Generate Theme
@@ -271,7 +276,7 @@ export const TemplateManager = () => {
                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                   {isSuperAdmin && (
                     <>
-                      <button 
+                      <button aria-label={template.isPublic ? "Make Private" : "Make Public"}
                         onClick={() => handleTogglePublic(template)}
                         className={`p-2 rounded-full transition-colors ${
                           template.isPublic 
@@ -282,21 +287,21 @@ export const TemplateManager = () => {
                       >
                         {template.isPublic ? <Lock size={16} /> : <Globe size={16} />}
                       </button>
-                      <button 
+                      <button aria-label="Edit Template"
                         onClick={() => navigate(`/super-admin/templates/${template.id}`)}
                         className="p-2 bg-white text-black rounded-full hover:bg-primary hover:text-white transition-colors"
                         title="Edit Template"
                       >
                         <Edit size={16} />
                       </button>
-                      <button 
+                      <button aria-label="Duplicate"
                         onClick={() => handleDuplicate(template)}
                         className="p-2 bg-white text-black rounded-full hover:bg-primary hover:text-white transition-colors"
                         title="Duplicate"
                       >
                         <Copy size={16} />
                       </button>
-                      <button 
+                      <button aria-label="Delete"
                         onClick={() => handleDelete(template.id)}
                         className="p-2 bg-white text-black rounded-full hover:bg-red-500 hover:text-white transition-colors"
                         title="Delete"

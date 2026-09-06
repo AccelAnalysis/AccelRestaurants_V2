@@ -1009,7 +1009,7 @@ export const SlideEditor = ({
                  style={{ backgroundImage: 'radial-gradient(#d1d5db 1px, transparent 1px)', backgroundSize: '24px 24px' }} 
             />
             
-            <div 
+            <button type="button"
               id="editor-canvas"
               onClick={() => setSelectedTileId(null)}
               className={`relative shadow-2xl transition-all ring-1 ring-white/10 ${isOver && canDrop ? 'ring-2 ring-primary/70' : ''}`}
@@ -1058,7 +1058,7 @@ export const SlideEditor = ({
                   }}
                 />
               ))}
-            </div>
+            </button>
             
             {/* Canvas Controls Overlay */}
             <div className="absolute bottom-6 right-6 bg-surface border border-surface-highlight rounded-lg p-2 flex gap-2 shadow-lg">
@@ -1167,6 +1167,8 @@ export const SlideEditor = ({
                   
                   {selectedTile ? (
                     <div className="space-y-6">
+                      {['lottie', 'webcam', 'tabs', 'accordion', 'carousel'].includes(selectedTile.type) && <InlineFeedback message="This tile currently renders a presentation placeholder. It does not yet provide the interactive behavior its name suggests." />}
+                      {['rich_text', 'form', 'poll', 'video', 'audio', 'youtube', 'vimeo', 'background_video'].includes(selectedTile.type) && <details className="text-sm text-text-secondary"><summary>Content accessibility</summary><p className="mt-2">Use readable text and sufficient contrast. Give images meaningful descriptions and provide captions or a transcript for meaningful audio. Player interactions must remain usable without dragging. Authored content needs its own accessibility review.</p></details>}
                       <div className="space-y-3">
                          <label className="text-xs font-bold text-text-muted uppercase tracking-wider">General</label>
                          <div className="space-y-3">
@@ -1744,7 +1746,7 @@ export const SlideEditor = ({
                               <div className="space-y-4">
                                 {((selectedTile.properties as TextShadowTileProperties).shadows || []).map((shadow: TextShadowProps, index: number) => (
                                   <div key={index} className="p-3 border border-surface-highlight rounded bg-surface-highlight/5 relative group">
-                                    <button 
+                                    <button aria-label={"Remove shadow"}
                                       onClick={() => {
                                         const newShadows = ((selectedTile.properties as TextShadowTileProperties).shadows || []).filter((_, i) => i !== index);
                                         updateSelectedTileProperty('shadows', newShadows);
@@ -1872,7 +1874,7 @@ export const SlideEditor = ({
                                           }}
                                           className="w-6 h-6 cursor-pointer rounded border-none bg-transparent p-0"
                                         />
-                                        <input 
+                                        <input aria-label={"Gradient color"}
                                           type="text" 
                                           value={color}
                                           onChange={(e) => {
@@ -1883,7 +1885,7 @@ export const SlideEditor = ({
                                           className="flex-1 bg-transparent border-none text-xs text-text focus:outline-none"
                                         />
                                       </div>
-                                      <button 
+                                      <button aria-label={"Remove gradient color"}
                                         onClick={() => {
                                           const newColors = ((selectedTile.properties as GradientTextProperties).gradientColors || ['#ffffff', '#000000']).filter((_, i) => i !== index);
                                           updateSelectedTileProperty('gradientColors', newColors);
@@ -1960,7 +1962,7 @@ export const SlideEditor = ({
                                 <label className="text-xs text-text-muted block">
                                   {selectedTile.type === 'youtube' || selectedTile.type === 'vimeo' ? 'Video ID or URL' : 'File URL'}
                                 </label>
-                                <input 
+                                <input aria-label={`${selectedTile.type === 'youtube' || selectedTile.type === 'vimeo' ? 'Video ID or URL' : 'File URL'}`}
                                   type="text" 
                                   value={String(
                                     (selectedTile.properties as ImageTileProperties).url || (selectedTile.properties as VideoTileProperties).videoId || ''
@@ -1989,7 +1991,7 @@ export const SlideEditor = ({
                                   <label className="flex items-center justify-center gap-2 w-full bg-surface-highlight hover:bg-surface-highlight/80 text-text text-sm py-2 rounded cursor-pointer transition-colors border border-surface-highlight">
                                     {uploading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Upload size={16} />}
                                     {uploading ? 'Uploading...' : 'Upload File'}
-                                    <input 
+                                    <input aria-label={"Upload file"}
                                       type="file" 
                                       className="hidden" 
                                       accept={
@@ -2013,7 +2015,7 @@ export const SlideEditor = ({
                             <div className="space-y-3">
                               <label className="text-xs font-bold text-text-muted uppercase tracking-wider">Webcam Settings</label>
                               <div className="flex items-center gap-2">
-                                <input 
+                                <input aria-label={"Mirror Video"}
                                   type="checkbox" 
                                   checked={!!(selectedTile.properties as WebcamTileProperties).mirror}
                                   onChange={(e) => updateSelectedTileProperty('mirror', e.target.checked)}
@@ -2068,7 +2070,7 @@ export const SlideEditor = ({
                                 <div className="space-y-2">
                                   <div className="flex items-center gap-2">
                                     <span className="text-[10px] w-12 text-text-muted">Bright</span>
-                                    <input 
+                                    <input aria-label={"Brightness"}
                                       type="range" min="0" max="200" 
                                       value={Number(((selectedTile.properties as ImageTileProperties).filters as Record<string, number> || {}).brightness || 100)}
                                       onChange={(e) => {
@@ -2080,7 +2082,7 @@ export const SlideEditor = ({
                                   </div>
                                   <div className="flex items-center gap-2">
                                     <span className="text-[10px] w-12 text-text-muted">Blur</span>
-                                    <input 
+                                    <input aria-label={"Media filter"}
                                       type="range" min="0" max="20" 
                                       value={Number(((selectedTile.properties as ImageTileProperties).filters as Record<string, number> || {}).blur || 0)}
                                       onChange={(e) => {
@@ -2188,7 +2190,7 @@ export const SlideEditor = ({
                                       </div>
                                       <input 
                                         type="text" 
-                                        value={img.url} 
+                                        aria-label={`Slideshow image ${index + 1} URL`} value={img.url}
                                         onChange={(e) => {
                                           const newImages = [...((selectedTile.properties as SlideshowTileProperties).images || [])];
                                           newImages[index] = { ...newImages[index], url: e.target.value };
@@ -2197,7 +2199,7 @@ export const SlideEditor = ({
                                         className="flex-1 bg-background border border-surface-highlight rounded px-2 py-1 text-xs text-text focus:border-primary focus:outline-none"
                                         placeholder="https://..."
                                       />
-                                      <button 
+                                      <button aria-label={"Remove slideshow image"}
                                         onClick={() => {
                                           const newImages = ((selectedTile.properties as SlideshowTileProperties).images || []).filter((_, i) => i !== index);
                                           updateSelectedTileProperty('images', newImages);
@@ -2243,7 +2245,7 @@ export const SlideEditor = ({
                                               updateSelectedTileProperty('images', newImages);
                                             } catch (err) {
                                               console.error(err);
-                                              alert('Failed to upload one or more images');
+                                              setError('Could not upload one or more images. Your existing slideshow is unchanged. Try again.');
                                             } finally {
                                               setUploading(false);
                                             }
@@ -2925,7 +2927,7 @@ export const SlideEditor = ({
                                 {typeof (selectedTile.properties as LayoutTileProperties).backgroundImageUrl === 'string' && (selectedTile.properties as LayoutTileProperties).backgroundImageUrl && (
                                   <div className="relative aspect-video bg-black/20 rounded border border-surface-highlight overflow-hidden mb-2 group">
                                     <img src={(selectedTile.properties as LayoutTileProperties).backgroundImageUrl} alt="Preview" className="w-full h-full object-cover" />
-                                    <button 
+                                    <button aria-label={"Remove background image"}
                                       onClick={() => updateSelectedTileProperty('backgroundImageUrl', undefined)}
                                       className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                                     >
@@ -2934,7 +2936,7 @@ export const SlideEditor = ({
                                   </div>
                                 )}
                                 <div className="flex gap-2">
-                                  <input 
+                                  <input aria-label={"Background image URL"}
                                     type="text" 
                                     value={String((selectedTile.properties as LayoutTileProperties).backgroundImageUrl || '')}
                                     onChange={(e) => updateSelectedTileProperty('backgroundImageUrl', e.target.value)}
@@ -2943,7 +2945,7 @@ export const SlideEditor = ({
                                   />
                                   <label className="p-2 bg-surface-highlight hover:bg-surface-highlight/80 rounded cursor-pointer border border-surface-highlight">
                                     <Upload size={14} />
-                                    <input 
+                                    <input aria-label={"Upload file"}
                                       type="file" 
                                       className="hidden" 
                                       accept="image/*"
@@ -3390,7 +3392,7 @@ export const SlideEditor = ({
                                   <label className="text-xs text-text-muted mb-1 block">Image</label>
                                   <label className="flex items-center justify-center gap-2 w-full bg-surface-highlight hover:bg-surface-highlight/80 text-text text-sm py-2 rounded cursor-pointer transition-colors border border-surface-highlight">
                                     <Upload size={14} />
-                                    <input 
+                                    <input aria-label={"Upload file"}
                                       type="file" 
                                       className="hidden" 
                                       accept="image/*"
@@ -3622,7 +3624,7 @@ export const SlideEditor = ({
                             </div>
                           )}
 
-                          <input
+                          <input aria-label={"Slide background image URL"}
                             type="url"
                             placeholder="Enter image URL (takes priority over upload)"
                             value={backgroundUrlInput}
@@ -3638,7 +3640,7 @@ export const SlideEditor = ({
                           <label className="flex items-center justify-center gap-2 w-full bg-surface-highlight hover:bg-surface-highlight/80 text-text text-sm py-2 rounded cursor-pointer transition-colors border border-surface-highlight">
                             {uploading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <ImageIcon size={16} />}
                             {uploading ? 'Uploading...' : (uploadedBackgroundUrl ? 'Change Image' : 'Upload Image')}
-                            <input 
+                            <input aria-label={"Upload file"}
                               type="file" 
                               className="hidden" 
                               accept="image/*"
@@ -3688,7 +3690,7 @@ export const SlideEditor = ({
                         <label className="text-xs font-bold text-text-muted uppercase tracking-wider">Density</label>
                         <span className="text-xs text-primary">{slide.particleConfig?.density || 50}</span>
                       </div>
-                      <input 
+                      <input aria-label={"Particle density"}
                         type="range" 
                         min="0" 
                         max="200" 
@@ -3703,7 +3705,7 @@ export const SlideEditor = ({
                         <label className="text-xs font-bold text-text-muted uppercase tracking-wider">Speed</label>
                         <span className="text-xs text-primary">{slide.particleConfig?.speed || 1}x</span>
                       </div>
-                      <input 
+                      <input aria-label={"Particle speed"}
                         type="range" 
                         min="0" 
                         max="5" 
@@ -3721,7 +3723,7 @@ export const SlideEditor = ({
                             <label className="text-xs font-bold text-text-muted uppercase tracking-wider">Particle Size</label>
                             <span className="text-xs text-primary">{slide.particleConfig?.particleSize ?? 10}px</span>
                           </div>
-                          <input 
+                          <input aria-label={"Particle size"}
                             type="range" 
                             min="2" 
                             max="50" 
@@ -3753,7 +3755,7 @@ export const SlideEditor = ({
                                 <span className="text-xs text-text-muted">Opacity</span>
                                 <span className="text-xs text-primary">{Math.round((slide.particleConfig?.color?.[3] ?? 1) * 100)}%</span>
                               </div>
-                              <input 
+                              <input aria-label={"Particle opacity"}
                                 type="range" 
                                 min="0" 
                                 max="1" 
@@ -3774,7 +3776,7 @@ export const SlideEditor = ({
                             <label className="text-xs font-bold text-text-muted uppercase tracking-wider">Rotation Angle</label>
                             <span className="text-xs text-primary">{slide.particleConfig?.particleAngle ?? 0}°</span>
                           </div>
-                          <input 
+                          <input aria-label={"Particle angle"}
                             type="range" 
                             min="0" 
                             max="360" 

@@ -1,3 +1,4 @@
+import { InlineFeedback } from './InlineFeedback';
 import { 
   Image as ImageIcon, 
   Video, 
@@ -45,7 +46,7 @@ import type {
   SparklineProperties,
   LayoutTileProperties
 } from '../../types/schema';
-import { useState, useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
+import { useState, useEffect, useRef, useId, type CSSProperties, type ReactNode } from 'react';
 import { 
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, 
   XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, 
@@ -620,17 +621,19 @@ const PollTile = ({ properties, tileId, isEditor }: { properties: InteractiveTil
   const options = properties.options || ['Animation', 'Interactivity', 'Ease of Use'];
   const [data, setData] = useState<PollData | null>(null);
   const [voted, setVoted] = useState(false);
+  const [voting, setVoting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const optionsJson = JSON.stringify(options);
 
   useEffect(() => {
-    if (!tileId) return;
+    if (!tileId || isEditor) return;
     
     // Parse options from JSON to avoid dependency on mutable array
     const parsedOptions = JSON.parse(optionsJson) as string[];
 
     // Initialize if needed (idempotent)
-    PollService.initializePoll(tileId, question, parsedOptions);
+    void PollService.initializePoll(tileId, question, parsedOptions).catch(() => setError('Poll unavailable. Please try again later.'));
 
     // Subscribe
     const unsubscribe = PollService.subscribeToPoll(tileId, (newData) => {
@@ -638,12 +641,14 @@ const PollTile = ({ properties, tileId, isEditor }: { properties: InteractiveTil
     });
 
     return () => unsubscribe();
-  }, [tileId, question, optionsJson]);
+  }, [tileId, question, optionsJson, isEditor]);
 
-  const handleVote = (index: number) => {
-    if (isEditor || voted || !tileId) return;
-    PollService.vote(tileId, index);
-    setVoted(true);
+  const handleVote = async (index: number) => {
+    if (isEditor || voted || voting || !tileId) return;
+    setVoting(true); setError(null);
+    try { await PollService.vote(tileId, index); setVoted(true); }
+    catch { setError('Your vote could not be saved. Please try again.'); }
+    finally { setVoting(false); }
   };
 
   // Calculate percentages
@@ -662,7 +667,7 @@ const PollTile = ({ properties, tileId, isEditor }: { properties: InteractiveTil
           <button 
             key={i} 
             onClick={() => handleVote(i)}
-            disabled={voted || isEditor}
+            disabled={voted || voting || isEditor || !tileId}
             className={`w-full group relative overflow-hidden bg-background border rounded p-2 text-[10px] text-left transition-colors ${voted ? 'border-surface-highlight cursor-default' : 'border-surface-highlight hover:border-primary cursor-pointer'}`}
           >
             <div className="absolute inset-y-0 left-0 bg-primary/10 transition-all duration-1000" style={{ width: `${getPercent(i)}%` }} />
@@ -673,6 +678,8 @@ const PollTile = ({ properties, tileId, isEditor }: { properties: InteractiveTil
           </button>
         ))}
       </div>
+      <InlineFeedback message={error} tone="error" />
+      <InlineFeedback message={voting ? 'Saving vote…' : voted ? 'Your vote was saved.' : null} />
       {total > 0 && <div className="text-[8px] text-text-muted text-center italic">{total} votes</div>}
     </div>
   );
@@ -914,102 +921,45 @@ const SocialFeedTile = ({ properties }: { properties: InteractiveTileProperties 
 };
 
 const FormTile = ({ properties, tileId, isEditor }: { properties: InteractiveTileProperties, tileId?: string, isEditor?: boolean }) => {
+  const instanceId = useId();
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [error, setError] = useState('');
-
+  const [error, setError] = useState<string | null>(null);
   const fields = properties.fields || [
-    { id: 'name', type: 'text', label: 'Name', placeholder: 'Enter Name...', required: true },
-    { id: 'email', type: 'email', label: 'Email', placeholder: 'Enter Email...', required: true }
+    { id: 'name', type: 'text', label: 'Name', placeholder: 'Enter Name…', required: true },
+    { id: 'email', type: 'email', label: 'Email', placeholder: 'Enter Email…', required: true }
   ];
-
-  const handleChange = (id: string, value: string) => {
-    setFormData(prev => ({ ...prev, [id]: value }));
-  };
-
-  const handleSubmit = async () => {
-    if (isEditor) return;
-    
-    // Validation
-    const missing = fields.filter(f => f.required && !formData[f.id]);
-    if (missing.length > 0) {
-      setError(`Please fill in: ${missing.map(f => f.label).join(', ')}`);
-      return;
-    }
-
-    setSubmitting(true);
-    setError('');
-
-    const res = await FormService.submitForm(tileId || 'unknown', formData, properties.title);
-    
-    setSubmitting(false);
-    if (res.success) {
-      setSuccess(true);
-      setFormData({});
-      setTimeout(() => setSuccess(false), 3000);
-    } else {
-      setError(res.message || 'Failed');
-    }
-  };
-
   const title = String(properties.title || 'Contact Us');
-
-  return (
-    <div className="w-full h-full p-4 space-y-3 bg-surface rounded-lg border border-surface-highlight shadow-xl flex flex-col justify-center overflow-y-auto custom-scrollbar">
-      <div className="font-black text-xs text-primary uppercase tracking-widest border-b border-surface-highlight pb-2">{title}</div>
-      {success ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-center space-y-2">
-          <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center text-white">✓</div>
-          <div className="text-[10px] font-bold text-text">Sent Successfully!</div>
-        </div>
-      ) : (
-        <>
-          <div className="space-y-2">
-            {fields.map((field) => (
-              <div key={field.id}>
-                {field.type === 'textarea' ? (
-                  <textarea
-                    placeholder={field.placeholder || field.label}
-                    value={formData[field.id] || ''}
-                    onChange={e => handleChange(field.id, e.target.value)}
-                    className="w-full h-16 bg-background border border-surface-highlight rounded px-2 py-1 text-[10px] text-text focus:border-primary outline-none transition-colors resize-none"
-                  />
-                ) : field.type === 'select' ? (
-                  <select
-                    value={formData[field.id] || ''}
-                    onChange={e => handleChange(field.id, e.target.value)}
-                    className="w-full h-8 bg-background border border-surface-highlight rounded px-2 text-[10px] text-text focus:border-primary outline-none transition-colors"
-                  >
-                    <option value="" disabled>{field.placeholder || `Select ${field.label}`}</option>
-                    {field.options?.map(opt => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <input 
-                    type={field.type} 
-                    placeholder={field.placeholder || field.label} 
-                    value={formData[field.id] || ''}
-                    onChange={e => handleChange(field.id, e.target.value)}
-                    className="w-full h-8 bg-background border border-surface-highlight rounded px-2 flex items-center text-[10px] text-text focus:border-primary outline-none transition-colors"
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-          {error && <div className="text-[8px] text-red-500 font-bold">{error}</div>}
-          <button 
-            onClick={handleSubmit}
-            disabled={submitting || isEditor}
-            className={`w-full text-[10px] font-bold py-2 rounded uppercase tracking-wider transition-colors ${submitting ? 'bg-surface-highlight text-text-muted' : 'bg-primary/20 text-primary border border-primary/30 hover:bg-primary/30'}`}
-          >
-            {submitting ? 'Sending...' : (properties.actionButton?.text || 'Submit Request')}
-          </button>
-        </>
-      )}
-    </div>
-  );
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (isEditor || submitting) return;
+    if (!tileId) { setError('This form is not connected yet.'); return; }
+    const missing = fields.filter(f => f.required && !formData[f.id]?.trim());
+    if (missing.length) { setError(`Please complete: ${missing.map(f => f.label).join(', ')}`); return; }
+    setSubmitting(true); setError(null);
+    try {
+      const result = await FormService.submitForm(tileId, formData, properties.title);
+      if (!result.success) throw new Error(result.message || 'Could not send your response. Try again.');
+      setSuccess(true); setFormData({});
+    } catch { setError('Could not send your response. Your entries are still here. Try again.'); }
+    finally { setSubmitting(false); }
+  };
+  return <form aria-label={title} onSubmit={handleSubmit} aria-busy={submitting} className="w-full h-full p-4 space-y-3 bg-surface rounded-lg border border-surface-highlight flex flex-col overflow-y-auto">
+    <h3 className="font-bold text-base text-text">{title}</h3>
+    {success ? <div><InlineFeedback message="Response sent successfully." tone="success" /><button type="button" className="ui-button ui-button-secondary" onClick={() => setSuccess(false)}>Send another response</button></div> : <>
+      {fields.map((field, index) => {
+        const id = `${instanceId}-${index}`;
+        const common = { id, required: field.required, disabled: submitting, value: formData[field.id] || '', className: 'w-full min-h-11 bg-background border border-surface-highlight rounded px-3 py-2 text-base text-text', onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setFormData(prev => ({ ...prev, [field.id]: e.target.value })) };
+        return <div key={`${field.id}-${index}`}><label htmlFor={id} className="block text-sm mb-1 text-text">{field.label}{field.required ? ' (required)' : ''}</label>
+          {field.type === 'textarea' ? <textarea {...common} rows={3} placeholder={field.placeholder} /> : field.type === 'select' ? <select {...common}><option value="">{field.placeholder || `Select ${field.label}`}</option>{field.options?.map(option => <option key={option}>{option}</option>)}</select> : <input {...common} type={field.type} placeholder={field.placeholder} />}
+        </div>;
+      })}
+      <InlineFeedback message={error} tone="error" />
+      <button type="submit" disabled={submitting || isEditor} className="ui-button ui-button-primary">{submitting ? 'Sending…' : properties.actionButton?.text || 'Submit Request'}</button>
+      {isEditor && <p className="text-sm text-text-secondary">Form preview. Responses can only be sent from the player.</p>}
+    </>}
+  </form>;
 };
 
 const BarChartTile = ({ properties }: { properties: ChartProperties }) => {
@@ -1834,7 +1784,7 @@ const TileContentInner = ({ tile, isEditor = false, screenId, orgId }: TileConte
     const url = tile.type === 'youtube' ? `https://www.youtube.com/embed/${vid}` : `https://player.vimeo.com/video/${vid}`;
     return (
       <div className="w-full h-full bg-black">
-        {vid ? <iframe src={url} width="100%" height="100%" frameBorder="0" allowFullScreen className="pointer-events-none" /> : <div className="w-full h-full flex items-center justify-center text-text-muted"><Video size={24} /></div>}
+        {vid ? <iframe title="YouTube video" src={url} width="100%" height="100%" frameBorder="0" allowFullScreen className="pointer-events-none" /> : <div className="w-full h-full flex items-center justify-center text-text-muted"><Video size={24} /></div>}
       </div>
     );
   }
@@ -2248,7 +2198,7 @@ const MapTile = ({ properties, isEditor }: { properties: SpecialTileProperties, 
   const mapType = String(properties.mapType || 'm'); // m = roadmap, k = satellite
   return (
     <div className="w-full h-full bg-black/20 rounded-lg overflow-hidden border border-surface-highlight shadow-2xl relative">
-      <iframe 
+      <iframe title="Location map"
         width="100%" 
         height="100%" 
         frameBorder="0" 

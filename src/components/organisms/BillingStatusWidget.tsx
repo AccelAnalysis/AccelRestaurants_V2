@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { InlineFeedback } from '../atoms/InlineFeedback';
 import { useNavigate } from 'react-router-dom';
 import { CreditCard, Shield, AlertTriangle, CheckCircle, ArrowUpRight } from 'lucide-react';
 import { useAuthStore } from '../../store/useAuthStore';
@@ -7,11 +9,13 @@ import { PLAN_CONFIGS, type PlanType } from '../../lib/plans';
 export const BillingStatusWidget = () => {
   const { organization, loading: authLoading } = useAuthStore();
   const navigate = useNavigate();
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (authLoading || !organization) {
     return (
       <div className="bg-surface border border-surface-highlight rounded-lg p-6 h-full flex items-center justify-center">
-        <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full"></div>
+        <div role="status" aria-label="Loading billing status" className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full"></div>
       </div>
     );
   }
@@ -38,11 +42,15 @@ export const BillingStatusWidget = () => {
   };
 
   const handleManage = async () => {
+    if (processing) return;
+    if (!organization.subscriptionId) { navigate('/admin/subscription'); return; }
+    setProcessing(true); setError(null);
     try {
       const portalUrl = await BillingService.createPortalSession(window.location.href);
       window.location.href = portalUrl;
     } catch {
-      navigate('/admin/subscription');
+      setError('The billing portal could not be opened. Try Manage subscription again.');
+      setProcessing(false);
     }
   };
 
@@ -65,7 +73,7 @@ export const BillingStatusWidget = () => {
             )}
           </div>
         </div>
-        <button 
+        <button aria-label={"Open subscription and billing"}
           onClick={() => navigate('/admin/subscription')}
           className="p-2 hover:bg-surface-highlight rounded-lg transition-colors text-text-muted hover:text-text"
         >
@@ -79,10 +87,10 @@ export const BillingStatusWidget = () => {
           <div className="flex justify-between text-xs mb-1">
             <span className="text-text-muted">Screens</span>
             <span className="text-text font-medium">
-              {screenCount} / {isUnlimitedScreens ? '∞' : screenLimit}
+              {screenCount} / {isUnlimitedScreens ? 'Unlimited' : screenLimit}
             </span>
           </div>
-          <div className="h-2 bg-surface-highlight rounded-full overflow-hidden">
+          <div aria-hidden="true" className="h-2 bg-surface-highlight rounded-full overflow-hidden">
             <div 
               className={`h-full rounded-full transition-all duration-500 ${getUsageColor(screenUsage)}`}
               style={{ width: `${isUnlimitedScreens ? 5 : Math.min(screenUsage, 100)}%` }}
@@ -100,10 +108,10 @@ export const BillingStatusWidget = () => {
           <div className="flex justify-between text-xs mb-1">
             <span className="text-text-muted">Seats</span>
             <span className="text-text font-medium">
-              {seatCount} / {isUnlimitedSeats ? '∞' : seatLimit}
+              {seatCount} / {isUnlimitedSeats ? 'Unlimited' : seatLimit}
             </span>
           </div>
-          <div className="h-2 bg-surface-highlight rounded-full overflow-hidden">
+          <div aria-hidden="true" className="h-2 bg-surface-highlight rounded-full overflow-hidden">
             <div 
               className={`h-full rounded-full transition-all duration-500 ${getUsageColor(seatUsage)}`}
               style={{ width: `${isUnlimitedSeats ? 5 : Math.min(seatUsage, 100)}%` }}
@@ -121,11 +129,12 @@ export const BillingStatusWidget = () => {
         )}
       </div>
 
-      <button 
+      <InlineFeedback message={error} tone="error" />
+      <button disabled={processing}
         onClick={handleManage}
         className="w-full mt-4 py-2 bg-surface-highlight hover:bg-surface-highlight/80 text-text rounded-lg text-sm font-medium transition-colors"
       >
-        Manage Subscription
+        {processing ? 'Opening billing…' : 'Manage subscription'}
       </button>
     </div>
   );

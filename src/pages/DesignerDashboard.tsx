@@ -1,4 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useFeedback } from '../hooks/useFeedback';
+import { FeedbackRegion } from '../components/atoms/FeedbackRegion';
+import { useConfirmation } from '../hooks/useConfirmation';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { signOut } from 'firebase/auth';
 import { auth } from '../lib/firebase';
@@ -21,7 +24,8 @@ import {
   CheckSquare
 } from 'lucide-react';
 
-const ProfileEditor = ({ profile }: { profile: DesignerProfile | null }) => {
+export const ProfileEditor = ({ profile }: { profile: DesignerProfile | null }) => {
+  const { feedback, notify } = useFeedback();
   const { user } = useAuthStore();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState<Partial<DesignerProfile>>({
@@ -52,9 +56,9 @@ const ProfileEditor = ({ profile }: { profile: DesignerProfile | null }) => {
     setLoading(true);
     try {
       await DesignerService.updateProfile(user.uid, formData);
-      alert('Profile updated successfully!');
+      notify('Profile updated successfully!', 'success');
     } catch {
-      alert('Failed to update profile');
+      notify('Failed to update profile', 'error');
     } finally {
       setLoading(false);
     }
@@ -70,14 +74,15 @@ const ProfileEditor = ({ profile }: { profile: DesignerProfile | null }) => {
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-8">
-      <div className="flex justify-between items-center">
+    <form onSubmit={handleSubmit} className="max-w-3xl mx-auto space-y-8">
+      <FeedbackRegion feedback={feedback} />
+      <div className="responsive-heading flex flex-wrap justify-between items-center gap-4">
         <div>
           <h2 className="text-2xl font-bold text-text">Designer Profile</h2>
           <p className="text-text-muted">Manage your public profile and rates</p>
         </div>
         <button 
-          onClick={handleSubmit}
+          type="submit"
           disabled={loading}
           className="flex items-center gap-2 bg-primary hover:bg-primary-hover text-white px-6 py-2 rounded-lg transition-colors disabled:opacity-50"
         >
@@ -96,7 +101,7 @@ const ProfileEditor = ({ profile }: { profile: DesignerProfile | null }) => {
             <div className="space-y-4">
               <div>
                 <label className="block text-xs text-text-muted uppercase tracking-wider mb-2">Display Name</label>
-                <input 
+                <input disabled={loading} aria-label="Display Name" required autoComplete="name"
                   type="text" 
                   value={formData.displayName}
                   onChange={e => setFormData({ ...formData, displayName: e.target.value })}
@@ -105,7 +110,7 @@ const ProfileEditor = ({ profile }: { profile: DesignerProfile | null }) => {
               </div>
               <div>
                 <label className="block text-xs text-text-muted uppercase tracking-wider mb-2">Bio</label>
-                <textarea 
+                <textarea disabled={loading} aria-label={"Bio"}
                   value={formData.bio}
                   onChange={e => setFormData({ ...formData, bio: e.target.value })}
                   rows={4}
@@ -115,7 +120,7 @@ const ProfileEditor = ({ profile }: { profile: DesignerProfile | null }) => {
               </div>
               <div>
                 <label className="block text-xs text-text-muted uppercase tracking-wider mb-2">Portfolio URL</label>
-                <input 
+                <input disabled={loading} aria-label={"Portfolio URL"}
                   type="url" 
                   value={formData.portfolioUrl}
                   onChange={e => setFormData({ ...formData, portfolioUrl: e.target.value })}
@@ -136,7 +141,7 @@ const ProfileEditor = ({ profile }: { profile: DesignerProfile | null }) => {
                 <label className="block text-xs text-text-muted uppercase tracking-wider mb-2">Menu Design (Base Rate)</label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted">$</span>
-                  <input 
+                  <input disabled={loading} aria-label="Menu Design (Base Rate)" min="0" step="0.01"
                     type="number" 
                     value={formData.rates?.menuDesign}
                     onChange={e => setFormData({ 
@@ -152,7 +157,7 @@ const ProfileEditor = ({ profile }: { profile: DesignerProfile | null }) => {
                 <label className="block text-xs text-text-muted uppercase tracking-wider mb-2">Hourly Rate (Optional)</label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted">$</span>
-                  <input 
+                  <input disabled={loading} aria-label="Hourly Rate (Optional)" min="0" step="0.01"
                     type="number" 
                     value={formData.rates?.hourlyRate}
                     onChange={e => setFormData({ 
@@ -175,7 +180,7 @@ const ProfileEditor = ({ profile }: { profile: DesignerProfile | null }) => {
             </h3>
             <div className="grid grid-cols-2 gap-3">
               {['Menu Design', 'Branding', 'Logo Design', 'Social Media Assets', 'Animation', 'Illustration'].map(spec => (
-                <button
+                <button disabled={loading} aria-pressed={!!formData.specialties?.includes(spec)}
                   key={spec}
                   type="button"
                   onClick={() => toggleSpecialty(spec)}
@@ -206,34 +211,38 @@ const ProfileEditor = ({ profile }: { profile: DesignerProfile | null }) => {
           */}
         </div>
       </div>
-    </div>
+    </form>
   );
 };
 
-const JobsList = () => {
+export const JobsList = () => {
   const { user } = useAuthStore();
   const navigate = useNavigate();
   const [jobs, setJobs] = useState<DesignJob[]>([]);
+  const [loadError, setLoadError] = useState(false);
+  const [reload, setReload] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (user) {
       const fetchJobs = async () => {
+        setLoading(true); setLoadError(false);
         try {
           const data = await JobService.getDesignerJobs(user.uid);
           setJobs(data);
         } catch {
-          // Silent fail for background fetch
+          setLoadError(true);
         } finally {
           setLoading(false);
         }
       };
       fetchJobs();
     }
-  }, [user]);
+  }, [user, reload]);
 
-  if (loading) return <div className="p-8 text-center text-text-muted">Loading your jobs...</div>;
+  if (loading) return <div role="status" className="p-8 text-center text-text-muted">Loading your jobs...</div>;
 
+  if (loadError) return <div role="alert" className="ui-feedback ui-feedback-error">Jobs could not be loaded.<button className="ui-button ui-button-secondary ml-3" onClick={() => setReload(v => v + 1)}>Retry</button></div>;
   if (jobs.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-96 text-text-muted">
@@ -251,7 +260,7 @@ const JobsList = () => {
       <div className="grid gap-4">
         {jobs.map(job => (
           <div key={job.id} className="bg-surface border border-surface-highlight rounded-xl p-6 hover:border-primary/30 transition-colors">
-            <div className="flex justify-between items-start mb-4">
+            <div className="flex flex-wrap gap-3 justify-between items-start mb-4">
               <div>
                 <h3 className="font-bold text-lg text-text">{job.title}</h3>
                 <p className="text-sm text-text-muted">{job.orgName}</p>
@@ -269,7 +278,7 @@ const JobsList = () => {
             
             <p className="text-sm text-text-muted mb-6 line-clamp-2">{job.description}</p>
             
-            <div className="flex items-center justify-between pt-4 border-t border-surface-highlight">
+            <div className="flex flex-wrap items-center justify-between pt-4 border-t border-surface-highlight">
               <div className="flex gap-4 text-sm text-text-muted">
                 <div className="flex items-center gap-1">
                   <DollarSign size={14} />
@@ -297,41 +306,49 @@ const JobsList = () => {
   );
 };
 
-const JobBoard = () => {
+export const JobBoard = () => {
+  const { feedback, notify } = useFeedback();
+  const { confirmAction, confirmation } = useConfirmation();
   const { user } = useAuthStore();
   const navigate = useNavigate();
   const [jobs, setJobs] = useState<DesignJob[]>([]);
+  const [loadError, setLoadError] = useState(false);
+  const [reload, setReload] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchJobs();
-  }, []);
+  }, [reload]);
 
   const fetchJobs = async () => {
+    setLoading(true); setLoadError(false);
     try {
       const data = await JobService.getAvailableJobs();
       setJobs(data);
     } catch {
-      // Silent fail for background fetch
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
   };
 
+  const [accepting, setAccepting] = useState(false);
   const handleAcceptJob = async (jobId: string) => {
-    if (!user) return;
-    if (confirm('Are you sure you want to accept this job?')) {
+    if (!user || accepting) return;
+    if ((await confirmAction('Are you sure you want to accept this job?'))) {
       try {
+        setAccepting(true);
         await JobService.assignDesigner(jobId, user.uid);
         navigate('/designer/my-jobs');
       } catch {
-        alert('Failed to accept job');
-      }
+        notify('Failed to accept job', 'error');
+      } finally { setAccepting(false); }
     }
   };
 
-  if (loading) return <div className="p-8 text-center text-text-muted">Loading available jobs...</div>;
+  if (loading) return <div role="status" className="p-8 text-center text-text-muted">Loading available jobs...</div>;
 
+  if (loadError) return <div role="alert" className="ui-feedback ui-feedback-error">Jobs could not be loaded.<button className="ui-button ui-button-secondary ml-3" onClick={() => setReload(v => v + 1)}>Retry</button></div>;
   if (jobs.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-96 text-text-muted">
@@ -344,11 +361,13 @@ const JobBoard = () => {
 
   return (
     <div className="space-y-6">
+      <FeedbackRegion feedback={feedback} />
+      {confirmation}
       <h2 className="text-2xl font-bold text-text">Available Jobs</h2>
       <div className="grid gap-4">
         {jobs.map(job => (
           <div key={job.id} className="bg-surface border border-surface-highlight rounded-xl p-6 hover:border-primary/30 transition-colors shadow-sm">
-            <div className="flex justify-between items-start mb-4">
+            <div className="flex flex-wrap gap-3 justify-between items-start mb-4">
               <div>
                 <h3 className="font-bold text-lg text-text">{job.title}</h3>
                 <p className="text-sm text-text-muted">Posted by {job.orgName}</p>
@@ -361,7 +380,7 @@ const JobBoard = () => {
             
             <p className="text-sm text-text-muted mb-6">{job.description}</p>
             
-            <div className="flex items-center justify-between pt-4 border-t border-surface-highlight gap-2">
+            <div className="flex flex-wrap items-center justify-between pt-4 border-t border-surface-highlight gap-2">
               <div className="text-xs text-text-muted flex-1">
                 Posted {job.createdAt ? new Date(job.createdAt.seconds * 1000).toLocaleDateString() : 'Recently'}
               </div>
@@ -374,7 +393,7 @@ const JobBoard = () => {
               </button>
 
               <button 
-                onClick={() => handleAcceptJob(job.id)}
+                disabled={accepting} aria-label={`Accept ${job.title}`} onClick={() => handleAcceptJob(job.id)}
                 className="px-6 py-2 bg-primary hover:bg-primary-hover text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
               >
                 <CheckSquare size={16} />
@@ -389,27 +408,33 @@ const JobBoard = () => {
 };
 
 export const DesignerDashboard = () => {
+  const { feedback, notify } = useFeedback();
   const navigate = useNavigate();
   const location = useLocation();
   const { user, userProfile } = useAuthStore();
   const resetConfigStore = useConfigStore((state) => state.reset);
   const [profile, setProfile] = useState<DesignerProfile | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [reload, setReload] = useState(0);
+  const mainRef = useRef<HTMLElement>(null);
+  useEffect(() => { mainRef.current?.focus(); }, [location.pathname]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchProfile = async () => {
-      if (!user) return;
+      if (!user) { setLoading(false); return; }
+      setLoading(true); setLoadError(false);
       try {
         const data = await DesignerService.getDesigner(user.uid);
         setProfile(data);
       } catch {
-        // Silent fail
+        setLoadError(true);
       } finally {
         setLoading(false);
       }
     };
     fetchProfile();
-  }, [user]);
+  }, [user, reload]);
 
   const handleLogout = async () => {
     try {
@@ -417,7 +442,7 @@ export const DesignerDashboard = () => {
       await signOut(auth);
       navigate('/login');
     } catch {
-      alert('Failed to log out');
+      notify('Failed to log out', 'error');
     }
   };
 
@@ -429,18 +454,20 @@ export const DesignerDashboard = () => {
 
   return (
     <div className="min-h-screen bg-background text-text flex flex-col">
+      <FeedbackRegion feedback={feedback} />
+      <a href="#designer-main" className="skip-link">Skip to content</a>
       {/* Top Navigation */}
-      <nav className="border-b border-surface-highlight bg-surface px-8 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-8">
+      <nav aria-label="Designer workspace" className="border-b border-surface-highlight bg-surface px-4 sm:px-8 py-4">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-2 text-primary font-bold text-xl">
               <Palette className="fill-current" />
               <span>AccelDesigner</span>
             </div>
             
-            <div className="hidden md:flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1">
               <Link 
-                to="/designer/jobs" 
+                to="/designer/jobs" aria-current={isActive('jobs') && !isActive('my-jobs') ? 'page' : undefined}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   isActive('jobs') && !isActive('my-jobs') ? 'bg-surface-highlight text-text' : 'text-text-muted hover:text-text hover:bg-surface-highlight/50'
                 }`}
@@ -448,7 +475,7 @@ export const DesignerDashboard = () => {
                 Find Work
               </Link>
               <Link 
-                to="/designer/my-jobs" 
+                to="/designer/my-jobs" aria-current={isActive('my-jobs') ? 'page' : undefined}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   isActive('my-jobs') ? 'bg-surface-highlight text-text' : 'text-text-muted hover:text-text hover:bg-surface-highlight/50'
                 }`}
@@ -456,7 +483,7 @@ export const DesignerDashboard = () => {
                 My Jobs
               </Link>
               <Link 
-                to="/designer/profile" 
+                to="/designer/profile" aria-current={isActive('profile') ? 'page' : undefined}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   isActive('profile') ? 'bg-surface-highlight text-text' : 'text-text-muted hover:text-text hover:bg-surface-highlight/50'
                 }`}
@@ -471,7 +498,7 @@ export const DesignerDashboard = () => {
               <div className="text-sm font-medium text-text">{userProfile?.displayName || user?.email}</div>
               <div className="text-xs text-text-muted capitalize">{userProfile?.platformRole}</div>
             </div>
-            <button 
+            <button aria-label="Sign Out"
               onClick={handleLogout}
               className="p-2 text-text-muted hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
               title="Sign Out"
@@ -483,14 +510,15 @@ export const DesignerDashboard = () => {
       </nav>
 
       {/* Main Content */}
-      <main className="flex-1 p-8">
+      <main id="designer-main" ref={mainRef} tabIndex={-1} className="full-hig-page flex-1 p-4 sm:p-8">
+        {loadError && <div role="alert" className="ui-feedback ui-feedback-error">Your profile could not be loaded.<button className="ui-button ui-button-secondary ml-3" onClick={() => setReload(v => v + 1)}>Retry</button></div>}
         <div className="max-w-7xl mx-auto">
           <Routes>
             <Route path="/" element={<Navigate to="jobs" replace />} />
             <Route path="jobs" element={<JobBoard />} />
             <Route path="jobs/:jobId" element={<JobDetailView />} />
             <Route path="my-jobs" element={<JobsList />} />
-            <Route path="profile" element={<ProfileEditor profile={profile} />} />
+            <Route path="profile" element={loadError ? <p>Your existing profile is protected until it can be loaded.</p> : <ProfileEditor profile={profile} />} />
           </Routes>
         </div>
       </main>
