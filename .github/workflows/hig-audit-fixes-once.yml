@@ -1,0 +1,89 @@
+name: Apply HIG browser audit corrections
+on:
+  push:
+    branches: [recovery/local-v2]
+    paths: ['.github/workflows/hig-audit-fixes-once.yml']
+permissions:
+  contents: write
+jobs:
+  correct:
+    if: github.repository == 'AccelAnalysis/AccelRestaurants_V2' && github.ref == 'refs/heads/recovery/local-v2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Apply checked, narrowly scoped source replacements
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          files = {
+            'src/components/organisms/SlideEditor.tsx': 'f9cfde50d336a1be70511b29447643da97fec13b5443a2b65be927e27a229358',
+            'src/components/organisms/ScreenEditor.tsx': '9e863b02cab3c4e010f23b739b9d3d175d98e8365bf6a3a995c365812030a364',
+            'src/components/organisms/AudioScheduleModal.tsx': '170df7c2a20c699cd54e24ff8b6a5075e166a998a467373c2056b15172d42526',
+          }
+          for f, digest in files.items():
+              assert hashlib.sha256(Path(f).read_bytes()).hexdigest() == digest, f'Source changed: {f}'
+          p=Path('src/components/organisms/SlideEditor.tsx'); s=p.read_text()
+          for prop,label in [('visible','Tile visibility'),('locked','Lock tile')]:
+              old=f'onClick={{() => updateSelectedTile({{ {prop}: !selectedTile.{prop} }})}}'
+              new=f'aria-label="{label}" aria-pressed={{selectedTile.{prop}}}\n                                 '+old
+              assert s.count(old)==1
+              s=s.replace(old,new)
+          p.write_text(s)
+          p=Path('src/components/organisms/ScreenEditor.tsx'); s=p.read_text()
+          for label,id_ in [('Scale','display-scale'),('Offset X (px)','display-offset-x'),('Offset Y (px)','display-offset-y')]:
+              old=f'<label className="text-sm font-medium text-text-secondary">{label}</label>'
+              assert s.count(old)==1
+              s=s.replace(old,f'<label htmlFor="{id_}" className="text-sm font-medium text-text-secondary">{label}</label>')
+          for old,new in [('<input\n                    type="range"','<input id="display-scale"\n                    type="range"'),('<input\n                        type="number"\n                        value={screenAdjustments.offsetX','<input id="display-offset-x"\n                        type="number"\n                        value={screenAdjustments.offsetX'),('<input\n                        type="number"\n                        value={screenAdjustments.offsetY','<input id="display-offset-y"\n                        type="number"\n                        value={screenAdjustments.offsetY')]:
+              assert s.count(old)==1
+              s=s.replace(old,new)
+          for axis in 'XY':
+              for word,math in [('Decrease','max'),('Increase','min')]:
+                  old=f'<button\n                        onClick={{() => setScreenAdjustments(prev => ({{ ...prev, offset{axis}: Math.{math}'
+                  new=f'<button aria-label="{word} display offset {axis} by 5 pixels"\n                        onClick={{() => setScreenAdjustments(prev => ({{ ...prev, offset{axis}: Math.{math}'
+                  assert s.count(old)==1
+                  s=s.replace(old,new)
+          s=s.replace('rounded text-text-muted text-xs transition-colors flex-shrink-0','rounded text-text-secondary text-xs transition-colors flex-shrink-0')
+          s=s.replace('rounded text-xs text-text-muted transition-colors','rounded text-xs text-text-secondary transition-colors')
+          p.write_text(s)
+          p=Path('src/components/organisms/AudioScheduleModal.tsx'); s=p.read_text()
+          old='bg-surface-highlight text-text-muted hover:bg-surface-highlight/70'
+          assert s.count(old)==1
+          p.write_text(s.replace(old,'bg-surface-highlight text-text-secondary hover:bg-surface-highlight/70'))
+          PY
+      - name: Verify lint and production compilation
+        run: |
+          npm ci
+          npm run lint
+          npm run build
+          git diff --check
+      - name: Commit corrected interface to recovery branch only
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/organisms/SlideEditor.tsx src/components/organisms/ScreenEditor.tsx src/components/organisms/AudioScheduleModal.tsx
+          git commit -m 'Fix remaining editor names, calibration labels and schedule contrast'
+          git push origin HEAD:refs/heads/recovery/local-v2
+          echo "Verified source commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Install isolated browser tests
+        run: |
+          npm ci --prefix tests/hig
+          cd tests/hig
+          npx playwright install --with-deps chromium webkit
+      - name: Run full desktop, phone and tablet test matrix
+        working-directory: tests/hig
+        run: npm test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hig-browser-audit-corrections
+          path: |
+            tests/hig/report
+            tests/hig/results
+          retention-days: 7
