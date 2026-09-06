@@ -115,6 +115,7 @@ ArticleService.deleteArticle = async id => { fixture.deleted.push(id); };
 ConfigService.saveGeneralConfig = async data => { if (fixture.failSettings) throw new Error('fixture settings failure'); fixture.configWrites.push(data); };
 ConfigService.savePlanConfigs = async data => { if (fixture.failSettings) throw new Error('fixture config failure'); fixture.configWrites.push(data); };
 TemplateService.getTemplate = async id => ({ id, name: 'Seasonal template', description: '', category: 'Menu', tags: [], type: 'slide', isPublic: true, content: slide });
+TemplateService.createTemplate = async data => { if (fixture.failSave) throw new Error('fixture template save failure'); fixture.saves.push(data); return 'new-template'; };
 TemplateService.updateTemplate = async () => { if (fixture.failSave) throw new Error('fixture template save failure'); };
 StorageService.uploadFile = async () => { if (fixture.failSave) throw new Error('fixture upload failure'); return 'https://example.invalid/file.png'; };
 PollService.initializePoll = async () => {};

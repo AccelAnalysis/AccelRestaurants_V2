@@ -84,9 +84,9 @@ test('billing plan review cancel causes no checkout; failure stays contextual',a
  expect(await page.evaluate(()=>window.__hig.checkoutCalls.length)).toBe(1);await audit(page);await fits(page);await page.screenshot({path:info.outputPath('billing.png'),fullPage:true});
 });
 test('billing load retry is separate from empty plans and portal failure',async({page})=>{
- await page.goto('/billing?failPlans=1');await expect(page.getByRole('alert')).toContainText('Plans could not');
+ await page.goto('/billing?failPlans=1');await expect(page.getByRole('alert').filter({hasText:'Plans could not'})).toBeVisible();
  await page.evaluate(()=>window.__hig.failPlans=false);await page.getByRole('button',{name:'Retry loading plans'}).click();await expect(page.getByRole('button',{name:'Review Basic plan'})).toBeVisible();
- await page.getByRole('button',{name:'Manage subscription'}).click();await expect(page.getByRole('alert')).toContainText('portal could not be opened');
+ await page.getByRole('button',{name:'Manage subscription'}).click();await expect(page.getByRole('alert').filter({hasText:'portal could not be opened'})).toBeVisible();
 });
 test('onboarding account labels, mobile progress and validation',async({page})=>{
  await page.goto('/onboarding?new=1');await expect(page.getByText('Step 1 of 4')).toBeVisible();await audit(page);await fits(page);
@@ -116,7 +116,7 @@ test('tenant colors remain legible and malformed or failed saves keep drafts',as
 test('brand contrast derivation handles a 4096-color grid and invalid values',async({page})=>{
  await page.goto('/brand');const failures=await page.evaluate(()=>{
   const {deriveBrandColors,contrastRatio,normalizeHex}=window.__hig.colorMath;let failures=[];
-  for(let r=0;r<256;r+=17)for(let g=0;g<256;g+=17)for(let b=0;b<256;b+=17){const hex='#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join('');const c=deriveBrandColors(hex);if(contrastRatio(c.action,'#ffffff')<4.5||['#111827','#1f2937','#374151'].some(bg=>contrastRatio(c.text,bg)<4.5))failures.push(hex);}
+  for(let r=0;r<256;r+=17)for(let g=0;g<256;g+=17)for(let b=0;b<256;b+=17){const hex='#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join('');const c=deriveBrandColors(hex);if(contrastRatio(c.action,'#ffffff')<4.5||['#111827','#1f2937','#374151','#374155'].some(bg=>contrastRatio(c.text,bg)<4.5))failures.push(hex);}
   if(normalizeHex('#AbC')!=='#aabbcc'||normalizeHex('red')!==null||normalizeHex('url(x)')!==null)failures.push('parsing');return failures;
  });expect(failures).toEqual([]);
 });
@@ -124,4 +124,15 @@ test('form and poll acknowledge only successful persistence and allow retry',asy
  await page.goto('/form-tile');await page.getByLabel('Name (required)').fill('A guest');await page.getByLabel('Email (required)').fill('guest@example.invalid');await page.getByRole('button',{name:'Submit Request'}).click();
  await expect(page.getByRole('alert')).toContainText('Your entries are still here');await expect(page.getByLabel('Name (required)')).toHaveValue('A guest');await page.evaluate(()=>window.__hig.failForm=false);await page.getByRole('button',{name:'Submit Request'}).click();await expect(page.getByRole('status')).toContainText('sent successfully');await audit(page);
  await page.goto('/poll-tile');await page.getByRole('button',{name:/Tea/}).click();await expect(page.getByRole('alert')).toContainText('could not be saved');await page.evaluate(()=>window.__hig.failVote=false);await page.getByRole('button',{name:/Tea/}).click();await expect(page.getByRole('status')).toContainText('vote was saved');
+});
+
+test('new template opens a real editor and preserves a failed save',async({page})=>{
+ await page.goto('/super-admin/templates/new');await expect(page.getByRole('heading',{name:'New Template',exact:true})).toBeVisible();
+ await page.getByLabel('Name',{exact:true}).first().fill('New seasonal template');
+ const tools=page.getByRole('button',{name:'Tiles',exact:true});if(await tools.getAttribute('aria-expanded')==='false')await tools.click();
+ await page.getByRole('button',{name:'Add Text Block tile',exact:true}).click();
+ await page.evaluate(()=>window.__hig.failSave=true);await page.getByRole('button',{name:'Save Changes',exact:true}).click();
+ await expect(page.getByRole('alert').filter({hasText:'Could not save the template'})).toBeVisible();
+ await expect(page.getByLabel('Name',{exact:true}).first()).toHaveValue('New seasonal template');
+ await expect(page.getByRole('heading',{name:'New Template',exact:true})).toBeVisible();
 });

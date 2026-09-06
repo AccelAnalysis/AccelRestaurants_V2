@@ -517,7 +517,7 @@ export const OnboardingPage = () => {
 
                         <button 
                             type="submit" 
-                            disabled={loading || Boolean(calculateCost(selectedPlan, PLAN_CONFIGS[selectedPlan]).invalid)}
+                            disabled={loading}
                             className="w-full bg-primary hover:bg-primary-hover text-white font-bold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
                         >
                             {loading ? <Loader2 className="animate-spin" /> : 'Continue'} <ArrowRight size={20} />

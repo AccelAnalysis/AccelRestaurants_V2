@@ -349,7 +349,7 @@ const OrgRow = ({ org, onManage }: { org: Organization, onManage: (org: Organiza
         {org.createdAt?.seconds ? new Date(org.createdAt.seconds * 1000).toLocaleDateString() : '-'}
       </td>
       <td className="p-4">
-        <button aria-label="Manage Organization"
+        <button aria-label={`Manage ${org.name}`}
           onClick={() => onManage(org)}
           className="p-2 text-text-muted hover:text-primary hover:bg-surface-highlight rounded transition-all"
           title="Manage Organization"
@@ -394,14 +394,14 @@ const DesignerRow = ({ designer, invite, onRevoke, onResend }: { designer?: Desi
         <td className="p-4 text-right">
           {invite.status === 'pending' && (
             <div className="flex justify-end gap-2">
-              <button aria-label="Resend Invite"
+              <button aria-label={`Resend invitation to ${invite.email}`}
                 onClick={() => onResend && onResend(invite.id)}
                 className="p-1.5 hover:bg-surface-highlight rounded text-text-muted hover:text-primary transition-colors"
                 title="Resend Invite"
               >
                 <RotateCcw size={16} />
               </button>
-              <button aria-label="Revoke Invite"
+              <button aria-label={`Revoke invitation to ${invite.email}`}
                 onClick={() => onRevoke && onRevoke(invite.id)}
                 className="p-1.5 hover:bg-surface-highlight rounded text-text-muted hover:text-red-500 transition-colors"
                 title="Revoke Invite"
@@ -619,7 +619,7 @@ const ConfigEditor = () => {
 
               <div>
                 <label className="text-xs text-text-muted uppercase tracking-wider mb-1 block">Allowed Tiles ({limits.allowedTiles.length})</label>
-                <div className="bg-background border border-surface-highlight rounded p-3 text-xs text-text-muted h-32 overflow-y-auto font-mono">
+                <div role="region" tabIndex={0} aria-label={`${planName} allowed tile types`} className="bg-background border border-surface-highlight rounded p-3 text-xs text-text-muted h-32 overflow-y-auto font-mono">
                   {limits.allowedTiles.join(', ')}
                 </div>
                 <p className="text-[10px] text-text-muted mt-1">

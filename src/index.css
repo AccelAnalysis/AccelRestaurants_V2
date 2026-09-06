@@ -152,3 +152,11 @@ body {
   .full-hig-page .responsive-heading > div { min-width: 0; }
   .full-hig-page .two-column-fields { grid-template-columns: minmax(0,1fr); }
 }
+
+/* Browser-audited secondary labels and semantic action backgrounds. */
+.app-ui .text-text-muted:not(.signage-content *) { color: #cbd5e1; }
+.app-ui .text-purple-400:not(.signage-content *) { color: #e9d5ff; }
+.app-ui :where(button.bg-success, button.bg-green-500):not(.signage-content *) { background-color: #047857; color: #fff; }
+.app-ui :where(button.bg-red-500, button.bg-error):not(.signage-content *) { background-color: #b91c1c; color: #fff; }
+.app-ui p a:not(.ui-button):not(.signage-content *), .app-ui label a:not(.signage-content *) { text-decoration: underline; text-underline-offset: .2em; }
+@media (pointer: coarse) { .template-actions { opacity: 1; position: static; flex-wrap: wrap; padding: .5rem; } }

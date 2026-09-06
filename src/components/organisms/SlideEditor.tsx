@@ -1009,7 +1009,7 @@ export const SlideEditor = ({
                  style={{ backgroundImage: 'radial-gradient(#d1d5db 1px, transparent 1px)', backgroundSize: '24px 24px' }} 
             />
             
-            <button type="button"
+            <div role="group" aria-label="Slide canvas"
               id="editor-canvas"
               onClick={() => setSelectedTileId(null)}
               className={`relative shadow-2xl transition-all ring-1 ring-white/10 ${isOver && canDrop ? 'ring-2 ring-primary/70' : ''}`}
@@ -1058,7 +1058,7 @@ export const SlideEditor = ({
                   }}
                 />
               ))}
-            </button>
+            </div>
             
             {/* Canvas Controls Overlay */}
             <div className="absolute bottom-6 right-6 bg-surface border border-surface-highlight rounded-lg p-2 flex gap-2 shadow-lg">

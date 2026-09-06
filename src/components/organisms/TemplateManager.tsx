@@ -236,7 +236,7 @@ export const TemplateManager = () => {
       </div>
 
       {error && (
-        <div className="bg-red-500/10 border border-red-500/20 text-red-500 p-4 rounded-lg flex items-center justify-between">
+        <div role="alert" className="bg-red-500/10 border border-red-500/20 text-red-500 p-4 rounded-lg flex items-center justify-between">
           <span>Error: {error}</span>
           <button onClick={fetchTemplates} className="text-sm underline hover:text-red-400">Retry</button>
         </div>
@@ -273,7 +273,7 @@ export const TemplateManager = () => {
                     </span>
                   )}
                 </div>
-                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                <div className="template-actions absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex items-center justify-center gap-2">
                   {isSuperAdmin && (
                     <>
                       <button aria-label={template.isPublic ? "Make Private" : "Make Public"}

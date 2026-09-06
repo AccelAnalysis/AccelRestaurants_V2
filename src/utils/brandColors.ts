@@ -26,7 +26,7 @@ function adjust(color: string, against: string[], target: number, toward: number
 export function deriveBrandColors(value: unknown) {
   const brand = normalizeHex(value) ?? DEFAULT_BRAND;
   const action = adjust(brand, ['#ffffff'], 4.5, 0);
-  const text = adjust(brand, ['#111827', '#1f2937', '#374151'], 4.5, 255);
+  const text = adjust(brand, ['#111827', '#1f2937', '#374151', '#374155'], 4.5, 255);
   return { brand, action, actionHover: adjust(action, ['#ffffff'], 7, 0), text, onAction: '#ffffff', focus: text };
 }
 export function brandStyle(value: unknown): Record<string, string> {

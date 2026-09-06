@@ -1,3 +1,6 @@
+import { Timestamp } from 'firebase/firestore';
+import { useAuthStore } from '../../store/useAuthStore';
+import { useConfirmation } from '../../hooks/useConfirmation';
 import { useFeedback } from '../../hooks/useFeedback';
 import { FeedbackRegion } from '../atoms/FeedbackRegion';
 import { useState, useEffect } from 'react';
@@ -9,9 +12,19 @@ import { SlideEditor } from './SlideEditor';
 import { MenuEditor } from './MenuEditor';
 import { ScreenEditor } from './ScreenEditor';
 
+function blankContent(type: 'slide' | 'menu' | 'screen'): Record<string, unknown> {
+  const base = { id: 'template-draft', orgId: '', name: 'Untitled', createdAt: Timestamp.now() };
+  if (type === 'menu') return { ...base, updatedAt: Timestamp.now(), sections: [] };
+  if (type === 'screen') return { ...base, locationId: '', orientation: 'landscape', isActive: false, livePlaylist: [], rotationSettings: { algorithm: 'loop', transition: 'fade', rotationMs: 10000 } };
+  return { ...base, updatedAt: Timestamp.now(), dimensions: { width: 1920, height: 1080 }, orientation: 'landscape', backgroundColor: '#111827', elements: [] };
+}
+
 export const TemplateEditor = () => {
   const { feedback, notify } = useFeedback();
   const { templateId } = useParams();
+  const isNew = !templateId || templateId === 'new';
+  const { user } = useAuthStore();
+  const { confirmAction, confirmation } = useConfirmation();
   const navigate = useNavigate();
   const [template, setTemplate] = useState<Partial<Template>>({
     name: '',
@@ -19,15 +32,16 @@ export const TemplateEditor = () => {
     category: '',
     tags: [],
     isPublic: true,
-    type: 'slide'
+    type: 'slide',
+    content: blankContent('slide')
   });
-  const [loading, setLoading] = useState(!!templateId);
+  const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [reload, setReload] = useState(0);
 
   useEffect(() => {
-    if (templateId) {
+    if (!isNew && templateId) {
       const fetchTemplate = async () => {
         setLoading(true); setLoadError(false);
         try {
@@ -44,7 +58,7 @@ export const TemplateEditor = () => {
       };
       fetchTemplate();
     }
-  }, [templateId, reload, notify]);
+  }, [templateId, isNew, reload, notify]);
 
   const handleSave = async (content: Slide | Menu | AppScreen) => {
     if (!template.name?.trim()) { notify('Give the template a name before saving.', 'error'); throw new Error('Template name is required'); }
@@ -55,13 +69,13 @@ export const TemplateEditor = () => {
         content: content as unknown as Record<string, unknown>
       };
 
-      if (templateId) {
+      if (!isNew && templateId) {
         await TemplateService.updateTemplate(templateId, templateData);
       } else {
         await TemplateService.createTemplate({
           ...templateData,
           version: 1,
-          createdBy: 'system' // Should be current user
+          createdBy: user?.uid || 'system'
         } as Omit<Template, 'id' | 'createdAt' | 'updatedAt'>);
       }
       navigate('/super-admin/templates');
@@ -80,11 +94,12 @@ export const TemplateEditor = () => {
   return (
     <div className="max-w-[1600px] mx-auto space-y-6 p-4 sm:p-8 min-h-screen flex flex-col">
       <FeedbackRegion feedback={feedback} />
+      {confirmation}
       <div className="flex items-center gap-4 flex-shrink-0">
         <button aria-label={"Back to templates"} onClick={() => navigate('/super-admin/templates')} className="p-2 hover:bg-surface-highlight rounded-full">
           <ArrowLeft size={20} />
         </button>
-        <h1 className="text-2xl font-bold">{templateId ? 'Edit Template' : 'New Template'}</h1>
+        <h1 className="text-2xl font-bold">{isNew ? 'New Template' : 'Edit Template'}</h1>
         {saving && <span className="text-sm text-text-muted">Saving...</span>}
       </div>
 
@@ -107,9 +122,11 @@ export const TemplateEditor = () => {
               <label className="block text-sm font-medium mb-1">Type</label>
               <select aria-label={"Type"}
                 value={template.type}
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                onChange={e => setTemplate({ ...template, type: e.target.value as any })}
-                disabled={!!templateId}
+                onChange={async e => {
+                  const type = e.target.value as 'slide' | 'menu' | 'screen';
+                  if (type !== template.type && await confirmAction('Changing template type will replace the unsaved canvas. Continue?')) setTemplate(previous => ({ ...previous, type, content: blankContent(type) }));
+                }}
+                disabled={!isNew || saving}
                 className="w-full bg-background border border-surface-highlight rounded px-3 py-2"
               >
                 <option value="slide">Slide</option>
