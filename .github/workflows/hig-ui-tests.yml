@@ -28,9 +28,19 @@ concurrency:
 
 jobs:
   hig-ui:
-    name: Keyboard, touch and accessibility
+    name: Keyboard, touch and accessibility (${{ matrix.project }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: desktop-chromium
+            engine: chromium
+          - project: phone-chromium
+            engine: chromium
+          - project: tablet-webkit
+            engine: webkit
     steps:
       - uses: actions/checkout@v5
         with:
@@ -46,17 +56,21 @@ jobs:
         run: |
           npm ci
           npm ci --prefix tests/hig
-      - name: Install Chromium and WebKit
+      - name: Install browser engine
         working-directory: tests/hig
-        run: npx playwright install --with-deps chromium webkit
+        env:
+          BROWSER_ENGINE: ${{ matrix.engine }}
+        run: npx playwright install --with-deps "$BROWSER_ENGINE"
       - name: Verify real UI with isolated synthetic services
         working-directory: tests/hig
-        run: npm test
+        env:
+          BROWSER_PROJECT: ${{ matrix.project }}
+        run: npm test -- --project="$BROWSER_PROJECT"
       - name: Retain screenshots and failure traces
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: hig-ui-results
+          name: hig-ui-results-${{ matrix.project }}
           path: |
             tests/hig/report
             tests/hig/results

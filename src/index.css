@@ -160,3 +160,6 @@ body {
 .app-ui :where(button.bg-red-500, button.bg-error):not(.signage-content *) { background-color: #b91c1c; color: #fff; }
 .app-ui p a:not(.ui-button):not(.signage-content *), .app-ui label a:not(.signage-content *) { text-decoration: underline; text-underline-offset: .2em; }
 @media (pointer: coarse) { .template-actions { opacity: 1; position: static; flex-wrap: wrap; padding: .5rem; } }
+
+/* The onboarding sign-in link sits in a div, not a paragraph. Do not rely on color alone. */
+.app-ui a[href="/login"]:not(.ui-button):not(.signage-content *) { text-decoration: underline; text-underline-offset: .2em; }
