@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WebGL Smoke + PNG Overlay (Balanced)</title>
+  <style>
+    html, body { height: 100%; margin: 0; overflow: hidden; }
+    body { background: #0b0d10; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+
+    .stage {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      background-image: url("Wood Background.jpg");
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+    }
+
+    /* Optional vignette */
+    .stage::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(1200px 700px at 50% 40%, rgba(0,0,0,0.08), rgba(0,0,0,0.48));
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* Transparent PNG overlay layer */
+    img#overlay {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      Object-fit: cover; /* swap to 'contain' if you want no cropping */
+      z-index: 3;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    canvas#gl {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;            /* smoke above overlay; set to 2 if you want smoke behind overlay */
+      pointer-events: none;
+      opacity: var(--smokeOpacity, 0.75);
+      mix-blend-mode: var(--blendMode, screen);
+    }
+
+    /* ===== Controls (toggleable) ===== */
+    .controls {
+      position: absolute;
+      left: 14px;
+      bottom: 14px;
+      z-index: 10;
+      width: 360px;
+      background: rgba(10, 12, 16, 0.62);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 14px;
+      padding: 10px 12px;
+      backdrop-filter: blur(10px);
+      color: rgba(255,255,255,0.92);
+      font-size: 13px;
+    }
+    .controls.hidden { display: none; }
+
+    .controls .title { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .controls .title strong { font-size: 13px; }
+    .controls .hint { opacity: .72; font-size: 12px; }
+
+    .row { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
+    label { width: 120px; opacity: 0.85; }
+    input[type="range"] { width: 190px; }
+    select { width: 120px; }
+
+    /* Minimal, non-distracting toggle button */
+    .gear {
+      position: absolute;
+      right: 14px;
+      top: 14px;
+      z-index: 11;
+      width: 40px;
+      height: 40px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(10,12,16,0.40);
+      color: rgba(255,255,255,0.75);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      opacity: 0.35;
+      transition: opacity .15s ease, transform .15s ease;
+    }
+    .gear:hover { opacity: 0.95; transform: scale(1.03); }
+
+    .fallback {
+      position: absolute;
+      inset: 0;
+      display: none;
+      place-items: center;
+      z-index: 20;
+      background: rgba(0,0,0,0.55);
+      color: rgba(255,255,255,0.92);
+      text-align: center;
+      padding: 24px;
+    }
+    .fallback code { background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <div class="stage">
+    <img id="overlay" src="BnF Overlay.png" alt="" />
+    <canvas id="gl"></canvas>
+
+    <button class="gear" id="toggleBtn" title="Toggle controls (or press C)">⚙</button>
+
+    <div class="controls" id="controls">
+      <div class="title">
+        <strong>Smoke Controls</strong>
+        <span class="hint">Press <b>C</b> to toggle</span>
+      </div>
+
+      <div class="row">
+        <label>Quality Scale</label>
+        <input id="qscale" type="range" min="60" max="100" value="80" />
+        <span id="qscaleVal">0.80</span>
+      </div>
+
+      <div class="row">
+        <label>Steps</label>
+        <input id="steps" type="range" min="48" max="140" value="92" />
+        <span id="stepsVal">92</span>
+      </div>
+
+      <div class="row">
+        <label>Density</label>
+        <input id="density" type="range" min="10" max="140" value="70" />
+        <span id="densityVal">0.70</span>
+      </div>
+
+      <div class="row">
+        <label>Rise Speed</label>
+        <input id="speed" type="range" min="0" max="140" value="70" />
+        <span id="speedVal">0.70</span>
+      </div>
+
+      <div class="row">
+        <label>Wispy / Warp</label>
+        <input id="warp" type="range" min="0" max="100" value="62" />
+        <span id="warpVal">0.62</span>
+      </div>
+
+      <div class="row">
+        <label>Opacity</label>
+        <input id="opacity" type="range" min="10" max="100" value="75" />
+        <span id="opacityVal">0.75</span>
+      </div>
+
+      <div class="row">
+        <label>Blend</label>
+        <select id="blend">
+          <option value="screen" selected>Screen</option>
+          <option value="soft-light">Soft Light</option>
+          <option value="normal">Normal</option>
+        </select>
+        <span style="opacity:.8;">CSS</span>
+      </div>
+
+      <div class="hint" style="margin-top:10px;">
+        Full-width smoke (no center column). Height capped at ~2/3 screen. Upward motion enabled.
+      </div>
+    </div>
+
+    <div class="fallback" id="fallback">
+      <div>
+        <div style="font-weight:700; font-size:16px; margin-bottom:10px;">WebGL2 not available</div>
+        <div style="opacity:.9; max-width:560px; margin:0 auto;">
+          This demo uses <code>WebGL2</code>. Try a different browser or enable hardware acceleration.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  // =========================
+  // 1) TOGGLING CONTROLS (the code you asked for)
+  // =========================
+  const controlsEl = document.getElementById('controls');
+  const toggleBtn  = document.getElementById('toggleBtn');
+
+  function toggleControls() {
+    controlsEl.classList.toggle('hidden'); // <-- actual visibility toggle
+  }
+
+  toggleBtn.addEventListener('click', toggleControls);
+  window.addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() === 'c') toggleControls(); // press "C" to toggle
+  });
+
+  // =========================
+  // WebGL Smoke Renderer
+  // =========================
+  const canvas = document.getElementById('gl');
+  const fallback = document.getElementById('fallback');
+
+  const gl = canvas.getContext('webgl2', { alpha: true, antialias: true, premultipliedAlpha: false });
+  if (!gl) {
+    fallback.style.display = 'grid';
+    throw new Error('WebGL2 not supported');
+  }
+
+  // UI elements
+  const qscaleEl  = document.getElementById('qscale');
+  const stepsEl   = document.getElementById('steps');
+  const densityEl = document.getElementById('density');
+  const warpEl    = document.getElementById('warp');
+  const speedEl   = document.getElementById('speed');
+  const opacityEl = document.getElementById('opacity');
+  const blendEl   = document.getElementById('blend');
+
+  const qscaleVal  = document.getElementById('qscaleVal');
+  const stepsVal   = document.getElementById('stepsVal');
+  const densityVal = document.getElementById('densityVal');
+  const warpVal    = document.getElementById('warpVal');
+  const speedVal   = document.getElementById('speedVal');
+  const opacityVal = document.getElementById('opacityVal');
+
+  function uiParams() {
+    const qscale  = (+qscaleEl.value) / 100;
+    const steps   = +stepsEl.value;
+    const density = (+densityEl.value) / 100;
+    const warp    = (+warpEl.value) / 100;
+    const speed   = (+speedEl.value) / 100;
+    const opacity = (+opacityEl.value) / 100;
+
+    qscaleVal.textContent  = qscale.toFixed(2);
+    stepsVal.textContent   = String(steps);
+    densityVal.textContent = density.toFixed(2);
+    warpVal.textContent    = warp.toFixed(2);
+    speedVal.textContent   = speed.toFixed(2);
+    opacityVal.textContent = opacity.toFixed(2);
+
+    document.documentElement.style.setProperty('--smokeOpacity', opacity.toFixed(2));
+    document.documentElement.style.setProperty('--blendMode', blendEl.value);
+
+    return { qscale, steps, density, warp, speed };
+  }
+
+  function compile(type, src) {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+      const info = gl.getShaderInfoLog(sh);
+      gl.deleteShader(sh);
+      throw new Error(info || 'Shader compile failed');
+    }
+    return sh;
+  }
+
+  function makeProgram(vsSrc, fsSrc) {
+    const p = gl.createProgram();
+    gl.attachShader(p, compile(gl.VERTEX_SHADER, vsSrc));
+    gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fsSrc));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+      const info = gl.getProgramInfoLog(p);
+      gl.deleteProgram(p);
+      throw new Error(info || 'Program link failed');
+    }
+    return p;
+  }
+
+  const vert = `#version 300 es
+  precision highp float;
+  const vec2 pos[3] = vec2[3](
+    vec2(-1.0, -1.0),
+    vec2( 3.0, -1.0),
+    vec2(-1.0,  3.0)
+  );
+  out vec2 vUv;
+  void main() {
+    vec2 p = pos[gl_VertexID];
+    vUv = 0.5 * (p + 1.0);
+    gl_Position = vec4(p, 0.0, 1.0);
+  }`;
+
+  const frag = `#version 300 es
+  precision highp float;
+  out vec4 outColor;
+  in vec2 vUv;
+
+  uniform vec2  uRes;
+  uniform float uTime;
+  uniform float uDensity;
+  uniform float uWarp;
+  uniform float uSpeed;
+  uniform int   uSteps;
+
+  float hash31(vec3 p) {
+    p = fract(p * 0.1031);
+    p += dot(p, p.yzx + 33.33);
+    return fract((p.x + p.y) * p.z);
+  }
+
+  float noise3(vec3 x) {
+    vec3 i = floor(x);
+    vec3 f = fract(x);
+    f = f * f * (3.0 - 2.0 * f);
+
+    float n000 = hash31(i + vec3(0,0,0));
+    float n100 = hash31(i + vec3(1,0,0));
+    float n010 = hash31(i + vec3(0,1,0));
+    float n110 = hash31(i + vec3(1,1,0));
+    float n001 = hash31(i + vec3(0,0,1));
+    float n101 = hash31(i + vec3(1,0,1));
+    float n011 = hash31(i + vec3(0,1,1));
+    float n111 = hash31(i + vec3(1,1,1));
+
+    float nx00 = mix(n000, n100, f.x);
+    float nx10 = mix(n010, n110, f.x);
+    float nx01 = mix(n001, n101, f.x);
+    float nx11 = mix(n011, n111, f.x);
+
+    float nxy0 = mix(nx00, nx10, f.y);
+    float nxy1 = mix(nx01, nx11, f.y);
+
+    return mix(nxy0, nxy1, f.z);
+  }
+
+  float fbm(vec3 p) {
+    float a = 0.0;
+    float w = 0.58;
+    float f = 1.0;
+    for (int i = 0; i < 5; i++) {
+      a += w * noise3(p * f);
+      f *= 2.02;
+      w *= 0.52;
+    }
+    return a;
+  }
+
+  vec3 domainWarp(vec3 p, float t) {
+    float w = uWarp;
+    float a = fbm(p + vec3(0.0, 0.0, t));
+    float b = fbm(p + vec3(21.7, 9.3, t * 0.7));
+    float c = fbm(p + vec3(12.4, 34.1, t * 0.9));
+    return p + w * vec3(a, b, c);
+  }
+
+  // FULL-WIDTH smoke: no "core" (no radial multiplier)
+  float densityField(vec3 p, float t) {
+    float rise = t * (0.45 + 0.9 * uSpeed);
+    vec3 q = p;
+
+    // Upward motion
+    q.y -= rise;
+
+    // Slow horizontal drift so the smoke doesn't look like a centered column
+    q.x += 0.15 * sin(t * 0.18 + p.y * 0.35);
+    q.z += 0.12 * cos(t * 0.16 + p.y * 0.30);
+
+    q = domainWarp(q * 1.10, t * 0.22);
+
+    float n = fbm(q * 1.20);
+
+    float h = smoothstep(-0.25, 1.20, p.y);
+    float bottom = 1.0 - h;
+
+    float d = n * (0.22 + 1.05 * bottom);
+    d = smoothstep(0.30, 0.92, d);
+    return d;
+  }
+
+  bool rayBox(vec3 ro, vec3 rd, vec3 bmin, vec3 bmax, out float t0, out float t1) {
+    vec3 inv = 1.0 / rd;
+    vec3 tbot = (bmin - ro) * inv;
+    vec3 ttop = (bmax - ro) * inv;
+    vec3 tmin = min(ttop, tbot);
+    vec3 tmax = max(ttop, tbot);
+    t0 = max(max(tmin.x, tmin.y), tmin.z);
+    t1 = min(min(tmax.x, tmax.y), tmax.z);
+    return t1 > max(t0, 0.0);
+  }
+
+  void main() {
+    vec2 fragCoord = vUv * uRes;
+    vec2 uv = (fragCoord / uRes) * 2.0 - 1.0;
+    uv.x *= uRes.x / uRes.y;
+
+    // Height capped at ~2/3 screen
+    float yN = fragCoord.y / uRes.y;
+    float screenMask = smoothstep(0.00, 0.08, yN) * (1.0 - smoothstep(0.66, 0.78, yN));
+
+    // Camera
+    vec3 ro = vec3(0.0, 0.10, 2.10);
+    vec3 lookAt = vec3(0.0, 0.25, 0.0);
+    vec3 ww = normalize(lookAt - ro);
+    vec3 uu = normalize(cross(ww, vec3(0.0, 1.0, 0.0)));
+    vec3 vv = cross(uu, ww);
+
+    float fov = 1.12;
+    vec3 rd = normalize(uu * uv.x + vv * uv.y + ww * fov);
+
+    // Big box to cover the whole screen width
+    vec3 bmin = vec3(-3.0, -0.85, -2.4);
+    vec3 bmax = vec3( 3.0,  1.35,  2.4);
+
+    float t0, t1;
+    if (!rayBox(ro, rd, bmin, bmax, t0, t1)) {
+      outColor = vec4(0.0);
+      return;
+    }
+
+    int steps = uSteps;
+    float dt = (t1 - t0) / float(steps);
+
+    // Dither
+    float jitter = fract(sin(dot(fragCoord, vec2(12.9898,78.233))) * 43758.5453);
+    float t = t0 + dt * jitter;
+
+    vec3 lightDir = normalize(vec3(-0.20, 0.90, 0.22));
+    vec3 viewDir = normalize(-rd);
+    float phase = 0.35 + 0.65 * pow(max(dot(viewDir, lightDir), 0.0), 1.6);
+
+    vec3 baseSmoke = vec3(0.92, 0.94, 0.97);
+    vec3 col = vec3(0.0);
+    float a = 0.0;
+    float shadow = 0.0;
+
+    for (int i = 0; i < 180; i++) {
+      if (i >= steps) break;
+      if (a > 0.99) break;
+
+      vec3 p = ro + rd * t;
+      float d = densityField(p, uTime);
+
+      float dens = d * uDensity * screenMask;
+      float alphaStep = 1.0 - exp(-dens * 2.0 * dt);
+
+      if (alphaStep > 0.001) {
+        shadow += dens * dt * 1.35;
+        float lit = exp(-shadow * 1.10) * phase;
+        float ambient = 0.30;
+
+        vec3 c = baseSmoke * (ambient + 0.85 * lit);
+        float oneMinusA = 1.0 - a;
+
+        col += c * alphaStep * oneMinusA;
+        a   += alphaStep * oneMinusA;
+      }
+
+      t += dt;
+    }
+
+    a = clamp(a, 0.0, 0.88);
+    outColor = vec4(col, a);
+  }`;
+
+  const prog = makeProgram(vert, frag);
+  gl.useProgram(prog);
+
+  const uRes     = gl.getUniformLocation(prog, 'uRes');
+  const uTime    = gl.getUniformLocation(prog, 'uTime');
+  const uDensity = gl.getUniformLocation(prog, 'uDensity');
+  const uWarp    = gl.getUniformLocation(prog, 'uWarp');
+  const uSpeed   = gl.getUniformLocation(prog, 'uSpeed');
+  const uSteps   = gl.getUniformLocation(prog, 'uSteps');
+
+  gl.disable(gl.DEPTH_TEST);
+  gl.disable(gl.CULL_FACE);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.clearColor(0,0,0,0);
+
+  function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+
+  let dpr = 1, renderScale = 0.8;
+
+  function resize() {
+    const p = uiParams();
+    renderScale = p.qscale;
+    dpr = clamp(window.devicePixelRatio || 1, 1, 2.0);
+
+    const w = Math.floor(window.innerWidth  * dpr * renderScale);
+    const h = Math.floor(window.innerHeight * dpr * renderScale);
+
+    canvas.width = Math.max(1, w);
+    canvas.height = Math.max(1, h);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.uniform2f(uRes, canvas.width, canvas.height);
+  }
+
+  window.addEventListener('resize', resize, { passive: true });
+
+  qscaleEl.addEventListener('input', resize);
+  [stepsEl, densityEl, warpEl, speedEl, opacityEl].forEach(el => el.addEventListener('input', () => uiParams()));
+  blendEl.addEventListener('change', () => uiParams());
+
+  uiParams();
+  resize();
+
+  const tStart = performance.now();
+  function frame(now) {
+    const t = (now - tStart) * 0.001;
+    const p = uiParams();
+
+    gl.uniform1f(uTime, t);
+    gl.uniform1f(uDensity, p.density);
+    gl.uniform1f(uWarp, p.warp);
+    gl.uniform1f(uSpeed, p.speed);
+    gl.uniform1i(uSteps, p.steps);
+
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  </script>
+</body>
+</html>

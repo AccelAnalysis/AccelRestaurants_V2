@@ -1,0 +1,1032 @@
+I want to build an element for the platform where menus can have a QR code on them and then when they scan the QR code, it will spin a digital prize wheel on the screen. It’s possible**, but the key detail is: **a QR scan on a customer’s phone cannot directly “control” the TV**. You need a tiny backend “bridge” (real-time message) so the phone can *request a spin* and the screen can *listen and animate it*.
+
+Here’s a clean way to implement it in AccelRestaurants (Firebase/Firestore fits perfectly), and it plugs into what you already have (QR tile + display player loop).  
+
+---
+
+## The simplest working architecture
+
+### 1) QR on the menu points to a “Spin” landing page
+
+On the menu slide you already have a QR tile type and QR concept. 
+In your other tile system, there’s also a `qrcode` tile type that generates QR from text/URL. 
+
+**QR URL example**
+`https://app.accelrestaurants.com/spin?org=abc&loc=hampton&screen=main&campaign=jan&nonce=XYZ`
+
+* `org/loc/screen/campaign` routes the spin to the correct display.
+* `nonce` is a short-lived token to prevent people from spamming the wheel.
+
+### 2) Customer scans → mobile page loads → user taps “SPIN”
+
+That mobile page calls your backend:
+
+* “Create spin request” (write a doc)
+* Or “Call cloud function” (recommended)
+
+### 3) The TV/signage screen listens in real time
+
+Your `DisplayPlayer` is already a running React view for the screen. 
+Add a lightweight Firestore listener (or WebSocket) that watches for:
+
+* New “spin events” for that `orgId + screenId`
+
+When it sees one, it:
+
+1. animates wheel spin on-screen
+2. shows the prize result
+3. optionally displays a redemption QR/code
+
+---
+
+## The “fairness + anti-cheat” part (important)
+
+If you calculate the prize on the phone, people can cheat.
+
+**Better approach**
+
+* Phone requests a spin
+* **Server decides the prize** (Cloud Function)
+* Screen displays the server’s result
+
+That gives you:
+
+* controlled odds
+* rate limiting
+* one-spin-per-visit logic
+* fraud prevention
+
+---
+
+## Data model (minimal)
+
+### `campaigns/{campaignId}`
+
+* `orgId`
+* `locationIds[]` (or “all”)
+* `prizes[]` (label, weight/odds, inventory, image)
+* `startAt`, `endAt`
+* `enabled`
+
+### `screens/{screenId}` (or inside location)
+
+* `orgId`, `locationId`
+* `activeCampaignId`
+
+### `spinEvents/{eventId}`
+
+* `orgId`, `locationId`, `screenId`, `campaignId`
+* `requestedAt`
+* `status`: `requested | resolved | displayed`
+* `result`: `{ prizeId, label, code }`
+* `expiresAt`
+* `requestFingerprint` (hashed IP/user agent or device ID)
+
+---
+
+## End-to-end user experience (what it looks like)
+
+1. Menu board says: **“SCAN TO SPIN & WIN”** + QR
+2. Customer scans → sees a branded page with a big **SPIN** button
+3. When they tap, the **TV wheel spins immediately**
+4. TV shows: **“You won: Free Drink!”** + code like `DRINK-4821`
+5. Optional: phone also shows the prize + “Show cashier this screen”
+
+---
+
+## How this plugs into your current code
+
+### On the menu slide
+
+* You already have a QR tile type in your React tile list (`type: 'QR'`). 
+  Right now it’s a placeholder icon; you’ll swap in a real QR renderer (library or API-based image).
+
+### On the TV display player
+
+* `DisplayPlayer` renders slides continuously. Add:
+
+  * a `useEffect()` Firestore listener for `spinEvents` filtered by `orgId/screenId`
+  * a `PrizeWheelOverlay` component that shows above the slide content when triggered
+
+---
+
+## Things to decide (but you don’t have to decide them today)
+
+* **Where does the prize appear?** TV only, phone only, or both (I’d do both).
+* **Redemption method:** short code, POS barcode, or staff button “Redeem”.
+* **Rate limits:** e.g., 1 spin per device per 24 hours, plus 1 spin per nonce.
+* **Multiple screens:** choose the nearest/assigned screen by encoding `screenId` in the QR.
+
+---
+
+## When this is *not* possible (edge cases)
+
+It becomes difficult only if:
+
+* the TV player can’t maintain an internet connection (no real-time listener), or
+* the screen is not running your web player (no code you control)
+
+Otherwise, with Firebase/Firestore real-time updates, it’s very doable.
+
+---
+
+If you want, I can draft the **exact Firestore collections + security rules + Cloud Function flow + the React overlay component** (wheel animation + prize reveal) in a way that matches your current screen player structure.
+
+Below is a **drop-in, production-shaped** spec + code for:
+
+1. **Firestore collections** (exact paths + fields)
+2. **Firestore security rules** (locks down prizes + prevents cheating)
+3. **Cloud Functions flow** (server decides prize; phone only requests)
+4. **React overlay component** (wheel animation + prize reveal) wired into your **current `DisplayPlayer`** (the simple rotation player in your file)
+
+I’m matching your current structure: `screen.slides[]`, `rotation`, and a `DisplayPlayer` that’s always-on full-screen.
+
+---
+
+# 1) Firestore collections (exact)
+
+## A. Core org/screen model (minimal)
+
+```
+/organizations/{orgId}
+  name: string
+  ownerId: string
+  members: string[]   // uids
+  createdAt: timestamp
+```
+
+```
+/organizations/{orgId}/locations/{locationId}
+  name: string
+  createdAt: timestamp
+```
+
+```
+/organizations/{orgId}/screens/{screenId}
+  name: string
+  locationId: string
+  slides: string[]           // slide ids
+  rotation: number           // ms
+  wheelEnabled: boolean
+  activeWheelCampaignId: string | null
+
+  // display-device auth bootstrap
+  screenKeyHash: string      // SHA-256 of screenKey (never store raw key)
+  lastSeenAt: timestamp
+  createdAt: timestamp
+```
+
+```
+/organizations/{orgId}/slides/{slideId}
+  name: string
+  background: string
+  elements: any[]            // your existing RndElement payload
+  updatedAt: timestamp
+  createdAt: timestamp
+```
+
+## B. Prize wheel configuration
+
+```
+/organizations/{orgId}/wheelCampaigns/{campaignId}
+  name: string
+  enabled: boolean
+  startAt: timestamp | null
+  endAt: timestamp | null
+
+  // If you want per-screen eligibility, keep it simple:
+  allowedScreenIds: string[] | null  // null means all screens
+
+  // Wheel behavior
+  spinMs: number          // e.g., 5200
+  settleMs: number        // e.g., 800 (extra delay before reveal)
+
+  // Prizes (array)
+  prizes: [
+    {
+      id: string,         // "free_drink"
+      label: string,      // "Free Drink"
+      weight: number,     // e.g., 40
+      enabled: boolean,
+
+      // optional inventory
+      inventory: number | null,  // null = unlimited
+      imageUrl: string | null,
+
+      // optional redemption rules
+      expiresMinutes: number | null  // e.g., 60
+    }
+  ]
+
+  updatedAt: timestamp
+  createdAt: timestamp
+```
+
+## C. Spin events (server-written; screen-read)
+
+```
+/organizations/{orgId}/spinEvents/{eventId}
+  orgId: string
+  locationId: string
+  screenId: string
+  campaignId: string
+
+  requestedAt: timestamp
+  resolvedAt: timestamp
+  displayedAt: timestamp | null
+  redeemedAt: timestamp | null
+
+  // anti-spam (hashed)
+  fingerprintHash: string
+  tokenId: string            // which QR token was used
+
+  // resolved result (server computed)
+  result: {
+    prizeId: string
+    label: string
+    code: string             // short code for cashier
+    prizeIndex: number       // index in campaign prizes array
+    targetDeg: number        // wheel rotation target (for deterministic animation)
+    expiresAt: timestamp | null
+  }
+
+  // TTL cleanup (enable Firestore TTL on this field)
+  expireAt: timestamp
+```
+
+## D. QR tokens (rotate these; never public-readable)
+
+```
+/organizations/{orgId}/spinTokens/{tokenId}
+  orgId: string
+  locationId: string
+  screenId: string
+  campaignId: string
+
+  enabled: boolean
+  expiresAt: timestamp
+  createdAt: timestamp
+```
+
+**QR code URL example**
+`https://app.accelrestaurants.com/spin?t={tokenId}&o={orgId}`
+(Phone page calls a Cloud Function with `orgId + tokenId`.)
+
+---
+
+# 2) Firestore security rules (exact)
+
+**Principles**
+
+* **Phone (public)** never writes Firestore directly.
+* **Cloud Functions (Admin SDK)** writes `spinEvents`, reads `spinTokens`, reads `wheelCampaigns`.
+* **Screen device** reads `spinEvents` after it authenticates as a *screen session* (custom token).
+
+Create `firestore.rules` like this:
+
+```rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+
+    function orgDoc(orgId) {
+      return get(/databases/$(database)/documents/organizations/$(orgId));
+    }
+
+    function isOrgMember(orgId) {
+      return signedIn()
+        && (request.auth.uid == orgDoc(orgId).data.ownerId
+            || request.auth.uid in orgDoc(orgId).data.members);
+    }
+
+    // Custom-claims based screen sessions:
+    // request.auth.token.role == "screen"
+    // request.auth.token.orgId == orgId
+    // request.auth.token.screenId == screenId
+    function isScreenSession(orgId, screenId) {
+      return signedIn()
+        && request.auth.token.role == "screen"
+        && request.auth.token.orgId == orgId
+        && request.auth.token.screenId == screenId;
+    }
+
+    match /organizations/{orgId} {
+      allow read: if isOrgMember(orgId);
+      allow write: if false; // lock root doc edits behind app logic if you want
+
+      match /locations/{locationId} {
+        allow read: if isOrgMember(orgId);
+        allow write: if isOrgMember(orgId);
+      }
+
+      match /slides/{slideId} {
+        allow read: if isOrgMember(orgId) || request.auth.token.role == "screen" && request.auth.token.orgId == orgId;
+        allow write: if isOrgMember(orgId);
+      }
+
+      match /screens/{screenId} {
+        allow read: if isOrgMember(orgId) || isScreenSession(orgId, screenId);
+        allow write: if isOrgMember(orgId);
+      }
+
+      match /wheelCampaigns/{campaignId} {
+        allow read: if isOrgMember(orgId);   // screens can read via function if needed
+        allow write: if isOrgMember(orgId);
+      }
+
+      // NEVER allow clients to read tokens directly (prevents QR harvesting).
+      match /spinTokens/{tokenId} {
+        allow read, write: if false;
+      }
+
+      // Spin events:
+      // - Org members can read (analytics)
+      // - Screen sessions can read events for their screen
+      // - No client writes (server only)
+      match /spinEvents/{eventId} {
+        allow read: if isOrgMember(orgId)
+          || (signedIn()
+              && request.auth.token.role == "screen"
+              && request.auth.token.orgId == orgId
+              && resource.data.screenId == request.auth.token.screenId);
+
+        allow create, update, delete: if false; // Admin SDK only
+      }
+    }
+  }
+}
+```
+
+---
+
+# 3) Cloud Functions flow (exact)
+
+You need **three** functions:
+
+1. `getScreenSession` — Display device exchanges `screenKey` for a **Firebase custom token** (with claims).
+2. `createSpin` — Phone requests spin using `orgId + tokenId`; server resolves prize + creates event.
+3. `markSpinDisplayed` — Screen marks the event displayed (so next queued event appears).
+
+### `functions/src/index.ts` (TypeScript)
+
+```ts
+import * as admin from "firebase-admin";
+import * as functions from "firebase-functions";
+import * as crypto from "crypto";
+
+admin.initializeApp();
+const db = admin.firestore();
+
+/** Helpers */
+function sha256(input: string) {
+  return crypto.createHash("sha256").update(input).digest("hex");
+}
+
+function randomCode(len = 6) {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no O/0/I/1
+  let out = "";
+  for (let i = 0; i < len; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  return out;
+}
+
+function weightedPick<T extends { weight: number }>(items: T[]) {
+  const total = items.reduce((s, x) => s + Math.max(0, x.weight), 0);
+  let r = Math.random() * total;
+  for (const it of items) {
+    r -= Math.max(0, it.weight);
+    if (r <= 0) return it;
+  }
+  return items[items.length - 1];
+}
+
+/**
+ * 1) DISPLAY: exchange screenKey for custom token with claims
+ * Call this once on display boot.
+ */
+export const getScreenSession = functions.https.onCall(async (data, context) => {
+  const { orgId, screenId, screenKey } = data ?? {};
+  if (!orgId || !screenId || !screenKey) throw new functions.https.HttpsError("invalid-argument", "Missing orgId/screenId/screenKey.");
+
+  const screenRef = db.doc(`organizations/${orgId}/screens/${screenId}`);
+  const screenSnap = await screenRef.get();
+  if (!screenSnap.exists) throw new functions.https.HttpsError("not-found", "Screen not found.");
+
+  const screen = screenSnap.data()!;
+  const providedHash = sha256(String(screenKey));
+  if (providedHash !== screen.screenKeyHash) {
+    throw new functions.https.HttpsError("permission-denied", "Invalid screenKey.");
+  }
+
+  // Create a UID for screen sessions (stable per screen)
+  const uid = `screen:${orgId}:${screenId}`;
+
+  const token = await admin.auth().createCustomToken(uid, {
+    role: "screen",
+    orgId,
+    screenId,
+  });
+
+  await screenRef.update({ lastSeenAt: admin.firestore.FieldValue.serverTimestamp() });
+
+  return { token };
+});
+
+
+/**
+ * 2) PHONE: request spin (public)
+ * - Validates token
+ * - Rate limits by fingerprintHash (IP+UA hash passed from client; can also use callable context.rawRequest IP)
+ * - Resolves prize server-side
+ * - Writes spinEvents doc
+ */
+export const createSpin = functions.https.onCall(async (data, context) => {
+  const { orgId, tokenId, fingerprint } = data ?? {};
+  if (!orgId || !tokenId) throw new functions.https.HttpsError("invalid-argument", "Missing orgId/tokenId.");
+
+  // fingerprint can be generated client-side, but do NOT store raw; hash it
+  const fpHash = sha256(String(fingerprint || "unknown"));
+
+  const tokenRef = db.doc(`organizations/${orgId}/spinTokens/${tokenId}`);
+  const tokenSnap = await tokenRef.get();
+  if (!tokenSnap.exists) throw new functions.https.HttpsError("permission-denied", "Invalid token.");
+
+  const token = tokenSnap.data()!;
+  if (!token.enabled) throw new functions.https.HttpsError("failed-precondition", "Spin token disabled.");
+  if (token.expiresAt?.toDate && token.expiresAt.toDate() < new Date()) {
+    throw new functions.https.HttpsError("failed-precondition", "Spin token expired.");
+  }
+
+  const { screenId, locationId, campaignId } = token;
+
+  const campaignRef = db.doc(`organizations/${orgId}/wheelCampaigns/${campaignId}`);
+  const campaignSnap = await campaignRef.get();
+  if (!campaignSnap.exists) throw new functions.https.HttpsError("failed-precondition", "Campaign not found.");
+
+  const campaign = campaignSnap.data()!;
+  if (!campaign.enabled) throw new functions.https.HttpsError("failed-precondition", "Campaign disabled.");
+
+  // Optional campaign window
+  const now = new Date();
+  if (campaign.startAt?.toDate && campaign.startAt.toDate() > now) throw new functions.https.HttpsError("failed-precondition", "Campaign not started.");
+  if (campaign.endAt?.toDate && campaign.endAt.toDate() < now) throw new functions.https.HttpsError("failed-precondition", "Campaign ended.");
+
+  // Optional screen allowlist
+  if (Array.isArray(campaign.allowedScreenIds) && campaign.allowedScreenIds.length > 0) {
+    if (!campaign.allowedScreenIds.includes(screenId)) throw new functions.https.HttpsError("permission-denied", "Screen not allowed.");
+  }
+
+  // Rate limit: 1 spin per fingerprint per 30s (tune)
+  const rlRef = db.doc(`organizations/${orgId}/_rateLimits/spin:${fpHash}`);
+  const eventRef = db.collection(`organizations/${orgId}/spinEvents`).doc();
+
+  const result = await db.runTransaction(async (tx) => {
+    const rlSnap = await tx.get(rlRef);
+    const last = rlSnap.exists ? rlSnap.data()!.lastSpinAt?.toDate?.() : null;
+    if (last && (now.getTime() - last.getTime()) < 30_000) {
+      throw new functions.https.HttpsError("resource-exhausted", "Too many spins. Please wait a moment.");
+    }
+
+    // Filter prizes: enabled & inventory available (if inventory is number)
+    const prizes = Array.isArray(campaign.prizes) ? campaign.prizes : [];
+    const available = prizes
+      .map((p: any, idx: number) => ({ ...p, _index: idx }))
+      .filter((p: any) => p.enabled !== false)
+      .filter((p: any) => p.inventory == null || p.inventory > 0)
+      .filter((p: any) => typeof p.weight === "number" && p.weight > 0);
+
+    if (available.length === 0) {
+      throw new functions.https.HttpsError("failed-precondition", "No prizes available.");
+    }
+
+    const picked: any = weightedPick(available);
+    const prizeIndex = picked._index;
+
+    // If limited inventory, decrement it inside campaign doc (transaction)
+    // Note: updating nested array element requires rewriting prizes array
+    if (picked.inventory != null) {
+      const newPrizes = prizes.slice();
+      const cur = { ...newPrizes[prizeIndex] };
+      cur.inventory = Math.max(0, (cur.inventory || 0) - 1);
+      newPrizes[prizeIndex] = cur;
+      tx.update(campaignRef, { prizes: newPrizes, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    }
+
+    const code = randomCode(6);
+
+    // Determine target angle so wheel lands on prizeIndex
+    //  - We assume N segments, each segment = 360/N
+    //  - Add multiple full rotations + small jitter inside the segment
+    const n = prizes.length;
+    const seg = 360 / Math.max(1, n);
+
+    // pointer at top (0deg). we rotate wheel so that the center of the target segment ends at 0deg.
+    const centerOfSegment = (prizeIndex * seg) + seg / 2;
+    const jitter = (Math.random() * (seg * 0.6)) - (seg * 0.3); // +/- 30% of seg
+    const targetDeg = (360 * 6) + (360 - centerOfSegment) + jitter; // 6 spins then settle
+
+    const expiresAt =
+      picked.expiresMinutes != null
+        ? admin.firestore.Timestamp.fromDate(new Date(now.getTime() + picked.expiresMinutes * 60_000))
+        : null;
+
+    // TTL: purge events after 2 days
+    const expireAt = admin.firestore.Timestamp.fromDate(new Date(now.getTime() + 2 * 24 * 60 * 60_000));
+
+    tx.set(eventRef, {
+      orgId,
+      locationId,
+      screenId,
+      campaignId,
+      tokenId,
+      fingerprintHash: fpHash,
+      requestedAt: admin.firestore.FieldValue.serverTimestamp(),
+      resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
+      displayedAt: null,
+      redeemedAt: null,
+      result: {
+        prizeId: picked.id,
+        label: picked.label,
+        code,
+        prizeIndex,
+        targetDeg,
+        expiresAt,
+      },
+      expireAt,
+    });
+
+    tx.set(rlRef, { lastSpinAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+
+    return { eventId: eventRef.id, label: picked.label, code, prizeIndex, targetDeg, expiresAt };
+  });
+
+  return result;
+});
+
+
+/**
+ * 3) DISPLAY: mark event displayed (screen session only)
+ */
+export const markSpinDisplayed = functions.https.onCall(async (data, context) => {
+  const { orgId, eventId } = data ?? {};
+  if (!orgId || !eventId) throw new functions.https.HttpsError("invalid-argument", "Missing orgId/eventId.");
+
+  // Must be screen session
+  const claims: any = context.auth?.token;
+  if (!claims || claims.role !== "screen" || claims.orgId !== orgId) {
+    throw new functions.https.HttpsError("permission-denied", "Not a screen session.");
+  }
+
+  const eventRef = db.doc(`organizations/${orgId}/spinEvents/${eventId}`);
+  const snap = await eventRef.get();
+  if (!snap.exists) throw new functions.https.HttpsError("not-found", "Event not found.");
+
+  const ev = snap.data()!;
+  if (ev.screenId !== claims.screenId) {
+    throw new functions.https.HttpsError("permission-denied", "Wrong screen.");
+  }
+
+  await eventRef.update({
+    displayedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  return { ok: true };
+});
+```
+
+---
+
+# 4) React implementation
+
+## A) PrizeWheelOverlay component (Tailwind + deterministic landing)
+
+Create `PrizeWheelOverlay.tsx`:
+
+```tsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
+
+type WheelPrize = { label: string };
+type WheelEvent = {
+  id: string;
+  result: {
+    label: string;
+    code: string;
+    prizeIndex: number;
+    targetDeg: number;
+  };
+  campaign: {
+    spinMs: number;
+    settleMs: number;
+    prizes: WheelPrize[];
+  };
+};
+
+export function PrizeWheelOverlay({
+  event,
+  onFinished,
+}: {
+  event: WheelEvent | null;
+  onFinished: () => void;
+}) {
+  const [phase, setPhase] = useState<"idle" | "spinning" | "revealed">("idle");
+  const wheelRef = useRef<HTMLDivElement | null>(null);
+
+  const prizes = event?.campaign.prizes ?? [];
+  const spinMs = event?.campaign.spinMs ?? 5200;
+  const settleMs = event?.campaign.settleMs ?? 800;
+
+  const background = useMemo(() => {
+    // Conic gradient segments. Keep colors subtle; you can theme later.
+    // If you want brand colors, replace these with your palette.
+    const n = Math.max(1, prizes.length);
+    const stops: string[] = [];
+    for (let i = 0; i < n; i++) {
+      const a0 = (i / n) * 100;
+      const a1 = ((i + 1) / n) * 100;
+      const c = i % 2 === 0 ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.18)";
+      stops.push(`${c} ${a0}% ${a1}%`);
+    }
+    return `conic-gradient(from -90deg, ${stops.join(",")})`;
+  }, [prizes.length]);
+
+  useEffect(() => {
+    if (!event) {
+      setPhase("idle");
+      if (wheelRef.current) wheelRef.current.style.transform = `rotate(0deg)`;
+      return;
+    }
+
+    // Trigger spin once per event
+    setPhase("spinning");
+
+    const el = wheelRef.current;
+    if (el) {
+      el.style.transition = "none";
+      el.style.transform = "rotate(0deg)";
+      // next frame
+      requestAnimationFrame(() => {
+        if (!wheelRef.current) return;
+        wheelRef.current.style.transition = `transform ${spinMs}ms cubic-bezier(0.12, 0.8, 0.12, 1)`;
+        wheelRef.current.style.transform = `rotate(${event.result.targetDeg}deg)`;
+      });
+    }
+
+    const t1 = window.setTimeout(() => setPhase("revealed"), spinMs + settleMs);
+    const t2 = window.setTimeout(() => onFinished(), spinMs + settleMs + 3500);
+
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [event?.id]);
+
+  if (!event) return null;
+
+  const n = Math.max(1, prizes.length);
+  const seg = 360 / n;
+
+  return (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+
+      <div className="relative w-[720px] max-w-[92vw]">
+        {/* Header */}
+        <div className="text-center mb-6">
+          <div className="text-white text-4xl font-extrabold tracking-tight">
+            Spin &amp; Win
+          </div>
+          <div className="text-white/70 mt-1">
+            Watch the screen for your prize
+          </div>
+        </div>
+
+        {/* Wheel + pointer */}
+        <div className="relative mx-auto w-[520px] h-[520px] max-w-[92vw] max-h-[92vw]">
+          {/* Pointer */}
+          <div className="absolute left-1/2 -translate-x-1/2 -top-3 z-20">
+            <div className="w-0 h-0 border-l-[18px] border-r-[18px] border-b-[32px] border-l-transparent border-r-transparent border-b-orange-500 drop-shadow" />
+          </div>
+
+          {/* Outer ring */}
+          <div className="absolute inset-0 rounded-full bg-white/10 ring-2 ring-white/15 shadow-2xl" />
+
+          {/* Wheel */}
+          <div
+            ref={wheelRef}
+            className="absolute inset-[18px] rounded-full overflow-hidden"
+            style={{ background }}
+          >
+            {/* Labels */}
+            {prizes.map((p, i) => {
+              const rot = i * seg + seg / 2; // middle of segment
+              return (
+                <div
+                  key={`${p.label}-${i}`}
+                  className="absolute left-1/2 top-1/2 origin-[0%_0%]"
+                  style={{
+                    transform: `rotate(${rot}deg) translate(0, -220px)`,
+                  }}
+                >
+                  <div
+                    className="text-white text-sm font-semibold whitespace-nowrap"
+                    style={{ transform: `rotate(90deg)` }} // keep text roughly radial
+                  >
+                    {p.label}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Center cap */}
+            <div className="absolute left-1/2 top-1/2 w-28 h-28 -translate-x-1/2 -translate-y-1/2 rounded-full bg-neutral-950/80 ring-2 ring-white/15 flex items-center justify-center">
+              <div className="text-white font-bold text-sm">
+                {phase === "spinning" ? "SPINNING" : "WINNER"}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Prize reveal */}
+        <div className="mt-8 text-center">
+          {phase !== "revealed" ? (
+            <div className="text-white/80 text-xl font-semibold">
+              Spinning...
+            </div>
+          ) : (
+            <div className="bg-white/10 ring-1 ring-white/15 rounded-2xl p-6">
+              <div className="text-white text-2xl font-extrabold">
+                You won: {event.result.label}
+              </div>
+              <div className="text-white/70 mt-2">
+                Show this code to the cashier:
+              </div>
+              <div className="mt-3 inline-flex px-6 py-3 rounded-xl bg-black/40 ring-1 ring-white/15 text-white text-3xl font-black tracking-widest">
+                {event.result.code}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+## B) Wire it into your current `DisplayPlayer`
+
+Your current `DisplayPlayer` is this shape (slides loop). We’ll add:
+
+* A **screen session sign-in** on boot (`getScreenSession`)
+* A **Firestore listener** that pulls the next undisplayed spin event
+* The overlay that plays and then calls `markSpinDisplayed`
+
+### Modified `DisplayPlayer` (drop-in replacement)
+
+```tsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { onSnapshot, collection, query, where, orderBy, limit, doc, getDoc } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
+import { signInWithCustomToken } from "firebase/auth";
+
+import { db, functions, auth } from "./firebase"; // <-- your firebase init exports
+import { PrizeWheelOverlay } from "./PrizeWheelOverlay";
+
+type SpinEventDoc = {
+  id: string;
+  screenId: string;
+  campaignId: string;
+  resolvedAt: any;
+  displayedAt: any | null;
+  result: {
+    label: string;
+    code: string;
+    prizeIndex: number;
+    targetDeg: number;
+  };
+};
+
+function DisplayPlayer({ screen, allSlides, onExit, orgId, screenKey }: any) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [wheelEvent, setWheelEvent] = useState<any | null>(null);
+  const [campaignCache, setCampaignCache] = useState<any | null>(null);
+  const busyRef = useRef(false);
+
+  const slidesToPlay = useMemo(
+    () => screen.slides.map((id: string) => allSlides.find((s: any) => s.id === id)).filter(Boolean),
+    [screen.slides, allSlides]
+  );
+  const currentSlide = slidesToPlay[currentIndex];
+
+  // Slide rotation (your existing logic)
+  useEffect(() => {
+    if (slidesToPlay.length <= 1) return;
+    const interval = setInterval(
+      () => setCurrentIndex((prev) => (prev + 1) % slidesToPlay.length),
+      screen.rotation || 10000
+    );
+    return () => clearInterval(interval);
+  }, [screen.rotation, slidesToPlay.length]);
+
+  // 1) Display device: authenticate as screen session using screenKey
+  useEffect(() => {
+    let cancelled = false;
+
+    async function boot() {
+      if (!orgId || !screen?.id || !screenKey) return;
+
+      const getSession = httpsCallable(functions, "getScreenSession");
+      const res: any = await getSession({ orgId, screenId: screen.id, screenKey });
+      if (cancelled) return;
+
+      await signInWithCustomToken(auth, res.data.token);
+    }
+
+    boot().catch(console.error);
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, screen?.id, screenKey]);
+
+  // 2) Listen for next undisplayed spin event for this screen
+  useEffect(() => {
+    if (!orgId || !screen?.id) return;
+    if (!screen.wheelEnabled || !screen.activeWheelCampaignId) return;
+
+    // Queue behavior: oldest resolved, not displayed yet
+    const q = query(
+      collection(db, `organizations/${orgId}/spinEvents`),
+      where("screenId", "==", screen.id),
+      where("displayedAt", "==", null),
+      orderBy("resolvedAt", "asc"),
+      limit(1)
+    );
+
+    const unsub = onSnapshot(
+      q,
+      async (snap) => {
+        if (busyRef.current) return;
+        if (snap.empty) return;
+
+        const docSnap = snap.docs[0];
+        const ev = { id: docSnap.id, ...(docSnap.data() as any) } as SpinEventDoc;
+
+        // Load campaign config (cached)
+        let campaign = campaignCache;
+        if (!campaign || campaign._id !== ev.campaignId) {
+          const cRef = doc(db, `organizations/${orgId}/wheelCampaigns/${ev.campaignId}`);
+          const cSnap = await getDoc(cRef);
+          if (!cSnap.exists()) return;
+          campaign = { _id: cSnap.id, ...(cSnap.data() as any) };
+          setCampaignCache(campaign);
+        }
+
+        busyRef.current = true;
+        setWheelEvent({
+          id: ev.id,
+          result: ev.result,
+          campaign: {
+            spinMs: campaign.spinMs ?? 5200,
+            settleMs: campaign.settleMs ?? 800,
+            prizes: (campaign.prizes ?? []).map((p: any) => ({ label: p.label })),
+          },
+        });
+      },
+      console.error
+    );
+
+    return () => unsub();
+  }, [orgId, screen?.id, screen?.wheelEnabled, screen?.activeWheelCampaignId, campaignCache]);
+
+  // 3) After overlay finishes, mark displayed and clear
+  async function handleWheelFinished() {
+    try {
+      if (!orgId || !wheelEvent?.id) return;
+      const mark = httpsCallable(functions, "markSpinDisplayed");
+      await mark({ orgId, eventId: wheelEvent.id });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setWheelEvent(null);
+      busyRef.current = false;
+    }
+  }
+
+  if (!currentSlide) {
+    return (
+      <div className="fixed inset-0 bg-black flex flex-col items-center justify-center text-white">
+        <h1 className="text-4xl font-bold mb-4">No Signal</h1>
+        <button onClick={onExit} className="mt-8 px-4 py-2 bg-neutral-800 rounded">
+          Exit
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black overflow-hidden cursor-none">
+      <div className="w-full h-full relative" style={{ backgroundColor: currentSlide.background }}>
+        {currentSlide.elements
+          .sort((a: any, b: any) => a.zIndex - b.zIndex)
+          .map((el: any) => (
+            <RndElement key={el.id} data={el} isSelected={false} onMouseDown={null} />
+          ))}
+      </div>
+
+      {/* Wheel overlay */}
+      <PrizeWheelOverlay event={wheelEvent} onFinished={handleWheelFinished} />
+
+      <div
+        onClick={onExit}
+        className="fixed bottom-0 right-0 w-16 h-16 opacity-0 hover:opacity-10 z-50 cursor-pointer flex items-center justify-center bg-white transition-opacity"
+      >
+        <span className="text-black font-bold text-xs">EXIT</span>
+      </div>
+    </div>
+  );
+}
+```
+
+### What you pass to DisplayPlayer now
+
+* `orgId` (from your app routing)
+* `screenKey` (only on the display device URL; not in customer-facing QR)
+
+Example display URL:
+`https://app.accelrestaurants.com/board?org=abc&screen=screen1&key=DISPLAY_SECRET`
+
+---
+
+# 5) Phone-side “Spin” page (minimal)
+
+Your QR points to a page like `/spin?t=tokenId&o=orgId`. The page calls `createSpin`.
+
+```tsx
+import React, { useMemo, useState } from "react";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "./firebase";
+
+export function SpinPage() {
+  const [status, setStatus] = useState<"ready"|"spinning"|"done"|"error">("ready");
+  const [result, setResult] = useState<any>(null);
+
+  const params = new URLSearchParams(window.location.search);
+  const orgId = params.get("o") || "";
+  const tokenId = params.get("t") || "";
+
+  const fingerprint = useMemo(() => {
+    // Lightweight; you can improve later
+    return `${navigator.userAgent}|${Date.now() - (Date.now() % 60000)}`; // changes per minute
+  }, []);
+
+  async function spin() {
+    setStatus("spinning");
+    try {
+      const fn = httpsCallable(functions, "createSpin");
+      const res: any = await fn({ orgId, tokenId, fingerprint });
+      setResult(res.data);
+      setStatus("done");
+    } catch (e) {
+      console.error(e);
+      setStatus("error");
+    }
+  }
+
+  return (
+    <div style={{ padding: 20, fontFamily: "Inter, system-ui" }}>
+      <h1>Spin & Win</h1>
+      {status === "ready" && <button onClick={spin}>SPIN</button>}
+      {status === "spinning" && <div>Spinning on the big screen…</div>}
+      {status === "done" && <div>Nice! Look up at the screen.</div>}
+      {status === "error" && <div>Sorry—try again in a moment.</div>}
+    </div>
+  );
+}
+```
+
+---
+
+# 6) How you generate the QR token + wire into your QR tile
+
+* You create a `spinTokens/{tokenId}` doc (admin-only UI action) with:
+
+  * `screenId`, `campaignId`, `expiresAt`
+* Then set your QR tile’s `dataUrl` to:
+
+  * `https://app.accelrestaurants.com/spin?o={orgId}&t={tokenId}`
+
+**Security note:** Tokens are not readable from clients, so even if someone tries to guess token IDs, it won’t help without the server validating them.
+
+---
+
+## If you want the fastest “first working version”
+
+Do these 6 things and it works end-to-end:
+
+1. Add `wheelCampaigns` doc with prizes
+2. Add `screens` doc with `wheelEnabled=true`, `activeWheelCampaignId`
+3. Add `spinTokens` doc that points to that screen + campaign
+4. Deploy the 3 functions
+5. Add `PrizeWheelOverlay` + DisplayPlayer listener
+6. QR points to the SpinPage with tokenId

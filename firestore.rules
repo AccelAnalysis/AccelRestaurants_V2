@@ -1,0 +1,344 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check org membership
+    function isOrgMember(orgId) {
+      return request.auth != null && (
+        exists(/databases/$(database)/documents/organizations/$(orgId)) &&
+        (
+          // Owner on the org document
+          (get(/databases/$(database)/documents/organizations/$(orgId)).data.ownerId is string &&
+            request.auth.uid == get(/databases/$(database)/documents/organizations/$(orgId)).data.ownerId) ||
+          // New source of truth: members subcollection
+          exists(/databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid)) ||
+          // Legacy support: members array on org document
+          (
+            get(/databases/$(database)/documents/organizations/$(orgId)).data.members is list &&
+            request.auth.uid in get(/databases/$(database)/documents/organizations/$(orgId)).data.members
+          )
+        )
+      );
+    }
+
+    // Helper to check if user is Super Admin (Platform Admin)
+    function isSuperAdmin() {
+      return request.auth != null && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('platformRole', '') == 'admin';
+    }
+
+    // Helper to check if user is Org Admin
+    function isOrgAdmin(orgId) {
+      return isSuperAdmin() || (
+        isOrgMember(orgId) && (
+          request.auth.uid == get(/databases/$(database)/documents/organizations/$(orgId)).data.ownerId ||
+          (
+            exists(/databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid)) &&
+            get(/databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid)).data.role == 'orgAdmin'
+          )
+        )
+      );
+    }
+
+    // Helper to get max seats for a plan
+    function getMaxSeats(plan) {
+      return plan == 'Free' ? 1 
+           : plan == 'Basic' ? 1 
+           : plan == 'Growth' ? 2 
+           : plan == 'Enterprise' ? 5 
+           : 1; // Default
+    }
+
+    // Helper to get max screens for a plan
+    function getMaxScreens(plan) {
+      return plan == 'Free' ? 1 
+           : plan == 'Basic' ? 1 
+           : plan == 'Growth' ? 7 
+           : plan == 'Enterprise' ? 9999
+           : 1; // Default
+    }
+
+    // System Configuration
+    match /system/plans {
+      allow read: if true; // Allow public read for players to check limits
+      allow write: if isSuperAdmin();
+    }
+    
+    match /system/general {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    // Organizations Collection
+    match /organizations/{orgId} {
+      // Allow authenticated users to list organizations (for signup/org resolution)
+      // Restrict individual org reads to members only
+      allow read: if (isOrgMember(orgId) || isSuperAdmin()) || (request.auth != null && orgId == null);
+      
+      // Allow creation of the demo org or if user is authenticated (for new signups)
+      allow create: if request.auth != null; 
+      
+      // Allow org members to update ONLY screenCount (+1/-1) and updatedAt.
+      // This is needed because screen creation/deletion uses a client-side transaction
+      // that increments/decrements screenCount on the org document.
+      function isScreenCountDeltaOnly() {
+        let currentCount = resource.data.get('screenCount', 0);
+        return request.resource.data.diff(resource.data).changedKeys().hasOnly(['screenCount', 'updatedAt'])
+          && (
+            request.resource.data.screenCount == currentCount + 1 ||
+            request.resource.data.screenCount == currentCount - 1
+          );
+      }
+
+      // Allow update by Org Admin or Super Admin
+      allow update: if isOrgAdmin(orgId) || (isOrgMember(orgId) && isScreenCountDeltaOnly());
+        
+      allow delete: if isOrgAdmin(orgId);
+
+      // Locations Subcollection (Public for Player)
+      match /locations/{locationId} {
+        allow get: if true;
+        allow list: if isOrgMember(orgId);
+        allow write: if isOrgAdmin(orgId);
+      }
+      
+      // Location Groups Subcollection (Public for Player logic if needed, safe to expose)
+      match /location_groups/{groupId} {
+        allow get: if true;
+        allow list: if isOrgMember(orgId);
+        allow write: if isOrgAdmin(orgId);
+      }
+
+      // Members Subcollection (Source of Truth for Roles)
+      match /members/{memberId} {
+        allow read: if isOrgMember(orgId) || isSuperAdmin();
+        allow write: if isOrgAdmin(orgId);
+      }
+
+      // Invites Subcollection
+      match /invites/{inviteId} {
+        allow read, write: if isOrgAdmin(orgId);
+      }
+
+      // Audit Logs
+      match /auditLogs/{logId} {
+        allow read: if isOrgAdmin(orgId);
+        allow write: if false; // Only server-side writes
+      }
+    }
+    
+    // Public Organizations (Safe Mirror)
+    match /public_organizations/{orgId} {
+      allow get: if true;
+      allow list: if false; // Only allow fetching specific org if ID is known
+      allow write: if false; // Only managed by Cloud Functions
+    }
+
+    // Sub-collections under organizations (Legacy/Nested support)
+    match /organizations/{orgId}/{document=**} {
+      allow read: if isOrgMember(orgId);
+      allow write: if isOrgAdmin(orgId);
+    }
+    
+    // Root-level Collections (Active App Usage)
+    
+    // Screens
+    match /screens/{screenId} {
+      // Allow public get for player (requires ID), but restrict list to members
+      allow get: if true;
+      allow list: if isOrgMember(resource.data.orgId);
+      allow create: if isOrgMember(request.resource.data.orgId) && (
+        // Check screen limits based on Org plan
+        // Note: This relies on the org document having a valid screenCount and plan
+        get(/databases/$(database)/documents/organizations/$(request.resource.data.orgId)).data.plan == 'Enterprise' ||
+        get(/databases/$(database)/documents/organizations/$(request.resource.data.orgId)).data.screenCount < getMaxScreens(get(/databases/$(database)/documents/organizations/$(request.resource.data.orgId)).data.plan)
+      );
+      allow update, delete: if isOrgMember(resource.data.orgId);
+    }
+
+    // Menus
+    match /menus/{menuId} {
+      allow get: if true;
+      allow list: if isOrgMember(resource.data.orgId);
+      allow create: if isOrgMember(request.resource.data.orgId);
+      allow update, delete: if isOrgMember(resource.data.orgId);
+    }
+
+    // Slides
+    match /slides/{slideId} {
+      allow get: if true;
+      allow list: if isOrgMember(resource.data.orgId) || isSuperAdmin();
+      allow create: if isOrgMember(request.resource.data.orgId);
+      allow update, delete: if isOrgMember(resource.data.orgId);
+    }
+
+    // Campaigns
+    match /campaigns/{campaignId} {
+      allow read: if isOrgMember(resource.data.orgId);
+      allow create: if isOrgMember(request.resource.data.orgId);
+      allow update, delete: if isOrgMember(resource.data.orgId);
+    }
+
+    // Templates Collection
+    match /templates/{templateId} {
+      // Read: Super Admin, Public, Creator, or Org Member
+      allow read: if isSuperAdmin() || 
+                   resource.data.isPublic == true || 
+                   (request.auth != null && (
+                     resource.data.createdBy == request.auth.uid ||
+                     (resource.data.get('orgId', null) != null && isOrgMember(resource.data.orgId))
+                   ));
+      
+      // Create: 
+      // - Super Admin can create any (including public)
+      // - Users can create private/org templates (isPublic must be false)
+      allow create: if request.auth != null && (
+        isSuperAdmin() || 
+        (
+          request.resource.data.isPublic == false && 
+          (
+            request.resource.data.createdBy == request.auth.uid ||
+            (request.resource.data.get('orgId', null) != null && isOrgMember(request.resource.data.orgId))
+          )
+        )
+      );
+      
+      // Update/Delete:
+      // - Super Admin can manage all
+      // - Creator can manage their own
+      // - Org Admin can manage org templates
+      allow update, delete: if request.auth != null && (
+        isSuperAdmin() ||
+        resource.data.createdBy == request.auth.uid ||
+        (resource.data.get('orgId', null) != null && isOrgAdmin(resource.data.orgId))
+      );
+    }
+
+    // Activities Collection
+    match /activities/{activityId} {
+      allow read: if isOrgMember(resource.data.orgId);
+      allow create: if request.auth != null && isOrgMember(request.resource.data.orgId);
+      allow update, delete: if false; // Immutable
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow read: if (request.auth != null && request.auth.uid == userId) || isSuperAdmin();
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Designers Collection
+    match /designers/{designerId} {
+      // Public read for designers (marketplace)
+      allow read: if true; 
+      // Only the designer themselves or super admin can write
+      allow write: if request.auth != null && (request.auth.uid == designerId || isSuperAdmin());
+    }
+
+    // Designer Invites Collection
+    match /designer_invites/{inviteId} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    // Design Jobs Collection
+    match /designJobs/{jobId} {
+      // Org members of the creating org can read
+      // Assigned designer can read
+      // Super admin can read
+      allow read: if request.auth != null && (
+        isOrgMember(resource.data.orgId) || 
+        resource.data.designerId == request.auth.uid || 
+        isSuperAdmin()
+      );
+      
+      // Creation by Org Admin
+      allow create: if isOrgAdmin(request.resource.data.orgId);
+      
+      // Updates
+      allow update: if request.auth != null && (
+        // Org Admin can update their own jobs
+        isOrgAdmin(resource.data.orgId) ||
+        // Assigned designer can update status to specific values (e.g. in_progress, review) - strict validation needed in prod
+        (resource.data.designerId == request.auth.uid) ||
+        // Super Admin
+        isSuperAdmin()
+      );
+      
+      // Submissions
+      match /submissions/{submissionId} {
+        allow read: if request.auth != null && (
+          isOrgMember(get(/databases/$(database)/documents/designJobs/$(jobId)).data.orgId) ||
+          get(/databases/$(database)/documents/designJobs/$(jobId)).data.designerId == request.auth.uid ||
+          isSuperAdmin()
+        );
+        allow create: if request.auth != null && (
+          get(/databases/$(database)/documents/designJobs/$(jobId)).data.designerId == request.auth.uid
+        );
+        allow update: if request.auth != null && (
+          // Designer can update their own submission (e.g. fix typo before review)
+          get(/databases/$(database)/documents/designJobs/$(jobId)).data.designerId == request.auth.uid ||
+          // Org Admin can update status (approve/reject)
+          isOrgAdmin(get(/databases/$(database)/documents/designJobs/$(jobId)).data.orgId)
+        );
+      }
+    }
+
+    // Daily Metrics Collection
+    match /daily_metrics/{metricId} {
+      allow read: if request.auth != null && isOrgMember(resource.data.orgId);
+      allow write: if request.auth != null && isOrgMember(request.resource.data.orgId);
+    }
+
+    // QR Scans Collection
+    match /qr_scans/{scanId} {
+      // Allow any org member to read scans for their org
+      allow read: if request.auth != null && (
+        resource.data.orgId == null || // Legacy support (or maybe restrict this?)
+        isOrgMember(resource.data.orgId) ||
+        isSuperAdmin()
+      );
+      // Allow public creation (anyone scanning a QR code)
+      allow create: if true; 
+      // No updates or deletes allowed
+    }
+
+    // Polls Collection
+    match /polls/{pollId} {
+      // Polls are rendered on public screens and must be publicly readable
+      allow get: if true;
+      allow list: if false;
+      // Allow public creation/update for live polling interactions
+      allow create, update: if true;
+      allow delete: if isSuperAdmin();
+    }
+
+    // Screen Sessions Collection
+    match /screen_sessions/{sessionId} {
+      // Allow root session doc access to authenticated users
+      allow read, write: if request.auth != null;
+
+      // Trigger stream written by server, read/acknowledged by screens
+      match /triggers/{triggerId} {
+        allow read: if request.auth != null;
+        // Allow updates to processed flag for trigger acknowledgment
+        allow update: if request.auth != null &&
+          request.resource.data.diff(resource.data).changedKeys().hasOnly(['processed']);
+        allow create, delete: if false;
+      }
+    }
+
+    // System Email Templates
+    match /system_templates/{templateId} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    // Form Submissions
+    match /form_submissions/{submissionId} {
+      // Submissions should only be visible to super admins by default
+      allow read: if isSuperAdmin();
+      // Writes are primarily from Cloud Functions; keep client writes disabled
+      allow create, update, delete: if false;
+    }
+  }
+}
