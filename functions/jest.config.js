@@ -4,4 +4,7 @@ module.exports = {
   testMatch: ['**/*.test.ts'],
   moduleFileExtensions: ['ts', 'js', 'json', 'node'],
   rootDir: 'src',
+  moduleNameMapper: {
+    '^nanoid$': '<rootDir>/__mocks__/nanoid.ts',
+  },
 };
