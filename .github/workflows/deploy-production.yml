@@ -1,0 +1,96 @@
+name: Deploy Production
+run-name: Deploy production ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type DEPLOY to confirm the production release
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-production:
+    name: Validate and deploy production
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DEPLOY_TARGET: production
+      FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+      VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+      VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+      VITE_FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+      VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
+      VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+      VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+      VITE_FIREBASE_MEASUREMENT_ID: ${{ vars.VITE_FIREBASE_MEASUREMENT_ID }}
+      VITE_FINNHUB_API_KEY: ${{ vars.VITE_FINNHUB_API_KEY }}
+      VITE_STRIPE_PUBLISHABLE_KEY: ${{ vars.VITE_STRIPE_PUBLISHABLE_KEY }}
+    steps:
+      - name: Enforce production gate
+        run: |
+          if [ "${{ github.ref }}" != 'refs/heads/main' ]; then
+            echo '::error::Production deployments must be dispatched from main.'
+            exit 1
+          fi
+          if [ "${{ inputs.confirm }}" != 'DEPLOY' ]; then
+            echo '::error::Production deployment confirmation must exactly equal DEPLOY.'
+            exit 1
+          fi
+
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            functions/package-lock.json
+
+      - name: Validate production Firebase/Vite configuration
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          npm run validate:env
+          if [ "$FIREBASE_PROJECT_ID" != 'accelrestaurant-d2c1f' ]; then
+            echo '::error::Production FIREBASE_PROJECT_ID must be accelrestaurant-d2c1f.'
+            exit 1
+          fi
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
+            echo '::error::The production GitHub environment is missing the FIREBASE_SERVICE_ACCOUNT secret.'
+            exit 1
+          fi
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Lint frontend
+        run: npm run lint
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Install Functions dependencies
+        run: npm ci --prefix functions
+
+      - name: Build Functions
+        run: npm run build --prefix functions
+
+      - name: Run Functions unit tests
+        run: npm test --prefix functions -- --runInBand
+
+      - name: Deploy exact reviewed Hosting build to Firebase live channel
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          channelId: live
+          projectId: ${{ vars.FIREBASE_PROJECT_ID }}
