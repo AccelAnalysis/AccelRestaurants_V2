@@ -20,9 +20,8 @@ jobs:
           python3 - <<'PY'
           import base64, hashlib, json, lzma
           from pathlib import Path
-          encoded = ''.join(Path(f'.github/hig-full-recipe/part{i}').read_text().strip() for i in range(1, 4))
-          packed = base64.b64decode(encoded, validate=True)
-          assert hashlib.sha256(packed).hexdigest() == 'd1d9abb0bf8851087b26242460aecad9f7072ec98c86df22b851b8b28393d477', 'Recipe integrity mismatch'
+          packed = base64.b64decode(Path('.github/hig-full-corrections.txt').read_text().strip(), validate=True)
+          assert hashlib.sha256(packed).hexdigest() == '854aaf76ac822241ea6f1eca77b078f2eccc5926b3f4938e654e91570968edf6', 'Recipe integrity mismatch'
           recipe = json.loads(lzma.decompress(packed))
           outputs = []
           for entry in recipe['files']:
@@ -60,8 +59,8 @@ jobs:
           test "$GITHUB_REF" = 'refs/heads/recovery/local-v2'
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src tests/hig
-          git commit -m 'Extend Apple HIG accessibility and recovery across account workflows and tile inspectors'
+          git add src tests/hig docs/design
+          git commit -m 'Correct browser-audited contrast, focus and template creation behavior'
           git push origin HEAD:refs/heads/recovery/local-v2
           echo "Source commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
       - name: Install isolated Chromium and WebKit
@@ -69,7 +68,7 @@ jobs:
         run: npx playwright install --with-deps chromium webkit
       - name: Test real interfaces with synthetic services
         working-directory: tests/hig
-        run: npm test -- --max-failures=12
+        run: npm test -- --max-failures=15
       - name: Retain screenshots and audit traces
         if: always()
         uses: actions/upload-artifact@v4
