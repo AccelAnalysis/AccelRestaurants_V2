@@ -46,6 +46,8 @@ Environment secret:
 
 The staging Firebase project must contain only test/staging data and integrations. Do not configure production Stripe/email/customer data for PR previews.
 
+Until those staging settings exist, the preview job deliberately fails before build/deploy. This is a fail-closed safety control: CI can prove the code builds, but no preview is allowed to fall back to production backend resources.
+
 ## 3. Production: manual gated release
 
 Merging to `main` does not deploy Firebase Hosting automatically.
