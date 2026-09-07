@@ -17,6 +17,15 @@ export interface CoordinatedAudioSource {
   applyAllowed: (allowed: boolean) => void;
 }
 
+const APPLICATION_VOLUME_KEY = 'accelrestaurants.applicationVolume';
+const APPLICATION_MUTED_KEY = 'accelrestaurants.applicationMuted';
+const APPLICATION_AUDIO_EVENT = 'accelrestaurants:application-audio-change';
+
+export interface ApplicationAudioState {
+  volume: number;
+  muted: boolean;
+}
+
 const DEFAULT_SCHEDULE: MediaSchedule = {
   enabled: false,
   startTime: '00:00',
@@ -42,6 +51,42 @@ export const DEFAULT_SCREEN_AUDIO_CONFIG: ScreenAudioConfig = {
 const clampPercent = (value: number | undefined, fallback: number): number => {
   const numeric = Number.isFinite(value) ? Number(value) : fallback;
   return Math.max(0, Math.min(100, numeric));
+};
+
+const readStoredNumber = (key: string, fallback: number): number => {
+  if (typeof window === 'undefined') return fallback;
+  const value = Number(window.localStorage.getItem(key));
+  return Number.isFinite(value) ? clampPercent(value, fallback) : fallback;
+};
+
+const readStoredBoolean = (key: string, fallback: boolean): boolean => {
+  if (typeof window === 'undefined') return fallback;
+  const value = window.localStorage.getItem(key);
+  if (value === null) return fallback;
+  return value === 'true';
+};
+
+const emitApplicationAudioChange = () => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(APPLICATION_AUDIO_EVENT));
+  }
+};
+
+export const getApplicationAudioState = (): ApplicationAudioState => ({
+  volume: readStoredNumber(APPLICATION_VOLUME_KEY, 100),
+  muted: readStoredBoolean(APPLICATION_MUTED_KEY, false),
+});
+
+export const setApplicationAudioVolume = (volume: number) => {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(APPLICATION_VOLUME_KEY, String(clampPercent(volume, 100)));
+  emitApplicationAudioChange();
+};
+
+export const setApplicationAudioMuted = (muted: boolean) => {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(APPLICATION_MUTED_KEY, String(muted));
+  emitApplicationAudioChange();
 };
 
 export const normalizeSchedule = (schedule?: Partial<MediaSchedule>): MediaSchedule => ({
@@ -90,7 +135,6 @@ export const isScheduleActive = (schedule: MediaSchedule | undefined, now = new 
     return days.includes(currentDay) && current >= start && current < end;
   }
 
-  // Overnight window, e.g. 22:00 -> 06:00.
   if (current >= start) return days.includes(currentDay);
   const previousDay = (currentDay + 6) % 7;
   return current < end && days.includes(previousDay);
@@ -137,6 +181,7 @@ class AudioExperienceCoordinator {
   private recompute() {
     const now = new Date();
     const config = this.config;
+    const application = getApplicationAudioState();
     const globallyEnabled = config.enabled && isScheduleActive(config.schedule, now) && !isQuietHours(config.quietHours, now);
     const requested = Array.from(this.sources.values()).filter(source => source.wantsPlayback);
     const foreground = requested.filter(source => source.kind !== 'background');
@@ -149,8 +194,6 @@ class AudioExperienceCoordinator {
         const winner = [...requested].sort((a, b) => b.priority - a.priority)[0];
         if (winner) allowedIds.add(winner.id);
       } else {
-        // Priority mode preserves the persistent atmosphere plane while only
-        // allowing the highest-priority foreground group to speak.
         const highestForegroundPriority = foreground.length
           ? Math.max(...foreground.map(source => source.priority))
           : null;
@@ -165,13 +208,16 @@ class AudioExperienceCoordinator {
 
     const audibleForeground = foreground.filter(source => allowedIds.has(source.id));
     const shouldDuckBackground = config.duckingEnabled && audibleForeground.some(source => source.duckBackground);
-    const appGain = clampPercent(config.applicationVolume, 100) / 100;
+    const persistedAppGain = clampPercent(config.applicationVolume, 100) / 100;
+    const deviceAppGain = application.muted ? 0 : application.volume / 100;
     const masterGain = clampPercent(config.masterVolume, 70) / 100;
 
     this.sources.forEach(source => {
       const videoAudioAllowed = source.kind !== 'video' || config.allowVideoAudio;
-      const allowed = globallyEnabled && videoAudioAllowed && allowedIds.has(source.id);
-      let gain = allowed ? clampPercent(source.volume, 100) / 100 * appGain * masterGain : 0;
+      const allowed = globallyEnabled && videoAudioAllowed && allowedIds.has(source.id) && !application.muted;
+      let gain = allowed
+        ? clampPercent(source.volume, 100) / 100 * persistedAppGain * deviceAppGain * masterGain
+        : 0;
       if (allowed && source.kind === 'background' && shouldDuckBackground) {
         gain *= clampPercent(config.duckLevel, 25) / 100;
       }
@@ -187,6 +233,10 @@ class AudioExperienceCoordinator {
 }
 
 export const audioExperienceCoordinator = new AudioExperienceCoordinator();
+
+if (typeof window !== 'undefined') {
+  window.addEventListener(APPLICATION_AUDIO_EVENT, () => audioExperienceCoordinator.refresh());
+}
 
 export const coordinationModeLabel = (mode: AudioCoordinationMode): string => {
   if (mode === 'mix') return 'Mixer: simultaneous sources are allowed.';
