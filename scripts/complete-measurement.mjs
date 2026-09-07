@@ -39,7 +39,7 @@ patch(browser, "  checked('production-built aggregate dashboard, feedback, locat
   await page.getByLabel('QR tile', { exact: true }).selectOption('feedbackQR');
   await page.getByRole('button', { name: 'Attach campaign', exact: true }).click();
   await expect(page.getByText('Campaign attached. Live players will receive the new slide revision.', { exact: true })).toBeVisible();
-  assert.equal((await db.doc(\\`slides/\\${slideId}\\`).get()).data().elements[0].properties.measurementCampaignId, created.id);
+  assert.equal((await db.doc('slides/' + slideId).get()).data().elements[0].properties.measurementCampaignId, created.id);
   checked('operator creates and attaches a measured survey through the real UI without losing setup state on refresh');`);
 patch('tests/measurement/README.md', ': 15 real Firestore emulator tests', ': 16 real Firestore emulator tests');
 console.log('Fractional timestamps, accurate short-duration labels, and complete operator/browser assertions integrated.');
