@@ -23,7 +23,7 @@ jobs:
       - name: Apply Firebase audio integration
         run: python .github/patches/apply_firebase_audio_experience.py
 
-      - name: Normalize generated React effects
+      - name: Normalize generated React and media details
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -31,11 +31,6 @@ jobs:
 
           plane = Path('src/components/atoms/GlobalMediaPlane.tsx')
           text = plane.read_text()
-          # Memoize only the component's screen config; buildScreenTracks must remain a plain helper.
-          text = text.replace(
-              "const buildScreenTracks = (screen: AppScreen): GlobalMediaTrack[] => {\n  const config = normalizeScreenAudioConfig(screen.audioConfig);",
-              "const buildScreenTracks = (screen: AppScreen): GlobalMediaTrack[] => {\n  const config = normalizeScreenAudioConfig(screen.audioConfig);"
-          )
           text = text.replace(
               "export const GlobalMediaPlane = ({ screen, location }: GlobalMediaPlaneProps) => {\n  const config = normalizeScreenAudioConfig(screen.audioConfig);",
               "export const GlobalMediaPlane = ({ screen, location }: GlobalMediaPlaneProps) => {\n  const config = useMemo(() => normalizeScreenAudioConfig(screen.audioConfig), [screen.audioConfig]);"
@@ -53,10 +48,12 @@ jobs:
               text,
               count=1,
           )
+          text = text.replace("    media.playsInline = true;\n", "")
           plane.write_text(text)
 
           tile = Path('src/components/atoms/TileContent.tsx')
           text = tile.read_text().replace("    else { audio.pause(); setStatus('idle'); }", "    else { audio.pause(); }")
+          text = text.replace("<Volume2 size={28}", "<Volume size={28}")
           tile.write_text(text)
           PY
 
