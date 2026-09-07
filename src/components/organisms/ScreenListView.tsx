@@ -57,6 +57,7 @@ export const ScreenListView = () => {
   const [deployingScreen, setDeployingScreen] = useState<AppScreen | null>(null);
   const [managingScreen, setManagingScreen] = useState<AppScreen | null>(null);
   const [activationOpen, setActivationOpen] = useState(false);
+  const [activationScreenId, setActivationScreenId] = useState('');
   const [deletingScreen, setDeletingScreen] = useState<AppScreen | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -73,8 +74,6 @@ export const ScreenListView = () => {
       const result = await PlayerRegistrationService.list(organization.id);
       setRegistrations(result.registrations);
     } catch {
-      // Display management is additive. A transient Functions issue must not make
-      // ordinary screen editing unavailable.
       setRegistrationError('Display assignments could not be loaded. Screen editing is still available.');
     } finally { setRegistrationLoading(false); }
   }, [organization?.id]);
@@ -106,8 +105,10 @@ export const ScreenListView = () => {
     if (organization?.id && /^\d{6}$/.test(activation || '')) setActivationOpen(true);
   }, [organization?.id, searchParams]);
 
+  const openActivation = (screenId = '') => { setActivationScreenId(screenId); setActivationOpen(true); };
   const closeActivation = () => {
     setActivationOpen(false);
+    setActivationScreenId('');
     if (searchParams.has('activation')) {
       const next = new URLSearchParams(searchParams);
       next.delete('activation');
@@ -123,16 +124,19 @@ export const ScreenListView = () => {
   };
 
   const deleteScreen = async () => {
-    if (!deletingScreen || deleting) return;
+    if (!deletingScreen || deleting || !organization?.id) return;
     setDeleting(true); setDeleteError(null);
     try {
+      if (registrations.some(item => item.screenId === deletingScreen.id)) {
+        await PlayerRegistrationService.deactivate(organization.id, deletingScreen.id);
+      }
       await ScreenService.deleteScreen(deletingScreen.id);
       setScreens(items => items.filter(item => item.id !== deletingScreen.id));
       setRegistrations(items => items.filter(item => item.screenId !== deletingScreen.id));
       setMessage(`${deletingScreen.name} deleted.`);
       setDeletingScreen(null);
       requestAnimationFrame(() => addButton.current?.focus());
-    } catch { setDeleteError('The screen could not be deleted. Try again.'); }
+    } catch { setDeleteError('The screen could not be deleted. Its display assignment and saved configuration were otherwise left safe. Try again.'); }
     finally { setDeleting(false); }
   };
 
@@ -145,7 +149,7 @@ export const ScreenListView = () => {
     <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
       <div><h1 className="text-2xl font-semibold text-text">Screens</h1><p className="text-sm text-text-secondary mt-1">{limits.screens === -1 ? `${screens.length} screens` : `${screens.length} of ${limits.screens} screens in use`}</p></div>
       <div className="flex flex-wrap gap-3">
-        <button type="button" onClick={() => setActivationOpen(true)} disabled={!organization || loading || screens.length === 0} className="ui-button ui-button-secondary"><Tv size={20} aria-hidden="true" />Activate display</button>
+        <button type="button" onClick={() => openActivation()} disabled={!organization || loading || screens.length === 0} className="ui-button ui-button-secondary"><Tv size={20} aria-hidden="true" />Activate display</button>
         <button ref={addButton} type="button" onClick={() => setShowTemplateModal(true)} disabled={limitReached || !organization || loading} aria-describedby={limitReached ? 'screen-limit' : undefined} className="ui-button ui-button-primary">{limitReached ? <Lock size={20} aria-hidden="true" /> : <Plus size={20} aria-hidden="true" />}Add screen</button>
       </div>
     </div>
@@ -163,7 +167,7 @@ export const ScreenListView = () => {
           <div className="flex flex-wrap gap-3 text-sm text-text-secondary"><span>{screen.isActive ? 'Enabled' : 'Disabled'}</span><span>{isScreenLive(screen, now) ? 'Online' : 'Offline'}</span><span>{registrationLoading ? 'Checking display…' : displayActive ? 'Display activated' : 'No activated display'}</span></div>
           <dl className="text-sm space-y-2"><div className="flex justify-between gap-3"><dt className="text-text-secondary">Location</dt><dd className="text-right break-words">{locationMap[screen.locationId] || 'Unassigned'}</dd></div><div className="flex justify-between gap-3"><dt className="text-text-secondary">Playlist</dt><dd>{screen.livePlaylist?.length || 0} slides</dd></div></dl>
           <div className="flex flex-wrap gap-2 border-t border-surface-highlight pt-4">
-            {displayActive ? <button type="button" onClick={() => setManagingScreen(screen)} className="ui-button ui-button-primary">Manage display</button> : <button type="button" onClick={() => setActivationOpen(true)} className="ui-button ui-button-primary">Activate display</button>}
+            {displayActive ? <button type="button" onClick={() => setManagingScreen(screen)} className="ui-button ui-button-primary">Manage display</button> : <button type="button" onClick={() => openActivation(screen.id)} className="ui-button ui-button-primary">Activate display</button>}
             <button type="button" onClick={() => setDeployingScreen(screen)} className="ui-button ui-button-secondary">Setup / preview</button>
             <Link to={`/admin/screens/${screen.id}`} aria-label={`Edit ${screen.name}`} className="ui-button ui-button-secondary"><Settings size={18} aria-hidden="true" /></Link>
             <button type="button" aria-label={`Delete ${screen.name}`} className="ui-button ui-button-secondary" onClick={() => { setDeleteError(null); setDeletingScreen(screen); }}><Trash2 size={18} aria-hidden="true" /></button>
@@ -174,9 +178,9 @@ export const ScreenListView = () => {
     </div>}
     {showTemplateModal && <TemplateSelectorModal type="screen" onClose={() => setShowTemplateModal(false)} onCreateBlank={() => { setShowTemplateModal(false); navigate('/admin/screens/new'); }} onImport={id => { setShowTemplateModal(false); navigate(`/admin/screens/${id}`); }} />}
     {deployingScreen && <DeployModal screen={deployingScreen} onClose={() => setDeployingScreen(null)} />}
-    {activationOpen && organization && <ActivateDisplayDialog orgId={organization.id} screens={screens} registrations={registrations} initialCode={initialCode} onClose={closeActivation} onActivated={screenId => void refreshDisplayAssignments(`${screens.find(item => item.id === screenId)?.name || 'Display'} activated.`)} />}
+    {activationOpen && organization && <ActivateDisplayDialog orgId={organization.id} screens={screens} registrations={registrations} initialCode={initialCode} initialScreenId={activationScreenId} onClose={closeActivation} onActivated={screenId => void refreshDisplayAssignments(`${screens.find(item => item.id === screenId)?.name || 'Display'} activated.`)} />}
     {managingScreen && organization && <ManageDisplayDialog orgId={organization.id} source={managingScreen} screens={screens} registrations={registrations} onClose={() => setManagingScreen(null)} onChanged={nextMessage => void refreshDisplayAssignments(nextMessage)} />}
-    {deletingScreen && <AccessibleDialog title={`Delete ${deletingScreen.name}?`} description="This removes the screen configuration. This action cannot be undone." onClose={() => setDeletingScreen(null)} closeLabel="Cancel" busy={deleting}>
+    {deletingScreen && <AccessibleDialog title={`Delete ${deletingScreen.name}?`} description="This removes the screen configuration. An activated TV is detached first so it cannot be stranded on a deleted assignment. This action cannot be undone." onClose={() => setDeletingScreen(null)} closeLabel="Cancel" busy={deleting}>
       <InlineFeedback message={deleteError} tone="error" />
       <button type="button" disabled={deleting} onClick={() => void deleteScreen()} className="ui-button ui-button-danger">{deleting ? 'Deleting…' : 'Delete screen'}</button>
     </AccessibleDialog>}
