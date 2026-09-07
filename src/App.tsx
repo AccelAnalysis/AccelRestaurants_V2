@@ -16,7 +16,6 @@ const DisplayHomePage = lazy(() => import('./pages/DisplayHomePage').then(module
 const RegisteredPlayerPage = lazy(() => import('./pages/RegisteredPlayerPage').then(module => ({ default: module.RegisteredPlayerPage })));
 const LoginPage = lazy(() => import('./pages/LoginPage').then(module => ({ default: module.LoginPage })));
 const JoinPage = lazy(() => import('./pages/JoinPage').then(module => ({ default: module.JoinPage })));
-const PairingPage = lazy(() => import('./pages/PairingPage').then(module => ({ default: module.PairingPage })));
 const LandingPage = lazy(() => import('./pages/LandingPage').then(module => ({ default: module.LandingPage })));
 const PricingPage = lazy(() => import('./pages/PricingPage').then(module => ({ default: module.PricingPage })));
 const OnboardingPage = lazy(() => import('./pages/OnboardingPage').then(module => ({ default: module.OnboardingPage })));
@@ -85,11 +84,9 @@ function App() {
               </SuperAdminRoute>
             }
           />
-          {/* Direct player URLs remain available for authenticated preview/troubleshooting.
+          {/* Direct player URLs remain available for preview/troubleshooting.
               Restaurant TVs should enter through the display activation surface instead. */}
           <Route path="/player/:screenId" element={<PlayerScreen />} />
-          {/* Legacy interactive pairing route retained for compatibility; new TV activation does not use it. */}
-          <Route path="/pair/:screenId" element={<PairingPage />} />
           <Route path="/r" element={<RedirectTracker />} />
           <Route path="/engage/:placementId" element={<EngagementPage />} />
           <Route
