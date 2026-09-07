@@ -17,6 +17,7 @@ const JoinPage = lazy(() => import('./pages/JoinPage').then(module => ({ default
 const PairingPage = lazy(() => import('./pages/PairingPage').then(module => ({ default: module.PairingPage })));
 const LandingPage = lazy(() => import('./pages/LandingPage').then(module => ({ default: module.LandingPage })));
 const PricingPage = lazy(() => import('./pages/PricingPage').then(module => ({ default: module.PricingPage })));
+const DesignsPage = lazy(() => import('./pages/DesignsPage').then(module => ({ default: module.DesignsPage })));
 const OnboardingPage = lazy(() => import('./pages/OnboardingPage').then(module => ({ default: module.OnboardingPage })));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy').then(module => ({ default: module.PrivacyPolicy })));
 const TermsOfService = lazy(() => import('./pages/TermsOfService').then(module => ({ default: module.TermsOfService })));
@@ -43,6 +44,7 @@ function App() {
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/designs" element={<DesignsPage />} />
           <Route path="/onboarding" element={<OnboardingPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/join" element={<JoinPage />} />
