@@ -6,5 +6,6 @@ export const signInWithCustomToken = async () => { throw new Error('Impersonatio
 export const sendPasswordResetEmail = signInWithEmailAndPassword;
 export const signInAnonymously = async () => ({ user: { uid: 'hig-player', isAnonymous: true } });
 export const signOut = async () => {};
+export const connectAuthEmulator = () => {};
 
 export const getAuth = () => ({ currentUser: null });
