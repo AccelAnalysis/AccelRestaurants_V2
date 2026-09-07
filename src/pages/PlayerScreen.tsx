@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { httpsCallable } from 'firebase/functions';
-import { functions } from '../lib/firebase';
+import { auth, functions } from '../lib/firebase';
+import { signInAnonymously } from 'firebase/auth';
 import { ScreenService } from '../services/screenService';
 import { SlideService } from '../services/slideService';
 import { OrganizationService } from '../services/organizationService';
@@ -14,6 +15,7 @@ import { AtmosphereCanvas } from '../components/atoms/AtmosphereCanvas';
 import { TileContent } from '../components/atoms/TileContent';
 import { GlobalMediaPlane } from '../components/atoms/GlobalMediaPlane';
 import { QrCode, Clock } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import type { AppScreen, Slide, Organization, Location, Menu, InteractiveTileProperties, PlaylistEntry, ScreenAdjustments } from '../types/schema';
 import { DEPLOYMENT_DURATION_LIMIT_MS } from '../lib/plans';
 import { useConfigStore } from '../store/useConfigStore';
@@ -92,6 +94,7 @@ export const PlayerScreen = () => {
   const [renderedIndices, setRenderedIndices] = useState<number[]>([0]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [playerAuthReady, setPlayerAuthReady] = useState(false);
   const [activeTrigger, setActiveTrigger] = useState<TriggerEvent | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
   const [showPromoOverlay, setShowPromoOverlay] = useState(false);
@@ -100,6 +103,27 @@ export const PlayerScreen = () => {
   const durationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const promoTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastProcessedScreenRef = useRef<string>('');
+
+  // Public signage uses a scoped anonymous Firebase identity for callable
+  // functions and the session trigger stream. Anonymous users are never provisioned
+  // with restaurant organizations by the backend.
+  useEffect(() => {
+    let cancelled = false;
+    const authenticatePlayer = async () => {
+      try {
+        if (!auth.currentUser) {
+          await signInAnonymously(auth);
+        }
+      } catch (err) {
+        console.error('Player authentication failed:', err);
+        if (!cancelled) setError('Player authentication failed');
+      } finally {
+        if (!cancelled) setPlayerAuthReady(true);
+      }
+    };
+    void authenticatePlayer();
+    return () => { cancelled = true; };
+  }, []);
 
   // Initialize Configs
   useEffect(() => {
@@ -182,7 +206,7 @@ export const PlayerScreen = () => {
 
   // Heartbeat Loop
   useEffect(() => {
-    if (!screenId) return;
+    if (!screenId || !playerAuthReady) return;
 
     // Send initial heartbeat
     campaignService.sendHeartbeat(screenId);
@@ -193,7 +217,7 @@ export const PlayerScreen = () => {
     }, 60000);
 
     return () => clearInterval(interval);
-  }, [screenId]);
+  }, [screenId, playerAuthReady]);
 
   // Subscribe to Screen Data
   useEffect(() => {
@@ -588,7 +612,7 @@ export const PlayerScreen = () => {
 
   // Subscribe to Real-time Commands (Firestore)
   useEffect(() => {
-    if (!screenId) return;
+    if (!screenId || !playerAuthReady) return;
 
     const initSession = async () => {
       try {
@@ -606,11 +630,11 @@ export const PlayerScreen = () => {
     initSession();
 
     return () => campaignService.disconnect();
-  }, [screenId]);
+  }, [screenId, playerAuthReady]);
 
   // Pairing Flow: Request Code if unpaired
   useEffect(() => {
-    if (!screenId || !screen) return;
+    if (!screenId || !screen || !playerAuthReady) return;
     
     // Check if paired (has orgId)
     if (screen.orgId) return;
@@ -632,7 +656,7 @@ export const PlayerScreen = () => {
     };
 
     getCode();
-  }, [screenId, screen, pairingCode]);
+  }, [screenId, screen, pairingCode, playerAuthReady]);
 
   // Unpaired State View
   if (screen && !screen.orgId) {
@@ -645,7 +669,14 @@ export const PlayerScreen = () => {
           {pairingCode ? (
             <div className="space-y-8">
               <div className="bg-white p-4 rounded-2xl inline-block shadow-xl">
-                <QrCode size={200} className="text-black" />
+                <QRCodeSVG
+                  value={`${window.location.origin}/pair/${encodeURIComponent(screenId || '')}?code=${encodeURIComponent(pairingCode)}`}
+                  size={200}
+                  level="M"
+                  bgColor="#ffffff"
+                  fgColor="#000000"
+                  title="Scan to pair this screen"
+                />
               </div>
               
               <div className="space-y-2">
@@ -671,7 +702,7 @@ export const PlayerScreen = () => {
     );
   }
 
-  if (loading) {
+  if (loading || !playerAuthReady) {
     // ... existing loading view
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center">

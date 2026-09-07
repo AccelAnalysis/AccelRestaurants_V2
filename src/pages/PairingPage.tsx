@@ -1,41 +1,45 @@
 import { useState, useEffect } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { auth, functions } from '../lib/firebase';
-import { signInAnonymously } from 'firebase/auth';
 import { httpsCallable } from 'firebase/functions';
 import { Smartphone, CheckCircle2, AlertCircle, Loader2, Rocket } from 'lucide-react';
 import logo from '../assets/logo.png';
+import { useAuthStore } from '../store/useAuthStore';
 
 export const PairingPage = () => {
   const { screenId } = useParams();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const { user, loading: authLoading } = useAuthStore();
   
   const pairingCode = searchParams.get('code');
   
-  const [status, setStatus] = useState<'initializing' | 'pairing' | 'paired' | 'error'>('initializing');
+  const [status, setStatus] = useState<'initializing' | 'signin' | 'pairing' | 'paired' | 'error'>('initializing');
   const [error, setError] = useState<string | null>(null);
   const [screenSessionId, setScreenSessionId] = useState<string | null>(null);
 
   useEffect(() => {
     const startPairing = async () => {
+      if (authLoading) return;
       if (!screenId || !pairingCode) {
         setStatus('error');
         setError('Invalid pairing link. Please scan the QR code on the screen again.');
         return;
       }
 
+      if (!user || user.isAnonymous) {
+        setStatus('signin');
+        return;
+      }
+
       try {
         setStatus('pairing');
-        
-        // 1. Ensure user is authenticated (Anonymously if needed)
-        if (!auth.currentUser) {
-          await signInAnonymously(auth);
+        if (!auth.currentUser || auth.currentUser.isAnonymous) {
+          setStatus('signin');
+          return;
         }
 
-        const user = auth.currentUser;
-        if (!user) throw new Error('Authentication failed');
-
-        // 2. Validate Pairing via Callable Function
+        // Validate pairing with the authenticated restaurant account.
         const validatePairing = httpsCallable(functions, 'validatePairing');
         const result = await validatePairing({ screenId, pairingCode });
         const data = result.data as { success: boolean; screenSessionId: string };
@@ -54,7 +58,7 @@ export const PairingPage = () => {
     };
 
     startPairing();
-  }, [screenId, pairingCode]);
+  }, [screenId, pairingCode, user, authLoading]);
 
   const handleFireTrigger = async (campaignId: string, type: 'qr_scan' | 'location_entry') => {
     if (!screenSessionId) return;
@@ -95,6 +99,23 @@ export const PairingPage = () => {
             </div>
             <h1 className="text-2xl font-bold">Connecting to Screen</h1>
             <p className="text-text-muted">Establishing a secure link with the digital signage display...</p>
+          </div>
+        ) : status === 'signin' ? (
+          <div className="space-y-6">
+            <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center text-primary mx-auto">
+              <Smartphone size={40} />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold mb-2">Sign in to Pair</h1>
+              <p className="text-text-muted">Use your restaurant account so this screen is linked to the correct organization.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate(`/login?redirect=${encodeURIComponent(`/pair/${screenId}?code=${pairingCode}`)}`)}
+              className="w-full bg-primary hover:bg-primary-hover text-white py-3 rounded-xl font-bold transition-colors"
+            >
+              Sign in to continue
+            </button>
           </div>
         ) : status === 'paired' ? (
           <div className="space-y-8 animate-in fade-in zoom-in duration-500">

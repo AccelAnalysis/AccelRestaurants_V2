@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../lib/firebase';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import logo from '../assets/logo.png';
 import { InlineFeedback } from '../components/atoms/InlineFeedback';
 
 export const LoginPage = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [isSignUp, setIsSignUp] = useState(false);
   const [isResetPassword, setIsResetPassword] = useState(false);
   const [email, setEmail] = useState('');
@@ -34,7 +35,11 @@ export const LoginPage = () => {
       } else {
         await signInWithEmailAndPassword(auth, email, password);
       }
-      navigate('/onboarding');
+      const redirect = searchParams.get('redirect');
+      const safeRedirect = redirect && redirect.startsWith('/') && !redirect.startsWith('//')
+        ? redirect
+        : '/onboarding';
+      navigate(safeRedirect);
     } catch (err) {
       const code = (err as { code?: string }).code;
       setError(code === 'auth/network-request-failed' ? 'Connection lost. Check your connection and try again.' : code === 'auth/too-many-requests' ? 'Too many attempts. Please try again later.' : (isResetPassword ? 'We could not complete that request. Check your email and connection, then try again.' : 'We could not complete that request. Check your email and password, then try again.'));

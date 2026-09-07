@@ -18,6 +18,13 @@ export const useAuthListener = () => {
 
       if (user) {
         setUser(user);
+
+        if (user.isAnonymous) {
+          setUserProfile(null);
+          setOrganization(null);
+          setLoading(false);
+          return;
+        }
         
         try {
           // The `createOrganizationForUser` Cloud Function handles profile and org creation.

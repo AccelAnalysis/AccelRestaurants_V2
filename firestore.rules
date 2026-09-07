@@ -76,8 +76,8 @@ service cloud.firestore {
       // Restrict individual org reads to members only
       allow read: if (isOrgMember(orgId) || isSuperAdmin()) || (request.auth != null && orgId == null);
       
-      // Allow creation of the demo org or if user is authenticated (for new signups)
-      allow create: if request.auth != null; 
+      // Organizations are provisioned by trusted backend code.
+      allow create: if false;
       
       // Allow org members to update ONLY screenCount (+1/-1) and updatedAt.
       // This is needed because screen creation/deletion uses a client-side transaction
@@ -91,10 +91,20 @@ service cloud.firestore {
           );
       }
 
-      // Allow update by Org Admin or Super Admin
-      allow update: if isOrgAdmin(orgId) || (isOrgMember(orgId) && isScreenCountDeltaOnly());
+      function isSafeOrgAdminUpdate() {
+        return request.resource.data.diff(resource.data).changedKeys().hasNone([
+          'ownerId', 'members', 'plan', 'screenCount', 'purchasedScreens', 'purchasedSeats',
+          'stripeCustomerId', 'subscriptionId', 'subscriptionStatus', 'subscriptionPeriodEnd',
+          'cancelAtPeriodEnd', 'tileAccess', 'customLimits', 'createdAt'
+        ]);
+      }
+
+      // Billing, ownership, plan, and entitlement fields are backend/super-admin controlled.
+      allow update: if isSuperAdmin() ||
+        (isOrgAdmin(orgId) && isSafeOrgAdminUpdate()) ||
+        (isOrgMember(orgId) && isScreenCountDeltaOnly());
         
-      allow delete: if isOrgAdmin(orgId);
+      allow delete: if isSuperAdmin() || (request.auth != null && resource.data.ownerId == request.auth.uid);
 
       // Locations Subcollection (Public for Player)
       match /locations/{locationId} {
@@ -138,7 +148,8 @@ service cloud.firestore {
     // Sub-collections under organizations (Legacy/Nested support)
     match /organizations/{orgId}/{document=**} {
       allow read: if isOrgMember(orgId);
-      allow write: if isOrgAdmin(orgId);
+      // Specific nested collection rules above grant the writes that are intended.
+      allow write: if false;
     }
     
     // Root-level Collections (Active App Usage)
@@ -154,7 +165,8 @@ service cloud.firestore {
         get(/databases/$(database)/documents/organizations/$(request.resource.data.orgId)).data.plan == 'Enterprise' ||
         get(/databases/$(database)/documents/organizations/$(request.resource.data.orgId)).data.screenCount < getMaxScreens(get(/databases/$(database)/documents/organizations/$(request.resource.data.orgId)).data.plan)
       );
-      allow update, delete: if isOrgMember(resource.data.orgId);
+      allow update: if isOrgMember(resource.data.orgId) && request.resource.data.orgId == resource.data.orgId;
+      allow delete: if isOrgMember(resource.data.orgId);
     }
 
     // Menus
@@ -162,7 +174,8 @@ service cloud.firestore {
       allow get: if true;
       allow list: if isOrgMember(resource.data.orgId);
       allow create: if isOrgMember(request.resource.data.orgId);
-      allow update, delete: if isOrgMember(resource.data.orgId);
+      allow update: if isOrgMember(resource.data.orgId) && request.resource.data.orgId == resource.data.orgId;
+      allow delete: if isOrgMember(resource.data.orgId);
     }
 
     // Slides
@@ -170,14 +183,16 @@ service cloud.firestore {
       allow get: if true;
       allow list: if isOrgMember(resource.data.orgId) || isSuperAdmin();
       allow create: if isOrgMember(request.resource.data.orgId);
-      allow update, delete: if isOrgMember(resource.data.orgId);
+      allow update: if isOrgMember(resource.data.orgId) && request.resource.data.orgId == resource.data.orgId;
+      allow delete: if isOrgMember(resource.data.orgId);
     }
 
     // Campaigns
     match /campaigns/{campaignId} {
       allow read: if isOrgMember(resource.data.orgId);
       allow create: if isOrgMember(request.resource.data.orgId);
-      allow update, delete: if isOrgMember(resource.data.orgId);
+      allow update: if isOrgMember(resource.data.orgId) && request.resource.data.orgId == resource.data.orgId;
+      allow delete: if isOrgMember(resource.data.orgId);
     }
 
     // Templates Collection
@@ -225,15 +240,30 @@ service cloud.firestore {
     // Users Collection
     match /users/{userId} {
       allow read: if (request.auth != null && request.auth.uid == userId) || isSuperAdmin();
-      allow write: if request.auth != null && request.auth.uid == userId;
+      // User documents are created by backend auth provisioning. Super admins may
+      // manage platform roles; ordinary users may only edit profile fields.
+      allow create: if isSuperAdmin();
+      allow update: if isSuperAdmin() || (
+        request.auth != null && request.auth.uid == userId &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'displayName', 'photoURL', 'phoneNumber', 'timezone', 'jobTitle',
+          'city', 'state', 'zipCode', 'lastLoginAt', 'updatedAt'
+        ])
+      );
+      allow delete: if isSuperAdmin();
     }
 
     // Designers Collection
     match /designers/{designerId} {
-      // Public read for designers (marketplace)
-      allow read: if true; 
-      // Only the designer themselves or super admin can write
-      allow write: if request.auth != null && (request.auth.uid == designerId || isSuperAdmin());
+      allow read: if true;
+      allow create: if isSuperAdmin();
+      allow update: if isSuperAdmin() || (
+        request.auth != null && request.auth.uid == designerId &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'displayName', 'bio', 'specialties', 'portfolioUrl', 'portfolioItems', 'rates', 'updatedAt'
+        ])
+      );
+      allow delete: if isSuperAdmin();
     }
 
     // Designer Invites Collection
@@ -325,16 +355,22 @@ service cloud.firestore {
     }
 
     // Screen Sessions Collection
-    match /screen_sessions/{sessionId} {
-      // Allow root session doc access to authenticated users
-      allow read, write: if request.auth != null;
+    function ownsScreenSession(sessionId) {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/screen_sessions/$(sessionId)) &&
+        get(/databases/$(database)/documents/screen_sessions/$(sessionId)).data.authUid == request.auth.uid;
+    }
 
-      // Trigger stream written by server, read/acknowledged by screens
+    match /screen_sessions/{sessionId} {
+      allow get: if ownsScreenSession(sessionId) || isSuperAdmin();
+      allow list: if false;
+      allow create, update, delete: if false;
+
       match /triggers/{triggerId} {
-        allow read: if request.auth != null;
-        // Allow updates to processed flag for trigger acknowledgment
-        allow update: if request.auth != null &&
-          request.resource.data.diff(resource.data).changedKeys().hasOnly(['processed']);
+        allow read: if ownsScreenSession(sessionId) || isSuperAdmin();
+        allow update: if (ownsScreenSession(sessionId) || isSuperAdmin()) &&
+          request.resource.data.diff(resource.data).changedKeys().hasOnly(['processed']) &&
+          request.resource.data.processed == true;
         allow create, delete: if false;
       }
     }

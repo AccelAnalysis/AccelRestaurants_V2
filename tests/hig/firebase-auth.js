@@ -4,6 +4,7 @@ export const createUserWithEmailAndPassword = async () => { if (!window.__hig?.a
 export const updateProfile = async () => {};
 export const signInWithCustomToken = async () => { throw new Error('Impersonation is disabled in offline UI tests'); };
 export const sendPasswordResetEmail = signInWithEmailAndPassword;
+export const signInAnonymously = async () => ({ user: { uid: 'hig-player', isAnonymous: true } });
 export const signOut = async () => {};
 
 export const getAuth = () => ({ currentUser: null });

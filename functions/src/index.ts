@@ -4,6 +4,8 @@ import { onCall, CallableContext } from 'firebase-functions/v1/https';
 import * as admin from 'firebase-admin';
 import * as nodemailer from 'nodemailer';
 import * as crypto from 'crypto';
+import { promises as dns } from 'node:dns';
+import * as net from 'node:net';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
 import { THEMES } from './themes';
@@ -24,6 +26,13 @@ const gmailPassword = defineSecret('GMAIL_PASS');
  */
 export const createOrganizationForUser = functions.auth.user().onCreate(async (user) => {
   functions.logger.info(`New user signed up: ${user.uid} (${user.email})`);
+
+  // Anonymous authentication is used by signage players. Player identities must
+  // never receive a restaurant organization or tenant-level privileges.
+  if (user.providerData.length === 0 && !user.email) {
+    functions.logger.info(`Anonymous player identity ${user.uid}; skipping organization provisioning`);
+    return;
+  }
 
   // Check if user already has a profile with orgId (e.g., from accepting an invitation)
   const userRef = db.doc(`users/${user.uid}`);
@@ -171,6 +180,17 @@ async function isOrgAdmin(uid: string, orgId: string): Promise<boolean> {
     return orgDoc.exists && orgDoc.data()?.ownerId === uid;
   }
   return memberDoc.data()?.role === 'orgAdmin';
+}
+
+async function isOrgMemberUid(uid: string, orgId: string): Promise<boolean> {
+  const orgDoc = await db.doc(`organizations/${orgId}`).get();
+  if (!orgDoc.exists) return false;
+  const orgData = orgDoc.data();
+  if (orgData?.ownerId === uid || (Array.isArray(orgData?.members) && orgData?.members.includes(uid))) {
+    return true;
+  }
+  const memberDoc = await db.doc(`organizations/${orgId}/members/${uid}`).get();
+  return memberDoc.exists && memberDoc.data()?.status !== 'deactivated';
 }
 
 async function isSuperAdminUid(uid: string): Promise<boolean> {
@@ -400,8 +420,7 @@ export const acceptInvite = onCall(async (data: AcceptInviteData, context: Calla
   // 2. Update User Profile (link to org)
   const userRef = db.doc(`users/${context.auth.uid}`);
   batch.set(userRef, {
-    orgId: orgId, // Set primary org
-    platformRole: inviteData.role === 'orgAdmin' ? 'admin' : 'user', 
+    orgId: orgId, // Set primary org. Organization roles live only in membership docs.
     updatedAt: admin.firestore.Timestamp.now()
   }, { merge: true });
 
@@ -835,10 +854,7 @@ export const updateMemberRole = onCall(async (data: { orgId: string; uid: string
     updatedBy: context.auth.uid
   });
 
-  // Update User Profile (platformRole echo)
-  await db.doc(`users/${uid}`).update({
-    platformRole: role === 'orgAdmin' ? 'admin' : 'user'
-  });
+  // Platform roles are intentionally not derived from organization roles.
 
   return { success: true };
 });
@@ -876,10 +892,10 @@ export const removeMember = onCall(async (data: { orgId: string; uid: string }, 
     members: admin.firestore.FieldValue.arrayRemove(uid)
   });
 
-  // 3. Update User Profile (unlink)
+  // 3. Update User Profile (unlink). Preserve any platform-level role.
   batch.update(userRef, {
     orgId: admin.firestore.FieldValue.delete(),
-    platformRole: 'user' // Default back to user
+    updatedAt: admin.firestore.Timestamp.now()
   });
 
   await batch.commit();
@@ -1095,31 +1111,51 @@ export const createStripeConnectAccountLink = functions.runWith({ secrets: [stri
     throw new functions.https.HttpsError('unauthenticated', 'User must be logged in.');
   }
 
+  const { designerId, returnUrl } = data;
+  if (!designerId || !returnUrl) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing designer ID or return URL.');
+  }
+
+  const isSuperAdmin = await isSuperAdminUid(context.auth.uid);
+  if (designerId !== context.auth.uid && !isSuperAdmin) {
+    throw new functions.https.HttpsError('permission-denied', 'You can only connect your own designer payout account.');
+  }
+
+  const designerRef = db.doc(`designers/${designerId}`);
+  const designerDoc = await designerRef.get();
+  if (!designerDoc.exists) {
+    throw new functions.https.HttpsError('not-found', 'Designer profile not found.');
+  }
+
   try {
-    const account = await getStripe().accounts.create({
-      type: 'express',
-      country: 'US',
-      email: context.auth.token.email,
-      capabilities: {
-        transfers: { requested: true },
-      },
-    });
+    let accountId = designerDoc.data()?.stripeAccountId as string | undefined;
+    if (!accountId) {
+      const account = await getStripe().accounts.create({
+        type: 'express',
+        country: 'US',
+        email: designerDoc.data()?.email || context.auth.token.email,
+        capabilities: {
+          transfers: { requested: true },
+        },
+      });
+      accountId = account.id;
+      await designerRef.update({
+        stripeAccountId: accountId,
+        updatedAt: admin.firestore.Timestamp.now()
+      });
+    }
 
     const accountLink = await getStripe().accountLinks.create({
-      account: account.id,
-      refresh_url: data.returnUrl + '?refresh=true',
-      return_url: data.returnUrl + '?success=true',
+      account: accountId,
+      refresh_url: returnUrl + '?refresh=true',
+      return_url: returnUrl + '?success=true',
       type: 'account_onboarding',
-    });
-
-    // Save account ID to designer profile
-    await db.doc(`designers/${data.designerId}`).update({
-      stripeAccountId: account.id
     });
 
     return { url: accountLink.url };
   } catch (error: unknown) {
     functions.logger.error('Stripe Connect Error:', error);
+    if (error instanceof functions.https.HttpsError) throw error;
     throw new functions.https.HttpsError('internal', 'Failed to create account link.');
   }
 });
@@ -1228,39 +1264,33 @@ export const syncPublicOrgConfig = functions.firestore
 
 // --- Campaign Functions ---
 
-export const createScreenSession = onCall(async (data: { screenId: string }, _context: CallableContext) => {
-  void _context;
-  // assertPrototypePairingEnabled(); // Removed prototype check
+export const createScreenSession = onCall(async (data: { screenId: string }, context: CallableContext) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Player authentication is required.');
+  }
 
-  // Allow anonymous calls for player screens (no auth required for display)
-  // if (!context.auth) return { error: 'Unauthorized' }; 
-  
   const { screenId } = data;
   if (!screenId) throw new functions.https.HttpsError('invalid-argument', 'Missing screenId');
 
-  const screenSessionId = `sess_${crypto.randomBytes(8).toString('hex')}`;
-
-  try {
-    // Update screen with last heartbeat and active session
-    await db.doc(`screens/${screenId}`).update({
-      lastHeartbeatAt: admin.firestore.Timestamp.now(),
-      activeSessionId: screenSessionId
-    });
-
-    // Create session doc for real-time signaling via Firestore
-    await db.doc(`screen_sessions/${screenSessionId}`).set({
-      screenId,
-      createdAt: admin.firestore.Timestamp.now(),
-      isActive: true,
-      lastHeartbeat: admin.firestore.Timestamp.now()
-    });
-  } catch (error) {
-    // Ignore update error if screen doesn't exist or permissions fail, 
-    // but log it. This allows the player to continue even if tracking fails.
-    console.error(`Failed to update heartbeat for screen ${screenId}`, error);
+  const screenRef = db.doc(`screens/${screenId}`);
+  const screenDoc = await screenRef.get();
+  if (!screenDoc.exists) {
+    throw new functions.https.HttpsError('not-found', 'Screen not found.');
   }
 
-  // Return session ID for Firestore listener
+  const screenSessionId = `sess_${crypto.randomBytes(16).toString('hex')}`;
+  await screenRef.update({
+    lastHeartbeatAt: admin.firestore.Timestamp.now(),
+    activeSessionId: screenSessionId
+  });
+  await db.doc(`screen_sessions/${screenSessionId}`).set({
+    screenId,
+    authUid: context.auth.uid,
+    createdAt: admin.firestore.Timestamp.now(),
+    isActive: true,
+    lastHeartbeat: admin.firestore.Timestamp.now()
+  });
+
   return {
     screenSessionId,
     mode: 'firestore'
@@ -1268,7 +1298,9 @@ export const createScreenSession = onCall(async (data: { screenId: string }, _co
 });
 
 export const sendHeartbeat = onCall(async (data: { screenId: string }, context: CallableContext) => {
-  void context;
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Player authentication is required.');
+  }
   const { screenId } = data;
   if (!screenId) throw new functions.https.HttpsError('invalid-argument', 'Missing screenId');
 
@@ -1284,18 +1316,29 @@ export const sendHeartbeat = onCall(async (data: { screenId: string }, context: 
 });
 
 export const requestPairingCode = onCall(async (data: { screenId: string }, context: CallableContext) => {
-  void context;
-  // Allow anonymous calls (screens might not be auth'd yet)
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Player authentication is required.');
+  }
+
   const { screenId } = data;
   if (!screenId) throw new functions.https.HttpsError('invalid-argument', 'Missing screenId');
 
-  // Generate 6-digit code
+  const screenRef = db.doc(`screens/${screenId}`);
+  const screenDoc = await screenRef.get();
+  if (!screenDoc.exists) {
+    throw new functions.https.HttpsError('not-found', 'Screen not found.');
+  }
+  if (screenDoc.data()?.orgId) {
+    throw new functions.https.HttpsError('failed-precondition', 'Screen is already paired.');
+  }
+
   const code = Math.floor(100000 + Math.random() * 900000).toString();
-  const expiresAt = admin.firestore.Timestamp.fromMillis(Date.now() + 15 * 60 * 1000); // 15 mins
+  const expiresAt = admin.firestore.Timestamp.fromMillis(Date.now() + 15 * 60 * 1000);
 
   await db.collection('pairing_codes').doc(code).set({
     code,
     screenId,
+    requestedByAuthUid: context.auth.uid,
     expiresAt,
     createdAt: admin.firestore.Timestamp.now()
   });
@@ -1304,46 +1347,52 @@ export const requestPairingCode = onCall(async (data: { screenId: string }, cont
 });
 
 export const validatePairing = onCall(async (data: { screenId: string; pairingCode: string }, context: CallableContext) => {
-  // assertPrototypePairingEnabled(); // Removed prototype check to enable real flow
-
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'User must be logged in.');
   }
+  if (context.auth.token.firebase?.sign_in_provider === 'anonymous') {
+    throw new functions.https.HttpsError('permission-denied', 'Sign in with your restaurant account to pair a screen.');
+  }
 
   const { screenId, pairingCode } = data;
-  if (!pairingCode) throw new functions.https.HttpsError('invalid-argument', 'Missing pairing code');
+  if (!screenId || !pairingCode) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing screen ID or pairing code.');
+  }
 
-  // 1. Verify Code
   const codeDoc = await db.collection('pairing_codes').doc(pairingCode).get();
-  
   if (!codeDoc.exists) {
     throw new functions.https.HttpsError('not-found', 'Invalid pairing code.');
   }
 
   const codeData = codeDoc.data();
-  if (codeData?.expiresAt.toMillis() < Date.now()) {
+  if (!codeData?.expiresAt?.toMillis || codeData.expiresAt.toMillis() < Date.now()) {
     throw new functions.https.HttpsError('failed-precondition', 'Pairing code expired.');
   }
-
-  if (codeData?.screenId && codeData.screenId !== screenId) {
-     // Optional: mismatch warning, though usually we trust the code maps to the screen
-     // If the user scanned a QR code, the screenId in URL should match the one associated with the code
-     console.warn(`Screen ID mismatch: provided ${screenId}, code maps to ${codeData.screenId}`);
+  if (codeData.screenId !== screenId) {
+    throw new functions.https.HttpsError('permission-denied', 'Pairing code does not match this screen.');
   }
-  
-  // Use the screenId from the code if available, or the one provided
-  const targetScreenId = codeData?.screenId || screenId;
 
-  // 2. Get User's Organization
   const userDoc = await db.doc(`users/${context.auth.uid}`).get();
   const orgId = userDoc.data()?.orgId;
-
-  if (!orgId) {
+  if (!orgId || !(await isOrgMemberUid(context.auth.uid, orgId))) {
     throw new functions.https.HttpsError('failed-precondition', 'User does not belong to an organization.');
   }
 
-  // 3. Link Screen to Org
-  await db.doc(`screens/${targetScreenId}`).set({
+  const screenRef = db.doc(`screens/${screenId}`);
+  const screenDoc = await screenRef.get();
+  if (!screenDoc.exists) {
+    throw new functions.https.HttpsError('not-found', 'Screen not found.');
+  }
+  if (screenDoc.data()?.orgId) {
+    throw new functions.https.HttpsError('failed-precondition', 'Screen is already paired.');
+  }
+
+  const activeSessionId = screenDoc.data()?.activeSessionId as string | undefined;
+  if (!activeSessionId) {
+    throw new functions.https.HttpsError('failed-precondition', 'Screen is not ready for pairing. Refresh the player and try again.');
+  }
+
+  await screenRef.set({
     orgId,
     isActive: true,
     lastHeartbeatAt: admin.firestore.Timestamp.now(),
@@ -1351,44 +1400,53 @@ export const validatePairing = onCall(async (data: { screenId: string; pairingCo
     pairedAt: admin.firestore.Timestamp.now(),
     pairedBy: context.auth.uid
   }, { merge: true });
-
-  // 4. Cleanup Code
   await codeDoc.ref.delete();
-
-  // 5. Get Active Session ID for the screen to return to the controller
-  // The screen should have created a session and set activeSessionId on itself
-  const screenDoc = await db.doc(`screens/${targetScreenId}`).get();
-  const activeSessionId = screenDoc.data()?.activeSessionId;
-
-  // Fallback if no session is active (shouldn't happen if screen is online)
-  const sessionIdToReturn = activeSessionId || `sess_${crypto.randomBytes(8).toString('hex')}_${targetScreenId}`;
 
   return {
     success: true,
-    screenSessionId: sessionIdToReturn,
-    token: 'valid_session_token'
+    screenSessionId: activeSessionId
   };
 });
 
-export const fireTrigger = onCall(async (data: { 
-  screenSessionId: string; 
-  triggerType: string; 
-  campaignId: string; 
-  payload: Record<string, unknown> 
-}) => {
+export const fireTrigger = onCall(async (data: {
+  screenSessionId: string;
+  triggerType: string;
+  campaignId: string;
+  payload: Record<string, unknown>;
+}, context: CallableContext) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'User must be logged in.');
+  }
+
   const { screenSessionId, triggerType, campaignId, payload } = data;
-  
+  if (!screenSessionId || !triggerType || !campaignId) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing trigger parameters.');
+  }
+
+  const sessionDoc = await db.doc(`screen_sessions/${screenSessionId}`).get();
+  if (!sessionDoc.exists || sessionDoc.data()?.isActive === false) {
+    throw new functions.https.HttpsError('not-found', 'Screen session not found.');
+  }
+
+  const sessionScreenId = sessionDoc.data()?.screenId as string | undefined;
+  if (!sessionScreenId) {
+    throw new functions.https.HttpsError('failed-precondition', 'Screen session is invalid.');
+  }
+
+  const screenDoc = await db.doc(`screens/${sessionScreenId}`).get();
+  const orgId = screenDoc.data()?.orgId as string | undefined;
+  if (!screenDoc.exists || !orgId || !(await isOrgMemberUid(context.auth.uid, orgId))) {
+    throw new functions.https.HttpsError('permission-denied', 'You do not have access to this screen session.');
+  }
+
   try {
-    // Write trigger to the session's 'triggers' subcollection
-    // The screen (client) listening to this collection will pick it up
     await db.collection(`screen_sessions/${screenSessionId}/triggers`).add({
       type: triggerType,
       campaignId,
-      payload,
+      payload: payload || {},
       createdAt: admin.firestore.Timestamp.now(),
-      processed: false // Client will mark true or we use TTL
+      processed: false
     });
-    
     return { success: true };
   } catch (error) {
     functions.logger.error('Trigger Error:', error);
@@ -1745,46 +1803,161 @@ export const createBurgerTemplate = onCall(async (data: Record<string, never>, c
   return { success: true, templateId: templateData.id };
 });
 
-export const fetchRssFeed = onCall(async (data: { url: string }, context: CallableContext) => {
-  void context;
-  // Allow anonymous calls or restrict if needed. Currently allowing for player.
-  const { url } = data;
-  if (!url) {
-    throw new functions.https.HttpsError('invalid-argument', 'Missing URL');
+const FEED_PROXY_MAX_BYTES = 1024 * 1024;
+const FEED_PROXY_WINDOW_MS = 60_000;
+const FEED_PROXY_MAX_REQUESTS = 30;
+
+function isPrivateOrLocalAddress(address: string): boolean {
+  if (net.isIPv4(address)) {
+    const [a, b, c] = address.split('.').map(Number);
+    return a === 0 || a === 10 || a === 127 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && (b === 168 || (b === 0 && c <= 2))) ||
+      (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) ||
+      (a === 203 && b === 0 && c === 113) ||
+      a >= 224;
   }
 
-  try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+  if (net.isIPv6(address)) {
+    const normalized = address.toLowerCase();
+    if (normalized === '::' || normalized === '::1' || normalized.startsWith('fc') || normalized.startsWith('fd') || /^fe[89ab]/.test(normalized)) {
+      return true;
     }
-    const content = await response.text();
-    return { content };
+    if (normalized.startsWith('::ffff:')) {
+      const mapped = normalized.slice(7);
+      return net.isIPv4(mapped) ? isPrivateOrLocalAddress(mapped) : true;
+    }
+  }
+
+  return false;
+}
+
+async function validateExternalFeedUrl(rawUrl: string): Promise<URL> {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new functions.https.HttpsError('invalid-argument', 'Feed URL is invalid.');
+  }
+
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
+    throw new functions.https.HttpsError('invalid-argument', 'Feed URLs must use HTTPS and cannot contain credentials.');
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local') || hostname === 'metadata.google.internal') {
+    throw new functions.https.HttpsError('permission-denied', 'Local network feed URLs are not allowed.');
+  }
+
+  if (net.isIP(hostname)) {
+    if (isPrivateOrLocalAddress(hostname)) {
+      throw new functions.https.HttpsError('permission-denied', 'Private network feed URLs are not allowed.');
+    }
+    return parsed;
+  }
+
+  let addresses;
+  try {
+    addresses = await dns.lookup(hostname, { all: true, verbatim: true });
+  } catch {
+    throw new functions.https.HttpsError('unavailable', 'Feed host could not be resolved.');
+  }
+  if (!addresses.length || addresses.some(result => isPrivateOrLocalAddress(result.address))) {
+    throw new functions.https.HttpsError('permission-denied', 'Private network feed URLs are not allowed.');
+  }
+
+  return parsed;
+}
+
+async function enforceFeedProxyRateLimit(uid: string): Promise<void> {
+  const ref = db.doc(`feed_proxy_usage/${uid}`);
+  const now = Date.now();
+  await db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(ref);
+    const data = snapshot.data();
+    const windowStart = data?.windowStart?.toMillis?.() || 0;
+    const inWindow = now - windowStart < FEED_PROXY_WINDOW_MS;
+    const count = inWindow ? Number(data?.count || 0) : 0;
+    if (count >= FEED_PROXY_MAX_REQUESTS) {
+      throw new functions.https.HttpsError('resource-exhausted', 'Feed request limit reached. Try again shortly.');
+    }
+    transaction.set(ref, {
+      windowStart: admin.firestore.Timestamp.fromMillis(inWindow ? windowStart : now),
+      count: count + 1,
+      updatedAt: admin.firestore.Timestamp.now()
+    }, { merge: true });
+  });
+}
+
+async function fetchExternalFeedText(rawUrl: string, context: CallableContext): Promise<string> {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Authentication is required to fetch external feeds.');
+  }
+
+  await enforceFeedProxyRateLimit(context.auth.uid);
+  const safeUrl = await validateExternalFeedUrl(rawUrl);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const response = await fetch(safeUrl, {
+      redirect: 'error',
+      signal: controller.signal,
+      headers: { 'user-agent': 'AccelRestaurantsFeedProxy/1.0' }
+    });
+    if (!response.ok) {
+      throw new functions.https.HttpsError('unavailable', `Feed returned HTTP ${response.status}.`);
+    }
+
+    const declaredLength = Number(response.headers.get('content-length') || 0);
+    if (declaredLength > FEED_PROXY_MAX_BYTES) {
+      throw new functions.https.HttpsError('resource-exhausted', 'Feed response is too large.');
+    }
+
+    if (!response.body) return '';
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > FEED_PROXY_MAX_BYTES) {
+        await reader.cancel();
+        throw new functions.https.HttpsError('resource-exhausted', 'Feed response is too large.');
+      }
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks.map(chunk => Buffer.from(chunk))).toString('utf8');
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export const fetchRssFeed = onCall(async (data: { url: string }, context: CallableContext) => {
+  const { url } = data;
+  if (!url) throw new functions.https.HttpsError('invalid-argument', 'Missing URL');
+  try {
+    return { content: await fetchExternalFeedText(url, context) };
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
     functions.logger.error(`Failed to fetch RSS feed ${url}:`, error);
-    throw new functions.https.HttpsError('internal', `Failed to fetch feed: ${message}`);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('unavailable', 'Failed to fetch feed.');
   }
 });
 
 export const fetchCalendarFeed = onCall(async (data: { url: string }, context: CallableContext) => {
-  void context;
   const { url } = data;
-  if (!url) {
-    throw new functions.https.HttpsError('invalid-argument', 'Missing URL');
-  }
-
+  if (!url) throw new functions.https.HttpsError('invalid-argument', 'Missing URL');
   try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    const content = await response.text();
-    return { content };
+    return { content: await fetchExternalFeedText(url, context) };
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    functions.logger.error(`Failed to fetch Calendar feed ${url}:`, error);
-    throw new functions.https.HttpsError('internal', `Failed to fetch calendar: ${message}`);
+    functions.logger.error(`Failed to fetch calendar feed ${url}:`, error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('unavailable', 'Failed to fetch calendar.');
   }
 });
 
