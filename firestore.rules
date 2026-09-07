@@ -92,7 +92,7 @@ service cloud.firestore {
       }
 
       function isSafeOrgAdminUpdate() {
-        return request.resource.data.diff(resource.data).affectedKeys().hasNone([
+        return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'ownerId', 'members', 'plan', 'screenCount', 'purchasedScreens', 'purchasedSeats',
           'stripeCustomerId', 'subscriptionId', 'subscriptionStatus', 'subscriptionPeriodEnd',
           'cancelAtPeriodEnd', 'tileAccess', 'customLimits', 'createdAt'
