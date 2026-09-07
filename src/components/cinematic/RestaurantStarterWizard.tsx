@@ -114,7 +114,7 @@ export const RestaurantStarterWizard = ({ orgId, userId, plan, brandName, firstS
         </div>
       </div>}
       <div className="mt-6 pt-4 border-t border-surface-highlight flex flex-wrap items-center justify-between gap-3">
-        <button type="button" className="ui-button ui-button-secondary" onClick={() => { setStep(s => Math.max(1, s - 1)); setError(null); }} disabled={step === 1 || busy}>Back</button>
+        <button type="button" className="ui-button ui-button-secondary" onClick={() => { setError(null); if (step === 1) onClose(); else setStep(s => s - 1); }} disabled={busy}>Back</button>
         <p className="text-xs text-text-secondary">Your draft is saved on this browser for this account.</p>
         {step < 3 ? <button type="button" className="ui-button ui-button-primary" onClick={next}>Continue</button> : <button type="button" className="ui-button ui-button-primary" disabled={busy || !!planError || !preview} onClick={() => void create()}>{busy ? 'Creating…' : draft.createScreen ? 'Create screen draft' : 'Create editable slide'}</button>}
       </div>
