@@ -26,7 +26,7 @@ jobs:
           node-version: '22'
           cache: npm
       - name: Apply exact shared-file integration
-        run: node .github/journey-bootstrap.mjs
+        run: node .github/journey-bootstrap.mjs && node .github/journey-finalize.mjs
       - name: Install locked dependencies
         run: npm ci && npm ci --prefix functions
       - name: Lint and compile application
@@ -36,10 +36,10 @@ jobs:
       - name: Save verified integration to this feature branch only
         run: |
           test "$GITHUB_REF" = 'refs/heads/feat/customer-journey-hig'
-          rm .github/journey-bootstrap.mjs .github/workflows/journey-bootstrap.yml
+          rm .github/journey-bootstrap.mjs .github/journey-finalize.mjs .github/workflows/journey-bootstrap.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src functions/src tests scripts .github/journey-bootstrap.mjs .github/workflows/journey-bootstrap.yml
+          git add src functions/src tests scripts .github/journey-bootstrap.mjs .github/journey-finalize.mjs .github/workflows/journey-bootstrap.yml
           git commit -m 'feat: integrate verified customer journey, canonical billing and setup guidance'
           git push origin HEAD:feat/customer-journey-hig
       - name: Retain diagnostics
