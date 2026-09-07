@@ -116,6 +116,9 @@ try {
   await expect.poll(async () => (await db.collection('measurement_buckets').where('orgId', '==', orgId).get()).size, { timeout: 45000 }).toBeGreaterThan(0);
   await page.screenshot({ path: 'tests/measurement/results/player-proof-of-play.png' });
   checked('actual player records qualifying QR rendering and replays IndexedDB telemetry after offline recovery');
+  await page.reload();
+  await page.waitForSelector('[data-measurement-placement]', { timeout: 30000 });
+  checked('authorized player identity and canonical QR survive a full reload');
   const slide = (await db.doc(`slides/${slideId}`).get()).data();
   await db.doc(`slides/${slideId}`).update({ elements: slide.elements.map(t => ({ ...t, visible: false })), updatedAt: Timestamp.now() });
   await page.waitForTimeout(2000); const hiddenBefore = (await readBuckets()).reduce((sum, b) => sum + b.visibleMs, 0);

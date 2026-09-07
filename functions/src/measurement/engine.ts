@@ -378,7 +378,7 @@ export class MeasurementEngine {
     await this.db.runTransaction(async tx => {
       const eventRef = this.db.doc(`measurement_events/${eventId}`); const receiptRef = this.db.doc(`measurement_receipts/${eventId}`);
       const [eventSnap, receipt] = await Promise.all([tx.get(eventRef), tx.get(receiptRef)]);
-      if (!eventSnap.exists || receipt.exists) return;
+      if (!eventSnap.exists || receipt.exists || eventSnap.data()?.projectedAt) return;
       const e = eventSnap.data()!;
       const portions = [{ at: asMillis(e.occurredAt), counts: e.metrics as Counts }, { at: asMillis(e.cohortAt), counts: e.cohortMetrics as Counts }];
       const writes = new Map<string, { metadata: DocumentData; counts: Counts; hours: Record<string, Counts> }>();

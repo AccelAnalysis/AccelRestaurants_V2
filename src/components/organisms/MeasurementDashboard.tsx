@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, NavLink, useLocation, useMatch, useSearchParams } from 'react-router-dom';
 import { Activity, ArrowDownToLine, RefreshCw } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
@@ -47,6 +47,7 @@ export function MeasurementDashboard() {
   const timezone = organization?.timezone || 'America/New_York';
   const [to, setTo] = useState(() => localToday(timezone)); const [from, setFrom] = useState(() => shiftDate(localToday(timezone), -6));
   const [mode, setMode] = useState<MeasurementMode>('live');
+  const reportKey = useRef('');
   const [report, setReport] = useState<MeasurementReport | null>(null); const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false); const [revision, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision(n => n + 1), []);
@@ -54,7 +55,9 @@ export function MeasurementDashboard() {
   useEffect(() => {
     if (!organization?.id) return;
     let cancelled = false; let inFlight = false;
-    setReport(null); setError('');
+    const nextKey = JSON.stringify([organization.id, from, to, campaignId, mode]);
+    if (reportKey.current !== nextKey) { setReport(null); reportKey.current = nextKey; }
+    setError('');
     const load = async () => {
       if (inFlight) return; inFlight = true; setRefreshing(true);
       try { const result = await MeasurementService.report(organization.id, from, to, campaignId, mode); if (!cancelled) { setReport(result); setError(''); } }
