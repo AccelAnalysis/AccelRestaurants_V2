@@ -1,0 +1,31 @@
+name: Customer journey audit
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: journey-audit-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source-evidence:
+    if: github.event.pull_request.number == 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Capture reviewed sources, not deployed state
+        run: |
+          mkdir -p /tmp/journey-audit
+          git archive --format=zip HEAD > /tmp/journey-audit/customer-journey.zip
+          git archive --format=zip 336a68ce5ca419732ceb874314a2296338d1eb21 > /tmp/journey-audit/player-activation.zip
+          git archive --format=zip 16539a2837678d9b679e0ff33cf39d75e2afdb1f > /tmp/journey-audit/baseline.zip
+          git rev-parse HEAD > /tmp/journey-audit/head.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: journey-review-sources
+          path: /tmp/journey-audit
+          retention-days: 3
