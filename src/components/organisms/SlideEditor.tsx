@@ -13,6 +13,8 @@ import { StorageService } from '../../services/storageService';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useConfigStore } from '../../store/useConfigStore';
 import { AtmosphereCanvas } from '../atoms/AtmosphereCanvas';
+import { AtmospherePresetPanel } from '../cinematic/AtmospherePresetPanel';
+import { entitlements } from '../../../functions/src/cinematic/catalog';
 import { TileContent } from '../atoms/TileContent';
 import { CustomDragLayer } from '../atoms/CustomDragLayer';
 import { ErrorBoundary } from '../atoms/ErrorBoundary';
@@ -841,8 +843,8 @@ export const SlideEditor = ({
   };
 
   const updateAtmosphere = (updates: Partial<ParticleConfig>) => {
-    if (!slide) return;
-    const currentConfig = slide.particleConfig || {
+    if (!slide || !entitlements(organization?.plan).atmosphere) return;
+    const currentConfig: ParticleConfig = slide.particleConfig || {
       effectType: 'smoke',
       density: 50,
       speed: 1,
@@ -854,10 +856,10 @@ export const SlideEditor = ({
       particleAngle: 0
     };
     
-    const updatedSlide = { 
-      ...slide, 
-      particleConfig: { ...currentConfig, ...updates } 
-    };
+    const particleConfig = { ...currentConfig, ...updates };
+    // Do not label edited settings as a tested preset or write undefined to Firestore.
+    delete particleConfig.presetId; delete particleConfig.presetVersion; delete particleConfig.strength;
+    const updatedSlide = { ...slide, particleConfig };
     setSlide(updatedSlide);
   };
 
@@ -3664,6 +3666,11 @@ export const SlideEditor = ({
                 </>
               ) : activeTab === 'atmosphere' ? (
                 <>
+                  <AtmospherePresetPanel config={slide.particleConfig} plan={organization?.plan}
+                    onChange={config => setSlide({ ...slide, particleConfig: config })} />
+                  <details className="mt-6">
+                    <summary className="cursor-pointer py-3 font-medium">Advanced controls</summary>
+                    <fieldset disabled={!entitlements(organization?.plan).atmosphere}>
                   <div className="mb-6">
                     <h3 className="text-sm font-bold text-text mb-4 flex items-center gap-2">
                       <Wind size={16} className="text-primary" />
@@ -3816,6 +3823,8 @@ export const SlideEditor = ({
                       </div>
                     </div>
                   </div>
+                    </fieldset>
+                  </details>
                 </>
               ) : activeTab === 'layers' ? (
                 <>

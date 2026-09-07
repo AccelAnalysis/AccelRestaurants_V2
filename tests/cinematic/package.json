@@ -1,0 +1,17 @@
+{
+  "name": "accelrestaurants-cinematic-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test --config=playwright.config.mjs",
+    "pretest:rules": "node -e \"require('node:fs').copyFileSync('../../firestore.rules', 'firestore.rules')\"",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-cinematic --config firebase.json 'node --test rules.test.mjs'"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.1",
+    "@axe-core/playwright": "4.10.2",
+    "@firebase/rules-unit-testing": "5.0.0",
+    "firebase": "12.7.0",
+    "firebase-tools": "14.22.0"
+  }
+}

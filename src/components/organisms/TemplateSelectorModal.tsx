@@ -4,6 +4,7 @@ import type { Template } from '../../types/schema';
 import { useAuthStore } from '../../store/useAuthStore';
 import { AccessibleDialog } from '../atoms/AccessibleDialog';
 import { InlineFeedback } from '../atoms/InlineFeedback';
+import { RestaurantStarterWizard } from '../cinematic/RestaurantStarterWizard';
 
 interface TemplateSelectorModalProps {
   type: 'slide' | 'menu' | 'screen';
@@ -13,7 +14,8 @@ interface TemplateSelectorModalProps {
 }
 
 export const TemplateSelectorModal = ({ type, onClose, onCreateBlank, onImport }: TemplateSelectorModalProps) => {
-  const { organization } = useAuthStore();
+  const { organization, user } = useAuthStore();
+  const [showRestaurantStarter, setShowRestaurantStarter] = useState(false);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState<string | null>(null);
@@ -42,7 +44,16 @@ export const TemplateSelectorModal = ({ type, onClose, onCreateBlank, onImport }
     finally { setImporting(null); }
   };
   const filtered = templates.filter(template => [template.name, template.category, ...(template.tags || [])].join(' ').toLowerCase().includes(search.toLowerCase()));
+  if (showRestaurantStarter && organization && user) return <RestaurantStarterWizard
+    key={`${organization.id}:${user.uid}`} orgId={organization.id} userId={user.uid}
+    plan={organization.plan} brandName={organization.name} onClose={() => setShowRestaurantStarter(false)}
+    onComplete={result => onImport(result.slideId)} />;
   return <AccessibleDialog title={`Choose a ${type} template`} description="Use a template or start with a blank design." onClose={onClose} closeLabel="Cancel" wide busy={!!importing}>
+    {type === 'slide' && organization && user && <section className="mb-6 rounded-xl border border-primary p-4">
+      <h3 className="font-semibold">Restaurant starter designs</h3>
+      <p className="text-sm text-text-secondary my-2">Six editable restaurant layouts, portrait or landscape, with guided content and atmosphere choices. Included designs are available even when the online library cannot load.</p>
+      <button type="button" className="ui-button ui-button-primary" disabled={!!importing} onClick={() => setShowRestaurantStarter(true)}>Browse restaurant designs</button>
+    </section>}
     <div className="flex flex-wrap gap-3 justify-between items-end mb-4">
       <div className="flex-1 min-w-0"><label htmlFor="template-search" className="block text-sm font-medium mb-1">Search templates</label><input id="template-search" type="search" value={search} onChange={e => setSearch(e.target.value)} className="w-full bg-background border border-surface-highlight rounded-lg px-3 py-2" /></div>
       <button type="button" className="ui-button ui-button-secondary" disabled={!!importing} onClick={onCreateBlank}>Start from scratch</button>

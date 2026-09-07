@@ -84,7 +84,7 @@ service cloud.firestore {
       // that increments/decrements screenCount on the org document.
       function isScreenCountDeltaOnly() {
         let currentCount = resource.data.get('screenCount', 0);
-        return request.resource.data.diff(resource.data).changedKeys().hasOnly(['screenCount', 'updatedAt'])
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['screenCount', 'updatedAt'])
           && (
             request.resource.data.screenCount == currentCount + 1 ||
             request.resource.data.screenCount == currentCount - 1
@@ -92,7 +92,7 @@ service cloud.firestore {
       }
 
       function isSafeOrgAdminUpdate() {
-        return request.resource.data.diff(resource.data).changedKeys().hasNone([
+        return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'ownerId', 'members', 'plan', 'screenCount', 'purchasedScreens', 'purchasedSeats',
           'stripeCustomerId', 'subscriptionId', 'subscriptionStatus', 'subscriptionPeriodEnd',
           'cancelAtPeriodEnd', 'tileAccess', 'customLimits', 'createdAt'
@@ -178,12 +178,26 @@ service cloud.firestore {
       allow delete: if isOrgMember(resource.data.orgId);
     }
 
+    // Cinematic access is derived only from the backend-owned organization plan.
+    function canUseCinematicMotion(orgId, slide) {
+      return slide.get('particleConfig', null) == null ||
+        slide.particleConfig.get('effectType', 'none') == 'none' ||
+        get(/databases/$(database)/documents/organizations/$(orgId)).data.get('plan', 'Free')
+          in ['Growth', 'Enterprise', 'Franchise'];
+    }
+
     // Slides
     match /slides/{slideId} {
       allow get: if true;
       allow list: if isOrgMember(resource.data.orgId) || isSuperAdmin();
-      allow create: if isOrgMember(request.resource.data.orgId);
-      allow update: if isOrgMember(resource.data.orgId) && request.resource.data.orgId == resource.data.orgId;
+      allow create: if isOrgMember(request.resource.data.orgId) &&
+        canUseCinematicMotion(request.resource.data.orgId, request.resource.data);
+      // A downgrade must not prevent price/text edits to an existing design.
+      // Existing motion is retained in the document, but the player renders static.
+      allow update: if isOrgMember(resource.data.orgId) && request.resource.data.orgId == resource.data.orgId && (
+        canUseCinematicMotion(resource.data.orgId, request.resource.data) ||
+        request.resource.data.get('particleConfig', null) == resource.data.get('particleConfig', null)
+      );
       allow delete: if isOrgMember(resource.data.orgId);
     }
 
@@ -245,7 +259,7 @@ service cloud.firestore {
       allow create: if isSuperAdmin();
       allow update: if isSuperAdmin() || (
         request.auth != null && request.auth.uid == userId &&
-        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'displayName', 'photoURL', 'phoneNumber', 'timezone', 'jobTitle',
           'city', 'state', 'zipCode', 'lastLoginAt', 'updatedAt'
         ])

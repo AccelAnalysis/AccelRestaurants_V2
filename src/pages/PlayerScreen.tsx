@@ -22,10 +22,11 @@ import { QRCodeSVG } from 'qrcode.react';
 import type { AppScreen, Slide, Organization, Location, Menu, InteractiveTileProperties, PlaylistEntry, ScreenAdjustments } from '../types/schema';
 import { DEPLOYMENT_DURATION_LIMIT_MS } from '../lib/plans';
 import { useConfigStore } from '../store/useConfigStore';
+import { usePlayerCinematicAccess } from '../hooks/usePlayerCinematicAccess';
 
 
 // Helper component for rendering a single slide
-const SlideRenderer = ({ slide, isActive, screenId, orgId, adjustments, measurement, measurementActive }: { slide: Slide; isActive: boolean; screenId?: string; orgId?: string; adjustments?: ScreenAdjustments; measurement?: MeasurementRuntime; measurementActive?: boolean }) => {
+const SlideRenderer = ({ slide, isActive, screenId, orgId, adjustments, measurement, measurementActive, cinematicAllowed = false }: { slide: Slide; isActive: boolean; screenId?: string; orgId?: string; adjustments?: ScreenAdjustments; measurement?: MeasurementRuntime; measurementActive?: boolean; cinematicAllowed?: boolean }) => {
   const scale = adjustments?.scale ?? 1.0;
   const offsetX = adjustments?.offsetX ?? 0;
   const offsetY = adjustments?.offsetY ?? 0;
@@ -45,7 +46,7 @@ const SlideRenderer = ({ slide, isActive, screenId, orgId, adjustments, measurem
       {/* Atmosphere Layer - Only mount if active to save WebGL contexts */}
       {isActive && slide.particleConfig && (
         <div className="absolute inset-0 z-10 pointer-events-none">
-          <AtmosphereCanvas config={slide.particleConfig} />
+          <AtmosphereCanvas config={slide.particleConfig} allowMotion={cinematicAllowed} />
         </div>
       )}
 
@@ -88,6 +89,7 @@ export const PlayerScreen = () => {
   const { screenId } = useParams();
   const { planConfigs, fetchConfigs } = useConfigStore();
   const [screen, setScreen] = useState<AppScreen | null>(null);
+  const cinematicAllowed = usePlayerCinematicAccess(screen?.orgId);
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [location, setLocation] = useState<Location | null>(null);
   const [allSlides, setAllSlides] = useState<Slide[]>([]);
@@ -807,6 +809,7 @@ export const PlayerScreen = () => {
             style={getSlideStyle()}
           >
             <SlideRenderer
+              cinematicAllowed={cinematicAllowed}
               slide={slide}
               isActive={isCurrent}
               measurement={measurement}

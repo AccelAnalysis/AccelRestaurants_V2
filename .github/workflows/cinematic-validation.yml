@@ -1,0 +1,91 @@
+name: Cinematic validation
+on:
+  push:
+    branches: [feat/cinematic-productization]
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'functions/**'
+      - 'firestore.rules'
+      - 'tests/cinematic/**'
+      - 'tests/hig/**'
+      - '.github/workflows/cinematic-validation.yml'
+permissions:
+  contents: read
+concurrency:
+  group: cinematic-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm ci --prefix functions
+      - run: npm run lint
+      - run: npm run build
+      - name: Presets, plan matrix and template contracts
+        run: node tests/cinematic/unit.mjs
+      - run: npm run build --prefix functions
+      - name: Backend regression and transactional starter tests
+        run: npm test --prefix functions -- --runInBand
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            tests/cinematic/package-lock.json
+      - run: npm ci
+      - run: npm ci --prefix tests/cinematic
+      - name: Install isolated test browsers
+        working-directory: tests/cinematic
+        run: npx playwright install --with-deps chromium webkit
+      - name: Restaurant readability, guided setup, access changes and real WebGL pixels
+        working-directory: tests/cinematic
+        run: npm test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cinematic-browser-evidence
+          path: |
+            tests/cinematic/report
+            tests/cinematic/results
+          retention-days: 7
+  rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tests/cinematic/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci --prefix tests/cinematic
+      - name: Verify entitlement rules only against a demo-project emulator
+        working-directory: tests/cinematic
+        run: npm run test:rules
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: cinematic-emulator-debug
+          path: tests/cinematic/*debug.log
+          retention-days: 3

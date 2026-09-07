@@ -323,6 +323,7 @@ export interface Asset {
 
 // --- Sub-collection: slides/{slideId} ---
 export interface Slide {
+  restaurantTemplate?: { id: string; version: number };
   id: string;
   orgId: string;
   name: string;
@@ -341,6 +342,11 @@ export interface Slide {
 }
 
 export interface ParticleConfig {
+  presetId?: string;
+  presetVersion?: number;
+  strength?: 'subtle' | 'balanced' | 'vivid';
+  quality?: 'eco' | 'standard' | 'high';
+  seed?: number;
   effectType: 'none' | 'smoke' | 'snow' | 'rain' | 'hearts' | 'stars' | 'leaves';
   density: number;
   speed: number;
