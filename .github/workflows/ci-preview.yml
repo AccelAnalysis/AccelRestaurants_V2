@@ -152,7 +152,7 @@ jobs:
       - name: Verify plan comparison on the deployed preview without service mocks
         if: steps.test-target.outputs.deploy == 'true'
         env:
-          PREVIEW_URL: ${{ fromJSON(steps.hosting-preview.outputs.urls)[0] }}
+          PREVIEW_URL: ${{ fromJSON(steps.hosting-preview.outputs.urls || '[]')[0] || '' }}
         run: node tests/journey/preview.mjs
       - name: Retain actual preview and dependency evidence
         if: always()
