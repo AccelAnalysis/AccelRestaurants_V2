@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
+import { readOrganization as store } from './state-boundary.mjs';
 test.beforeEach(async ({ page }) => {
   await page.route('**/*', route => ['127.0.0.1', 'localhost'].includes(new URL(route.request().url()).hostname) ? route.continue() : route.abort('blockedbyclient'));
 });
-const store = page => page.evaluate(async () => (await import('/src/store/useAuthStore.ts')).useAuthStore.getState().organization);
 test('confirmed restaurant edits advance setup without losing subscription fields', async ({ page }) => {
   await page.goto('/onboarding');
   await page.getByRole('button', { name: 'Edit restaurant details' }).click();

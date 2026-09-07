@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { signedOutAccount } from './state-boundary.mjs';
 async function accessible(page) {
   const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
   expect(result.violations.filter(row => ['serious', 'critical'].includes(row.impact)).map(row => ({ id: row.id, nodes: row.nodes.map(node => node.target) }))).toEqual([]);
@@ -59,9 +60,14 @@ test('current plan load failure does not block creating a free design', async ({
 });
 test('login account creation uses the same legal signup flow', async ({ page }) => {
   await page.goto('/login');
+  // Other fixture cases start as a signed-in administrator. This case explicitly
+  // represents a new visitor, so the existing-admin redirect is not exercised.
+  await signedOutAccount(page);
   await page.getByLabel('Email', { exact: true }).fill('owner@example.invalid');
   await page.getByRole('button', { name: 'Create an account' }).click();
   await expect(page).toHaveURL(/\/onboarding/);
+  await expect(page.getByLabel(/I agree to the/)).toBeVisible();
+  await expect(page.getByLabel('Email', { exact: true })).toHaveValue('owner@example.invalid');
   expect(await page.evaluate(() => window.__hig.callables.length)).toBe(0);
 });
 test('intent storage whitelists values and is not an authorization store', async ({ page }) => {

@@ -9,13 +9,13 @@ type SetupChanges = Partial<Pick<Organization, 'name' | 'industry' | 'timezone' 
 export async function saveSetupChanges(orgId: string, uid: string, changes: SetupChanges): Promise<boolean> {
   const before = useAuthStore.getState();
   if (before.user?.uid !== uid || before.organization?.id !== orgId) throw new Error('The current account has changed.');
-  await updateDoc(doc(db, 'organizations', orgId), changes);
-  const current = useAuthStore.getState();
-  if (current.user?.uid !== uid || current.organization?.id !== orgId) return false;
   const allowed: SetupChanges = {};
   for (const key of ['name', 'industry', 'timezone', 'isSetupComplete'] as const) {
     if (Object.prototype.hasOwnProperty.call(changes, key)) Object.assign(allowed, { [key]: changes[key] });
   }
+  await updateDoc(doc(db, 'organizations', orgId), allowed);
+  const current = useAuthStore.getState();
+  if (current.user?.uid !== uid || current.organization?.id !== orgId) return false;
   current.setOrganization({ ...current.organization, ...allowed });
   return true;
 }

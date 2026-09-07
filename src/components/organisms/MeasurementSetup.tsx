@@ -6,7 +6,6 @@ import type { Slide } from '../../types/schema';
 
 type Template = 'external' | 'offer' | 'nps' | 'csat' | 'both' | 'poll' | 'feedback';
 const inputClass = 'w-full min-h-12 rounded-lg border border-surface-highlight bg-background p-3 text-text';
-
 export function MeasurementSetup({ orgId, campaigns, onChange, canManage }: { orgId: string; campaigns: MeasurementCampaign[]; onChange: () => void; canManage: boolean }) {
   const [name, setName] = useState(''); const [template, setTemplate] = useState<Template>('nps');
   const [destinationUrl, setDestinationUrl] = useState(''); const [offerCode, setOfferCode] = useState('');
@@ -71,11 +70,11 @@ export function MeasurementSetup({ orgId, campaigns, onChange, canManage }: { or
       </form>
     </section>
     <section className="rounded-xl border border-surface-highlight bg-surface p-5 sm:p-6">
-      <h2 className="text-xl font-semibold mb-2">Authorize a physical player</h2>
+      <h2 className="text-xl font-semibold mb-2">Connect your screen to guest reporting</h2>
       <p className="text-text-muted mb-6">Enter the code shown on your restaurant screen to include it in your campaign results. Your menu can continue showing while you complete this step.</p>
       <form onSubmit={event => { event.preventDefault(); void run(() => MeasurementService.approvePairing(orgId, code.trim()), 'Screen connected to campaign reporting. Results appear when activity is recorded.'); }} className="flex flex-col sm:flex-row gap-3">
-        <label className="flex-1"><span className="sr-only">Measurement pairing code</span><input aria-label="Measurement pairing code" className={inputClass} required minLength={10} maxLength={10} autoComplete="off" value={code} onChange={event => setCode(event.target.value.toUpperCase())} placeholder="10-character screen code" /></label>
-        <button disabled={busy} type="submit" className="ui-button ui-button-primary min-h-12">Authorize player</button>
+        <label className="flex-1"><span className="sr-only">Screen connection code</span><input aria-label="Screen connection code" className={inputClass} required minLength={10} maxLength={10} autoComplete="off" value={code} onChange={event => setCode(event.target.value.toUpperCase())} placeholder="10-character screen code" /></label>
+        <button disabled={busy} type="submit" className="ui-button ui-button-primary min-h-12">Connect screen</button>
       </form>
     </section>
     <section className="rounded-xl border border-surface-highlight bg-surface p-5 sm:p-6">
