@@ -64,7 +64,7 @@ jobs:
         run: npm test -- --runInBand
 
   preview:
-    name: Firebase PR Preview (staging only)
+    name: Firebase PR Preview (same project)
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository
@@ -95,7 +95,7 @@ jobs:
         with:
           node-version: '20'
           cache: npm
-      - name: Validate staging Firebase target and service account
+      - name: Validate preview Firebase target and service account
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
@@ -104,8 +104,8 @@ jobs:
             echo '::error::The staging GitHub environment is missing FIREBASE_PROJECT_ID.'
             exit 1
           fi
-          if [ "$FIREBASE_PROJECT_ID" = 'accelrestaurant-d2c1f' ]; then
-            echo '::error::PR previews are forbidden from using the production Firebase project.'
+          if [ "$FIREBASE_PROJECT_ID" != 'accelrestaurant-d2c1f' ]; then
+            echo '::error::Preview FIREBASE_PROJECT_ID must be accelrestaurant-d2c1f.'
             exit 1
           fi
           if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
@@ -114,7 +114,7 @@ jobs:
           fi
       - name: Install frontend dependencies
         run: npm ci
-      - name: Build staging preview
+      - name: Build Firebase Hosting preview
         run: npm run build
       - name: Deploy Firebase Hosting preview channel
         uses: FirebaseExtended/action-hosting-deploy@v0
