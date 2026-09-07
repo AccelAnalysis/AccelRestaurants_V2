@@ -16,6 +16,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Dependency snapshots (temporary, read-only)
+        if: github.event_name == 'push'
+        run: |
+          mkdir -p /tmp/player-dependencies
+          git fetch origin feat/first-party-measurement feat/cinematic-productization
+          for lane in first-party-measurement cinematic-productization; do
+            ref="origin/feat/$lane"
+            git rev-parse "$ref" > "/tmp/player-dependencies/$lane.sha"
+            git diff --binary 19ea52705ce1f7b158c870c93e39da70ec940fcf..."$ref" > "/tmp/player-dependencies/$lane.patch"
+          done
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push'
+        with:
+          name: player-dependencies
+          path: /tmp/player-dependencies
+          retention-days: 1
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -29,12 +46,3 @@ jobs:
       - name: Reliability regression tests
         run: |
           if test -f scripts/test-player.mjs; then node scripts/test-player.mjs; fi
-      - name: Development toolchain (temporary; no credentials)
-        if: always() && github.event_name == 'push'
-        run: tar --exclude='*/.cache' -czf /tmp/player-toolchain.tgz node_modules functions/node_modules
-      - uses: actions/upload-artifact@v4
-        if: always() && github.event_name == 'push'
-        with:
-          name: player-toolchain
-          path: /tmp/player-toolchain.tgz
-          retention-days: 1
