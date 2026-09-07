@@ -6,6 +6,7 @@ on:
       - recovery/local-v2
     paths:
       - .github/patches/apply_firebase_audio_experience.py
+      - .github/workflows/apply-firebase-audio-experience.yml
 
 permissions:
   contents: write
