@@ -117,9 +117,28 @@ jobs:
       - name: Build Firebase Hosting preview
         run: npm run build
       - name: Deploy Firebase Hosting preview channel
+        id: hosting-preview
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           projectId: ${{ vars.FIREBASE_PROJECT_ID }}
           expires: 14d
+
+      - name: Report actual backend compatibility (Hosting preview is not a backend release)
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: npm ci --prefix functions && node scripts/journey-release.mjs --preview
+      - name: Install public preview browser checks
+        run: npm ci --prefix tests/hig && cd tests/hig && npx playwright install --with-deps chromium
+      - name: Verify plan comparison on the deployed preview without service mocks
+        env:
+          PREVIEW_URL: ${{ fromJSON(steps.hosting-preview.outputs.urls)[0] }}
+        run: node tests/journey/preview.mjs
+      - name: Retain actual preview and dependency evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: journey-live-preview-evidence
+          path: test-results
+          retention-days: 7

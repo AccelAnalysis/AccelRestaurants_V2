@@ -87,6 +87,11 @@ jobs:
       - name: Run Functions unit tests
         run: npm test --prefix functions -- --runInBand
 
+      - name: Verify deployed billing contract, public plans and Storage rules
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: node scripts/journey-release.mjs --release
+
       - name: Deploy exact reviewed Hosting build to Firebase live channel
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:

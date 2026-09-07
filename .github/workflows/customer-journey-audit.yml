@@ -1,40 +1,51 @@
-name: Customer journey audit
+name: Customer journey regression verification
 on:
   pull_request:
+  push:
+    branches: [main]
 permissions:
   contents: read
 concurrency:
   group: journey-audit-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  source-evidence:
-    if: github.event.pull_request.number == 5
+  contracts:
+    name: Real config service, storage rules and release boundaries
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GCLOUD_PROJECT: demo-accel-journey
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: npm
-      - name: Capture reviewed sources, not deployed state
-        run: |
-          mkdir -p /tmp/journey-audit
-          git archive --format=zip HEAD > /tmp/journey-audit/customer-journey.zip
-          git archive --format=zip 336a68ce5ca419732ceb874314a2296338d1eb21 > /tmp/journey-audit/player-activation.zip
-          git archive --format=zip 16539a2837678d9b679e0ff33cf39d75e2afdb1f > /tmp/journey-audit/baseline.zip
-          git rev-parse HEAD > /tmp/journey-audit/head.txt
-      - name: Install locked test dependencies
-        run: |
-          npm ci
-          npm ci --prefix functions
-          npm ci --prefix tests/hig
-          tar -czf /tmp/journey-audit/test-dependencies.tar.gz node_modules functions/node_modules tests/hig/node_modules
-      - uses: actions/upload-artifact@v4
+          cache-dependency-path: |
+            package-lock.json
+            functions/package-lock.json
+      - uses: actions/setup-java@v4
         with:
-          name: journey-review-sources
-          path: /tmp/journey-audit
-          retention-days: 3
+          distribution: temurin
+          java-version: '21'
+      - name: Install locked dependencies
+        run: npm ci && npm ci --prefix functions && npm install --global firebase-tools@15.29.0
+      - name: Check real source loaders and fail-closed release preflight
+        run: node --test tests/journey/*.test.mjs
+      - name: Build and test Functions, including delinquent subscription behavior
+        run: npm run build --prefix functions && npm test --prefix functions -- --runInBand
+      - name: Configure isolated Functions parameters
+        run: printf 'MEASUREMENT_ORIGIN=http://127.0.0.1:5000\nMEASUREMENT_REQUIRE_APP_CHECK=false\n' > functions/.env.demo-accel-journey
+      - name: Exercise actual ConfigService, StorageService, rules and callable contracts
+        run: firebase emulators:exec --project demo-accel-journey --only auth,firestore,functions,storage 'node tests/journey/emulator.mjs'
+      - name: Retain verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: journey-regression-evidence
+          path: |
+            test-results
+            *-debug.log
+          retention-days: 7

@@ -73,14 +73,15 @@ export const GeneralSettingsEditor = () => {
       setError('Choose an MP4 or WebM video. MP4 is recommended for the widest browser support.');
       return;
     }
-    if (file.size > MAX_VIDEO_BYTES) {
+    if (file.size <= 0 || file.size >= MAX_VIDEO_BYTES) {
       setError('Choose a video smaller than 100 MB.');
       return;
     }
     setError(null); setSaved(false); setVideoBusy(true); setVideoProgress(0);
     try {
       const url = await StorageService.uploadFile(file, 'website/marketing/', setVideoProgress);
-      change({ ...settings, landingPageVideoUrl: url });
+      dirty.current = true;
+      setSettings(current => ({ ...current, landingPageVideoUrl: url }));
       setVideoProgress(100);
     } catch {
       setError('The video could not be uploaded. Your current website video has not changed. Try again.');
@@ -128,6 +129,15 @@ export const GeneralSettingsEditor = () => {
       <fieldset className="space-y-4"><legend className="font-semibold mb-3">Website options</legend>{[{ key: 'publicSignupEnabled', label: 'Show new-account registration' }, { key: 'showPricingPage', label: 'Show public plan comparison' }].map(option => <label key={option.key} className="flex items-center gap-3 min-h-11"><input type="checkbox" checked={settings.featureFlags?.[option.key] !== false} disabled={disabled} onChange={event => change({ ...settings, featureFlags: { ...settings.featureFlags, [option.key]: event.target.checked } })} />{option.label}</label>)}<label className="flex items-center gap-3 min-h-11"><input type="checkbox" checked={!!settings.maintenanceMode} disabled={disabled} onChange={event => change({ ...settings, maintenanceMode: event.target.checked })} />Show a website maintenance notice</label></fieldset>
 
       <fieldset className="space-y-4"><legend className="font-semibold mb-3">Footer links</legend>{(settings.footerLinks || []).map((row, index) => <div key={index} className="grid sm:grid-cols-2 gap-3"><label>Link name<input aria-label={`Footer link ${index + 1} name`} required value={row.label} disabled={disabled} maxLength={80} onChange={event => change({ ...settings, footerLinks: settings.footerLinks!.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item) })} className={fieldClass} /></label><label>Web address<input aria-label={`Footer link ${index + 1} address`} required type="url" value={row.url} disabled={disabled} maxLength={2048} onChange={event => change({ ...settings, footerLinks: settings.footerLinks!.map((item, itemIndex) => itemIndex === index ? { ...item, url: event.target.value } : item) })} className={fieldClass} /></label><button type="button" className="ui-button ui-button-secondary" disabled={disabled} onClick={() => change({ ...settings, footerLinks: settings.footerLinks!.filter((_, itemIndex) => itemIndex !== index) })}>Remove footer link {index + 1}</button></div>)}{(settings.footerLinks?.length || 0) < 10 && <button type="button" className="ui-button ui-button-secondary" disabled={disabled} onClick={() => change({ ...settings, footerLinks: [...(settings.footerLinks || []), { label: '', url: '' }] })}>Add footer link</button>}</fieldset>
+
+      <fieldset className="space-y-4"><legend className="font-semibold mb-3">Social links</legend>
+        {(settings.socialLinks || []).map((row, index) => <div key={index} className="grid sm:grid-cols-2 gap-3">
+          <label>Platform<input aria-label={`Social link ${index + 1} platform`} required maxLength={80} value={row.platform} disabled={disabled} onChange={event => change({ ...settings, socialLinks: settings.socialLinks!.map((item, n) => n === index ? { ...item, platform: event.target.value } : item) })} className={fieldClass} /></label>
+          <label>Web address<input aria-label={`Social link ${index + 1} address`} required type="url" maxLength={2048} value={row.url} disabled={disabled} onChange={event => change({ ...settings, socialLinks: settings.socialLinks!.map((item, n) => n === index ? { ...item, url: event.target.value } : item) })} className={fieldClass} /></label>
+          <button type="button" className="ui-button ui-button-secondary" disabled={disabled} onClick={() => change({ ...settings, socialLinks: settings.socialLinks!.filter((_, n) => n !== index) })}>Remove social link {index + 1}</button>
+        </div>)}
+        {(settings.socialLinks?.length || 0) < 10 && <button type="button" className="ui-button ui-button-secondary" disabled={disabled} onClick={() => change({ ...settings, socialLinks: [...(settings.socialLinks || []), { platform: '', url: '' }] })}>Add social link</button>}
+      </fieldset>
 
       <button type="submit" className="ui-button ui-button-primary" disabled={disabled}>{busy ? 'Saving…' : 'Save changes'}</button>
     </form>

@@ -1,40 +1,55 @@
-# Customer journey update
+# Customer journey integration and release
 
-## Integration and release boundaries
+## Integration boundary
 
-This change is layered on cinematic PR #3 at `4cd9a71afd9f00273eb7d7318fb3b72347731594`, which includes merged measurement PR #2. The customer journey branch must land after that dependency. It does not merge or deploy another owner's work.
+PR #4 landed on main at `dbb9b0cbb42f223aaab828adbb03447ca11a0a5e`. This repair includes that exact player-registration baseline. The universal `/display` entry point, logged-out activation return destination, registration service, measurement authorization, fullscreen behavior and player persistence remain owned by PR #4. Direct player URLs remain previews, not proof of activation.
 
-PlayerScreen, ScreenEditor, measurement ingestion, and cinematic rendering/entitlement logic remain owned by their existing workstreams. The restaurant wizard receives one additive, optional `initialTemplateId` input; its transaction, request identifiers and draft-resume contract are preserved. The customer layer wraps screen setup instead of replacing the editor or player.
+The customer setup helper shares the Overview data request. It performs no timer polling and collapses when the registration service confirms an assigned display with saved design content. That means **display activated and design assigned**, not proof that a TV is powered on or visibly showing content. Reopen Screen setup or Check setup again to refresh. A durable first-visible-render milestone is not invented by this UI.
 
-The connection checklist reads existing `lastHeartbeatAt`. It says **connected**, not **live**, and explains that TV power and visible content are not verified. Published-revision acknowledgement and durable first-render milestones remain the player workstream's authority. Do not substitute an `isActive` flag, browser return parameter or checked checklist box for playback evidence. The legacy `isSetupComplete` flag remains profile setup, not activation.
+## Public plans versus billing authority
 
-## Customer-facing changes
+Plan comparison uses this hierarchy: validated server read, then a validated seven-day browser cache scoped to the Firebase project, then validated bundled bootstrap values. Public clients do not initialize or overwrite `system/plans`. Reads have a five-second timeout and share in-flight work. Cache entries have a schema version, timestamp, size bound and validation; unavailable browser storage does not prevent use. Failed refreshes do not overwrite the last successful catalogue. Successful administrator saves refresh the cache only after the server confirms the write.
 
-The public page demonstrates actual editable restaurant starters with sample labels. It introduces QR offers and feedback without invented customer results, revenue attribution, unsupported hardware guarantees or a 14-day trial. Prices and quantities are calculated from the stored plan catalogue. Native controls and links, readable focus states, expandable questions, nonautoplay demonstration video and accessible dialogs support keyboard and compact-screen use.
+Fallback displays explicitly say their plan details could not be refreshed. They are not advertised as a confirmed checkout quote. The UI never assigns paid access. The backend reads `system/plans.configs`, resolves price identifiers itself, validates actual Stripe recurring prices and charges only through authenticated checkout. The plan editor must maintain the correct deployed Stripe IDs; bootstrap placeholder IDs are not payment configuration.
 
-Setup requires an account and minimal restaurant details. Designing comes before optional payment. Account creation is consolidated so the login page no longer offers a second signup implementation. Template choices are validated and carried into the existing restaurant wizard. Browser storage holds only short-lived design/plan/count choices, not passwords, email addresses, payment information or authorization. Scoped wizard drafts retain their existing durable request identifiers.
+Usage panels retain real screen/member counts, purchased extras, plan caps, explicit restaurant overrides and unlimited values. Missing counts remain blank instead of becoming zero. The general plan helper changes no server authorization or payment rules. Server-side capacity enforcement remains in its existing services/rules.
 
-Restaurant settings remove sample card details, fixed renewal dates and nonfunctional actions. Billing displays actual account fields, and existing subscriptions use the payment portal instead of starting another subscription. Website copy editing uses bounded form fields for benefits, frequently asked questions, guest feedback explanation and an optional real booking destination; no raw JSON editing or approval workflow is required.
+## Payment policy and compatibility
 
-## Catalogue and billing contract
+This UI repair does not introduce a delinquency policy. Active and trialing subscriptions use confirmed provider items. Past-due, unpaid, paused and incomplete subscriptions retain the organization's previously confirmed plan and purchased allowances, with a payment-attention status. They do not grant new paid access. Explicitly canceled or incomplete-expired subscriptions revert to Free and clear purchased extras. A separate commercial decision is required before automatic suspension is introduced.
 
-`system/plans.configs` is the commercial catalogue for pricing, onboarding, billing choices and server checkout validation. A failed or absent read produces an unavailable state, never a silently substituted checkout price or a public initialization write. Existing cinematic entitlements remain in the cinematic catalogue; no plan prices or package limits are changed by this code.
+Both the new `returnTo` request and a legacy checkout `successUrl` pointing to `/onboarding` return to setup on the configured canonical HTTPS origin. Browser return parameters never grant access. Existing subscriptions use the billing portal rather than duplicate checkout. Completed setup clears its short-lived intent so a later sign-in does not resume a finished purchase/design choice.
 
-Checkout derives the base/add-on price IDs on the server and checks current Stripe prices against the advertised USD/month amounts. It requires ownership or active restaurant-administrator membership, rejects invalid quantities and mismatched add-ons, uses request idempotency, and does not start a new subscription when an existing subscription is recorded. Existing paid plan changes use the billing portal. Actual subscription items determine plan and purchased allowances after signed webhook processing. Return URLs choose UI navigation only.
+## Website behavior
 
-The deployment owner must release the changed `getSubscriptionPlans`, `createStripeCheckoutSession`, `createStripePortalSession` and existing Stripe webhook entry point before the associated Hosting build. Keep the existing configured plan/price mappings and Stripe webhook secret. Confirm the canonical HTTPS root origin in `APP_URL`; the safe default remains `https://accelrestaurant-d2c1f.web.app`. Do not assume the proposed custom domain is already configured. No new secret values belong in public website settings.
+The homepage retains one primary hero action, a dedicated non-autoplay 16:9 video region, three featured designs and a full navigation footer. Editable social links and the configured phone number appear in that footer. Common questions edited under Website content render on Plans, below the expandable feature/extras comparison, not as another homepage wall. Direct video addresses and MP4/WebM upload are supported; a YouTube page URL is not represented as a playable media file. Upload transport/rules validation is distinct from media codec/browser-playback validation.
 
-This is not a rewrite of designer job payments, payouts, all authorization rules or every legacy subscription edge case. Tests do not represent a real charge or a production payment-provider integration certification. Validate a complete subscription lifecycle with test-mode Stripe before releasing these billing changes. Do not deploy the temporary integration workflow; it removes itself after successful verification on the isolated feature branch.
+The website-media rule allows public reads and platform-admin video uploads under 100 MB. The generic organization rule cannot bypass that restriction using an organization named `website`. Failed uploads preserve the previous configured video; upload completion still requires Save changes to publish its address.
 
-## Validation scope
+## Exact deployment preflight
 
-Backend unit tests exercise catalogue validation, quote calculations, administrator permissions, server-derived checkout line items, price mismatch refusal and subscription item mapping with synthetic boundaries. The existing HIG harness exercises actual React components with explicitly mocked service boundaries, blocked external requests, accessibility audits and screenshots on desktop Chromium, phone Chromium and tablet WebKit. These are not physical-TV, real-email, real-Stripe or production-data tests.
+A Hosting preview is not a backend release. The same Firebase project may still run older Functions and Storage rules. `scripts/journey-release.mjs` computes a public fingerprint of the billing sources and Storage rule text. The Functions build generates the matching manifest. Read-only health requests to **each** affected callable and webhook verify the deployed code; a read-only Firebase Rules management request separately verifies the actually deployed Storage rules. No preflight creates a customer, starts a checkout, charges money or uploads into production.
 
-Required regressions include selected design continuity, optional setup, canceled/failed checkout without plan changes, signup validation, price-load failure/retry, existing-subscription portal routing, absent/stale heartbeat labels, website copy edits and plain-language errors. Current runtime verification results belong in the PR, not as unearned claims in this document.
+`node scripts/journey-release.mjs --preview` records missing/mismatched dependencies and explicitly labels backend-dependent flows unverified while allowing visual preview review. `--release` fails if any handler, the actual rules, or the authoritative plan catalogue is unverified. The production Hosting workflow invokes this gate before publishing. The gate does not automatically deploy backend changes.
 
-No new approval gates, feature deployment automation, artificial customer analytics or camera-based impression claims are introduced. Acquisition funnel event collection and a persisted first-play milestone are not delivered by this customer-interface change.
+Release order for an authorized deployment owner:
 
-## Design reference
+1. Validate the server plan catalogue and current Stripe IDs in the intended environment, preserving existing subscriptions and historical price mappings.
+2. Run the Functions build (generates `functions/src/journey/release.generated.ts`). Release `getSubscriptionPlans`, `createStripeCheckoutSession`, `createStripePortalSession` and `stripeWebhook`, then the reviewed Storage rules, to that same environment.
+3. Supply `FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, and the environment's existing `FIREBASE_SERVICE_ACCOUNT` through secured environment settings; run `node scripts/journey-release.mjs --release`. Insufficient read permission is unverified, not success.
+4. Exercise a complete Stripe test-mode lifecycle, including cancellation/return and confirmed allowance update, with test credentials before a commercial release. The read-only gate and synthetic tests do not certify this.
+5. Publish the corresponding Hosting build only after compatibility passes. Roll back Hosting and backend together if their contract changes.
 
-Apple Human Interface Guidelines: https://developer.apple.com/design/human-interface-guidelines
-Related guidance: accessibility, onboarding and writing. HIG informs interaction decisions; this web app is not represented as Apple-certified or as having passed a complete manual assistive-technology audit.
+No production merge or deployment is authorized by the regression tests.
+
+## Validation layers
+
+- Source-service tests execute actual ConfigService/cache code with only SDK transport controlled. They cover live/cached/bootstrap, corrupt/expired/project-mismatched storage, storage denial and failed saves.
+- Firebase emulator tests execute the real ConfigService and StorageService against isolated Auth/Firestore/Storage rules and real Functions handlers. They cover missing/invalid plan data, public-write refusal, upload permissions, progress, download URLs and contract probes. A tiny uploaded test file proves transport, not video decoding.
+- Functions unit tests cover quoting, authorization, line items, return routes and delinquency transitions. Stripe is synthetic here: no charge is claimed.
+- HIG browser tests exercise the real React components with synthetic services on phone Chromium, tablet WebKit and desktop Chromium. They include restored administration, independent metric failures, registration-based guide collapse, no duplicated timer reads, and screenshots.
+- Public preview smoke tests open the actual deployed pricing page without service mocks and verify cards, quantity editing and responsive layout. They do not buy a subscription or upload privileged media.
+
+Each report is tied to its revision. Automated pass, visual inspection, deployed compatibility, payment-provider verification, merge and production deployment are separate statements. Unknown or failed checks must not be summarized as success.
+
+Design reference: Apple Human Interface Guidelines, especially accessibility, onboarding and writing. This is not an Apple certification or a complete assistive-technology audit.

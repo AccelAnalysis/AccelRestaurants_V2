@@ -1,3 +1,4 @@
+import { journeyRelease } from './journey/release.generated';
 import { preflightCinematicImport } from './cinematic/importPolicy';
 import { checkoutSubscription, publicSubscriptionPlans, syncJourneySubscription, journeyBillingReturn, type CheckoutRequest } from './journey/billing';
 import { assertBillingMember } from './journey/catalog';
@@ -957,12 +958,13 @@ export const sendSupportEmail = functions.runWith({ secrets: [sendgridApiKey, gm
 
 // --- Stripe Functions ---
 
-export const getSubscriptionPlans = functions.https.onCall(async () => {
+export const getSubscriptionPlans = functions.https.onCall(async (data: { journeyHealth?: number } | undefined) => {
+  if (data?.journeyHealth === 2) return { journeyRelease };
   return publicSubscriptionPlans(db);
 });
 
 export const createStripeCheckoutSession = functions.runWith({ secrets: [stripeSecretKey] }).https.onCall(async (data: CheckoutRequest & { 
-  priceId?: string; 
+  journeyHealth?: number; priceId?: string; 
   successUrl: string; 
   cancelUrl: string; 
   mode?: 'payment' | 'subscription';
@@ -971,6 +973,7 @@ export const createStripeCheckoutSession = functions.runWith({ secrets: [stripeS
   metadata?: Record<string, string>;
   addOns?: { screen?: number; seat?: number; screenPriceId?: string; seatPriceId?: string };
 }, context: CallableContext) => {
+  if (data?.journeyHealth === 2) return { journeyRelease };
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'User must be logged in.');
   }
@@ -1038,7 +1041,8 @@ export const createStripeCheckoutSession = functions.runWith({ secrets: [stripeS
   }
 });
 
-export const createStripePortalSession = functions.runWith({ secrets: [stripeSecretKey] }).https.onCall(async (data: { returnUrl: string }, context: CallableContext) => {
+export const createStripePortalSession = functions.runWith({ secrets: [stripeSecretKey] }).https.onCall(async (data: { returnUrl: string; journeyHealth?: number }, context: CallableContext) => {
+  if (data?.journeyHealth === 2) return { journeyRelease };
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'User must be logged in.');
   }
@@ -2166,6 +2170,7 @@ export const createThemeTemplates = onCall(async (data: { themeName: string }, c
 // --- Stripe Webhook Handler ---
 
 export const stripeWebhook = functions.runWith({ secrets: [stripeWebhookSecret, stripeSecretKey] }).https.onRequest(async (req, res) => {
+  if (req.method === 'GET' && req.query.journeyHealth === '2') { res.set('Cache-Control', 'no-store').json({ journeyRelease }); return; }
   const sig = req.get('stripe-signature');
   const endpointSecret = stripeWebhookSecret.value();
 

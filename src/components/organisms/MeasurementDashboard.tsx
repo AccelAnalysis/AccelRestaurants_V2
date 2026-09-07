@@ -23,7 +23,7 @@ function ResultTable({ rows, dimension }: { rows: AggregateRow[]; dimension: str
   const ordered = [...rows].sort((a, b) => (b.counts.scans || 0) - (a.counts.scans || 0));
   return <div className="overflow-x-auto rounded-xl border border-surface-highlight bg-surface"><table className="w-full text-sm text-left">
     <caption className="text-left p-4 font-semibold">{dimension} comparison — activity recorded during the selected dates</caption>
-    <thead className="bg-background text-text-muted"><tr>{[dimension, 'Plays', 'Scans', 'Scans / 100 appearances', 'Survey responses', 'NPS · responses', 'CSAT · responses'].map(label => <th scope="col" className="px-4 py-3 whitespace-nowrap" key={label}>{label}</th>)}</tr></thead>
+    <thead className="bg-background text-text-muted"><tr>{[dimension, 'QR appearances', 'Scans', 'Scans / 100 appearances', 'Survey responses', 'NPS · responses', 'CSAT · responses'].map(label => <th scope="col" className="px-4 py-3 whitespace-nowrap" key={label}>{label}</th>)}</tr></thead>
     <tbody>{ordered.map(row => { const score = measurementScores(row.counts); return <tr key={row.id} className="border-t border-surface-highlight"><th scope="row" className="px-4 py-4 font-medium">{dimension === 'Campaign' ? <Link to={`/admin/analytics/campaign/${row.id}`} className="text-primary underline">{row.name}</Link> : row.name}</th><td className="px-4 py-4 tabular-nums">{value(row.counts.plays || 0)}</td><td className="px-4 py-4 tabular-nums">{value(row.counts.scans || 0)}</td><td className="px-4 py-4 tabular-nums">{value(score.scanYield)}</td><td className="px-4 py-4 tabular-nums">{value(row.counts.surveySubmits || 0)}</td><td className="px-4 py-4 whitespace-nowrap">{value(score.nps)} · n={row.counts.npsResponses || 0}</td><td className="px-4 py-4 whitespace-nowrap">{value(score.csat, '%')} · n={row.counts.csatResponses || 0}</td></tr>; })}{!rows.length && <tr><td colSpan={7} className="px-4 py-8 text-text-muted text-center">No results have been recorded for this selection.</td></tr>}</tbody>
   </table></div>;
 }
@@ -100,7 +100,7 @@ export function MeasurementDashboard() {
           <Metric label="Net Promoter Score" amount={value(scores.nps)} detail={`${totals.npsResponses || 0} responses · percentage rating 9–10 minus percentage rating 0–6`} />
           <Metric label="Customer satisfaction" amount={value(scores.csat, '%')} detail={`${totals.csatResponses || 0} responses · percentage rating 4–5 out of 5`} />
           <Metric label="Offer reveals / copies" amount={hasData ? `${totals.offerReveals || 0} / ${totals.offerCopies || 0}` : '—'} detail="Interest in an offer, not confirmed purchases" />
-          <Metric label="Menu button clicks" amount={hasData ? value(totals.ctaClicks || 0) : '—'} detail="Clicks on the menu button on an offer page" />
+          <Metric label="Offer link clicks" amount={hasData ? value(totals.ctaClicks || 0) : '—'} detail="Clicks on the destination link on an offer page" />
         </div>
         {!hasData && <section className="rounded-xl border border-dashed border-surface-highlight p-6"><h2 className="font-semibold mb-2">No guest activity yet</h2><p className="text-text-muted">Create a campaign, add it to a QR code in your design, then follow screen setup to connect your display. Guest results appear after activity is recorded.</p><Link className="ui-button ui-button-primary mt-4" to="/admin/analytics/setup">Create a QR campaign</Link></section>}
         {(view === 'overview' || view === 'campaign') && <>

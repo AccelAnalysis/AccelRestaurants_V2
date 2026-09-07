@@ -18,8 +18,8 @@ test('screen names, 44px touch regions, responsive layout and axe', async ({ pag
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto('/admin/screens');
   await expect(page.getByRole('link', { name: 'Dining room', exact: true })).toBeVisible();
-  for (const name of ['Add screen','Player link','Delete Dining room']) {
-    const box = await page.getByRole('button', { name, exact: true }).boundingBox();
+  for (const name of ['Add screen','Activate display','Setup / preview','Delete Dining room']) {
+    const box = await page.getByRole('button', { name, exact: true }).first().boundingBox();
     expect(box.width).toBeGreaterThanOrEqual(44); expect(box.height).toBeGreaterThanOrEqual(44);
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -40,13 +40,14 @@ test('template Cancel is neutral, dialog traps and restores focus', async ({ pag
   expect(await page.evaluate(() => window.__hig.imports + window.__hig.screenSaves.length)).toBe(0);
 });
 
-test('clipboard error offers manual copy and deletion can be cancelled', async ({ page }) => {
+test('display-address clipboard error offers manual entry and deletion can be cancelled', async ({ page }) => {
   await page.goto('/admin/screens');
   await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('blocked'); } } }));
-  await page.getByRole('button', { name: 'Player link', exact: true }).click();
-  await page.getByRole('button', { name: 'Copy link', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('copy it manually');
-  await expect(page.getByLabel('Player URL')).toHaveValue(/\/player\/screen-1$/);
+  await page.getByRole('button', { name: 'Setup / preview', exact: true }).click();
+  const setupDialog = page.getByRole('dialog', { name: 'Display setup and preview', exact: true });
+  await setupDialog.getByRole('button', { name: 'Copy display address', exact: true }).click();
+  await expect(setupDialog.getByRole('alert')).toContainText('Copy is unavailable. Enter displays.accelanalysis.com in the TV browser manually.');
+  await expect(setupDialog.getByLabel('TV browser address')).toHaveValue('https://displays.accelanalysis.com');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Delete Dining room' }).click();
   await expect(page.getByRole('dialog')).toHaveAccessibleName('Delete Dining room?');
@@ -59,10 +60,11 @@ test('failed screen load is not mistaken for empty data and Retry works', async 
   await page.goto('/admin'); await page.evaluate(() => { window.__hig.failScreens = true; });
   const nav = page.getByRole('button', { name: 'Open navigation' }); if (await nav.isVisible()) await nav.click();
   await page.getByRole('navigation').getByRole('link', { name: 'Screens', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('could not be loaded');
+  const loadAlert = page.getByRole('alert').filter({ hasText: 'Screens could not be loaded. Your saved screens have not been changed.' });
+  await expect(loadAlert).toBeVisible();
   await expect(page.getByRole('heading', { name: 'No screens yet' })).toHaveCount(0);
   await page.evaluate(() => { window.__hig.failScreens = false; });
-  await page.getByRole('button', { name: 'Retry', exact: true }).click();
+  await loadAlert.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(page.getByRole('link', { name: 'Dining room', exact: true })).toBeVisible();
 });
 

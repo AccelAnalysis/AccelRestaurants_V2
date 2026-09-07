@@ -1,10 +1,10 @@
 name: Measurement verification
 on:
   pull_request:
-    paths: ['src/**', 'functions/**', 'tests/measurement/**', 'firebase.json', 'firestore.*', 'vite.config.ts', '.github/workflows/measurement-tests.yml']
+    paths: ['src/**', 'functions/**', 'tests/measurement/**', 'tests/player/**', 'firebase.json', 'firestore.*', 'vite.config.ts', '.github/workflows/measurement-tests.yml']
   push:
     branches: [main]
-    paths: ['src/**', 'functions/**', 'tests/measurement/**', 'firebase.json', 'firestore.*', 'vite.config.ts', '.github/workflows/measurement-tests.yml']
+    paths: ['src/**', 'functions/**', 'tests/measurement/**', 'tests/player/**', 'firebase.json', 'firestore.*', 'vite.config.ts', '.github/workflows/measurement-tests.yml']
 permissions:
   contents: read
 concurrency:
@@ -12,9 +12,9 @@ concurrency:
   cancel-in-progress: true
 jobs:
   measurement:
-    name: Measurement contracts, emulator transactions and browser flows
+    name: Measurement contracts, player registration, emulator transactions and browser flows
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     env:
       CI: 'true'
       DEPLOY_TARGET: ci
@@ -60,20 +60,21 @@ jobs:
         run: npm run build && npm run build --prefix functions
       - name: Run contract and existing Functions tests
         run: npm test --prefix functions -- --runInBand
-      - name: Verify security rules and transactional measurement with Firestore emulator
-        run: firebase emulators:exec --project demo-accel-measurement --only firestore 'npm test --prefix functions -- --runInBand --testPathPatterns=measurement/engine.integration.test.ts --testTimeout=30000'
+      - name: Verify security rules, measurement and player registration with Firestore emulator
+        run: firebase emulators:exec --project demo-accel-measurement --only firestore 'npm test --prefix functions -- --runInBand --testPathPatterns="measurement/engine.integration.test.ts|playerRegistration.integration.test.ts" --testTimeout=30000'
       - name: Configure isolated Functions parameters
         run: |
           printf 'MEASUREMENT_ORIGIN=http://127.0.0.1:5000\nMEASUREMENT_REQUIRE_APP_CHECK=false\n' > functions/.env.demo-accel-measurement
       - name: Browser and automatic event-pipeline verification against real Firebase emulators
-        run: firebase emulators:exec --project demo-accel-measurement --only auth,firestore,functions,hosting,storage 'node tests/measurement/browser.mjs && node tests/measurement/trigger.mjs'
+        run: firebase emulators:exec --project demo-accel-measurement --only auth,firestore,functions,hosting,storage 'node tests/measurement/browser.mjs && node tests/measurement/trigger.mjs && node tests/player/registration.mjs'
       - name: Retain browser evidence and emulator diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: measurement-verification-${{ github.run_id }}
+          name: measurement-player-verification-${{ github.run_id }}
           path: |
             tests/measurement/results
+            tests/player/results
             *-debug.log
             ui-debug.log
           retention-days: 7

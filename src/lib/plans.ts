@@ -22,7 +22,7 @@ export interface PlanLimits {
 
 // Helper to calculate effective limits including add-ons
 export const getEffectivePlanLimits = (
-  org: { plan: PlanType; purchasedScreens?: number; purchasedSeats?: number },
+  org: { plan: PlanType; purchasedScreens?: number; purchasedSeats?: number; customLimits?: { screens?: number; seats?: number } },
   configs: Record<PlanType, PlanLimits> = PLAN_CONFIGS
 ): { screens: number; seats: number } => {
   const config = configs[org.plan];
@@ -44,6 +44,9 @@ export const getEffectivePlanLimits = (
     }
   }
 
+  const validOverride = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= -1;
+  if (validOverride(org.customLimits?.screens)) screens = org.customLimits.screens;
+  if (validOverride(org.customLimits?.seats)) seats = org.customLimits.seats;
   return { screens, seats };
 };
 

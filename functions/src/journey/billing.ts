@@ -6,7 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { PLAN_NAMES, validateCatalogue, quotePlan, resolvePlan, assertBillingMember, type PlanCatalogue, type PlanName } from './catalog';
 export interface CheckoutRequest {
   orgId?: string; planName?: unknown; priceId?: string; screens?: number; seats?: number;
-  returnTo?: 'setup' | 'billing'; requestId?: string;
+  returnTo?: 'setup' | 'billing'; requestId?: string; successUrl?: string;
   addOns?: { screen?: number; seat?: number; screenPriceId?: string; seatPriceId?: string };
 }
 export async function loadJourneyCatalogue(db: Firestore) {
@@ -24,9 +24,11 @@ function origin() {
   if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new HttpsError('failed-precondition', 'Billing is not available right now.');
   return url.origin;
 }
+function isSetupReturn(requested: unknown): boolean {
+  try { return typeof requested === 'string' && new URL(requested).pathname === '/onboarding'; } catch { return false; }
+}
 export function journeyBillingReturn(requested: unknown) {
-  let setup = false;
-  try { setup = typeof requested === 'string' && new URL(requested).pathname === '/onboarding'; } catch { /* Use billing by default. */ }
+  const setup = isSetupReturn(requested);
   return origin() + (setup ? '/onboarding?content=1' : '/admin/subscription');
 }
 export async function checkoutSubscription(db: Firestore, stripe: Stripe, data: CheckoutRequest, uid: string) {
@@ -69,7 +71,7 @@ export async function checkoutSubscription(db: Firestore, stripe: Stripe, data: 
     customer = created.id;
     await orgRef.update({ stripeCustomerId: customer, updatedAt: FieldValue.serverTimestamp() });
   }
-  const setup = data.returnTo === 'setup';
+  const setup = data.returnTo === 'setup' || (!data.returnTo && isSetupReturn(data.successUrl));
   const metadata = { orgId, userId: uid, planName: name };
   const session = await stripe.checkout.sessions.create({
     customer, mode: 'subscription', line_items: items, client_reference_id: orgId,
@@ -108,8 +110,10 @@ export async function syncJourneySubscription(db: Firestore, stripe: Stripe, sub
   const org = matches.docs[0].data();
   if (org.subscriptionId && org.subscriptionId !== current.id) return;
   const ended = current.status === 'canceled' || current.status === 'incomplete_expired';
-  const accessible = ['active', 'trialing', 'past_due'].includes(current.status);
-  const allowance = accessible ? subscriptionAllowance(await loadJourneyCatalogue(db), current.items.data) : { plan: 'Free', purchasedScreens: 0, purchasedSeats: 0 };
+  // Only a confirmed active/trialing subscription may set a new paid allowance.
+  // Delinquency does not silently turn an existing restaurant into Free.
+  const allowance = ended ? { plan: 'Free', purchasedScreens: 0, purchasedSeats: 0 }
+    : ['active', 'trialing'].includes(current.status) ? subscriptionAllowance(await loadJourneyCatalogue(db), current.items.data) : {};
   const period = (current as Stripe.Subscription & { current_period_end?: number }).current_period_end || (current.items.data[0] as unknown as { current_period_end?: number } | undefined)?.current_period_end;
   const status = current.status === 'trialing' ? 'trialing' : current.status === 'active' ? 'active' : ended ? 'canceled' : 'past_due';
   await db.runTransaction(async tx => {

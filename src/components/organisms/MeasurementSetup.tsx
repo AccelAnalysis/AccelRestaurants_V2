@@ -12,7 +12,7 @@ export function MeasurementSetup({ orgId, campaigns, onChange, canManage }: { or
   const [question, setQuestion] = useState('What would make your next visit better?'); const [pollOptions, setPollOptions] = useState('Option A\nOption B');
   const [comments, setComments] = useState(true); const [slides, setSlides] = useState<Slide[]>([]);
   const [campaignId, setCampaignId] = useState(''); const [slideId, setSlideId] = useState(''); const [tileId, setTileId] = useState('');
-  const [code, setCode] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
   const requestId = useRef(crypto.randomUUID());
   useEffect(() => {
     let cancelled = false;
@@ -70,12 +70,9 @@ export function MeasurementSetup({ orgId, campaigns, onChange, canManage }: { or
       </form>
     </section>
     <section className="rounded-xl border border-surface-highlight bg-surface p-5 sm:p-6">
-      <h2 className="text-xl font-semibold mb-2">Connect your screen to guest reporting</h2>
-      <p className="text-text-muted mb-6">Enter the code shown on your restaurant screen to include it in your campaign results. Your menu can continue showing while you complete this step.</p>
-      <form onSubmit={event => { event.preventDefault(); void run(() => MeasurementService.approvePairing(orgId, code.trim()), 'Screen connected to campaign reporting. Results appear when activity is recorded.'); }} className="flex flex-col sm:flex-row gap-3">
-        <label className="flex-1"><span className="sr-only">Screen connection code</span><input aria-label="Screen connection code" className={inputClass} required minLength={10} maxLength={10} autoComplete="off" value={code} onChange={event => setCode(event.target.value.toUpperCase())} placeholder="10-character screen code" /></label>
-        <button disabled={busy} type="submit" className="ui-button ui-button-primary min-h-12">Connect screen</button>
-      </form>
+      <h2 className="text-xl font-semibold mb-2">Connect your restaurant display</h2>
+      <p className="text-text-muted mb-4">Activate your display from Screens to include it in campaign reporting. Moving or replacing a display there also updates its reporting connection. No second code is needed.</p>
+      <Link to="/admin/screens" className="ui-button ui-button-secondary min-h-11">Manage activated displays</Link>
     </section>
     <section className="rounded-xl border border-surface-highlight bg-surface p-5 sm:p-6">
       <h2 className="text-xl font-semibold mb-4">Campaign library</h2>

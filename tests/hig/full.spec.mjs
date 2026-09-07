@@ -88,7 +88,7 @@ test('billing errors retain plan choices without confirming a purchase',async({p
  await audit(page);await fits(page);await page.screenshot({path:info.outputPath('billing.png'),fullPage:true});
 });
 test('billing load retry and existing subscription changes use the portal',async({page})=>{
- await page.goto('/billing?failPlans=1');await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toContainText('load current plan');
+ await page.goto('/billing?failPlans=1');await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toContainText('load plan');
  await page.evaluate(()=>window.__hig.failPlans=false);await page.getByRole('button',{name:'Try again',exact:true}).click();
  await expect(page.getByRole('button',{name:'Choose Basic plan',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Manage subscription',exact:true}).click();await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toContainText('billing details');

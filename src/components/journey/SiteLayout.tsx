@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useConfigStore } from '../../store/useConfigStore';
-import { contactLink, safeWebLink } from '../../lib/customerJourney';
+import { contactLink, phoneLink, safeWebLink } from '../../lib/customerJourney';
 import logo from '../../assets/logo.png';
 
 const navLink = 'min-h-11 inline-flex items-center font-medium text-text-secondary hover:text-text';
@@ -10,6 +10,7 @@ export const SiteLayout = ({ children }: { children: ReactNode }) => {
   const { generalConfig: config } = useConfigStore();
   const { hash, pathname } = useLocation();
   const contact = contactLink(config.contactEmail);
+  const phone = phoneLink(config.contactPhone);
   const externalLinks = [...(config.footerLinks || []), ...(config.socialLinks || []).map(row => ({ label: row.platform, url: row.url }))].filter(row => safeWebLink(row.url));
 
   useEffect(() => {
@@ -37,6 +38,7 @@ export const SiteLayout = ({ children }: { children: ReactNode }) => {
           <div className="flex items-center gap-2"><img src={safeWebLink(config.logoUrl) || logo} alt="" className="h-7 w-auto" /><span className="font-semibold">AccelRestaurants</span></div>
           <p className="text-sm text-text-secondary mt-3">Restaurant screens and guest feedback.</p>
           {contact && <a className="min-h-11 inline-flex items-center mt-3 underline" href={contact}>Contact us</a>}
+          {phone && <a className="min-h-11 flex items-center underline" href={phone}>{config.contactPhone}</a>}
         </div>
         <div><h2 className="font-semibold">Product</h2><nav aria-label="Product" className="mt-3 flex flex-col items-start"><Link className={navLink} to="/designs">Designs</Link>{config.featureFlags?.showPricingPage !== false && <Link className={navLink} to="/pricing">Plans</Link>}<Link className={navLink} to="/restaurants#measurement">Guest feedback</Link></nav></div>
         <div><h2 className="font-semibold">Resources</h2><nav aria-label="Resources" className="mt-3 flex flex-col items-start"><Link className={navLink} to="/login">Sign in</Link><Link className={navLink} to="/admin/help">Setup help</Link>{safeWebLink(config.marketing?.bookingUrl) && <a className={navLink} href={safeWebLink(config.marketing?.bookingUrl)}>Book a setup call</a>}</nav></div>

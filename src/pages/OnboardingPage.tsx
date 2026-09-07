@@ -12,7 +12,7 @@ import { InlineFeedback } from '../components/atoms/InlineFeedback';
 import { PlansPanel } from '../components/journey/PlansPanel';
 import { BillingService } from '../services/billingService';
 import { RESTAURANT_TEMPLATES } from '../../functions/src/cinematic/templates';
-import { claimJourneyIntent, customerError, readJourneyIntent, sanitizeIntent, saveJourneyIntent, safeWebLink, safeWorkspaceDestination } from '../lib/customerJourney';
+import { claimJourneyIntent, clearJourneyIntent, customerError, readJourneyIntent, sanitizeIntent, saveJourneyIntent, safeWebLink, safeWorkspaceDestination } from '../lib/customerJourney';
 import type { PlanName } from '../../functions/src/journey/catalog';
 import type { Organization } from '../types/schema';
 const fieldClass = 'block w-full mt-2 rounded-lg border border-surface-highlight bg-background min-h-11 px-3 py-3';
@@ -96,6 +96,7 @@ export const OnboardingPage = () => {
     try {
       // Profile completion is not a claim that a physical screen is playing.
       if (!await saveSetupChanges(organization.id, user.uid, { isSetupComplete: true })) return;
+      clearJourneyIntent(scope);
       navigate(destination);
     } catch (e) { finishing.current = false; setError(customerError(e, 'Your choices are saved, but we could not finish this step. Try again.')); throw e; }
     finally { submitting.current = false; setBusy(false); }

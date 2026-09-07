@@ -1,3 +1,4 @@
+import { PlanComparison } from './PlanComparison';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePlanCatalogue } from '../../hooks/usePlanCatalogue';
@@ -6,7 +7,7 @@ import { PLAN_NAMES, quotePlan, recommendedPlan, type PlanName } from '../../../
 import { entitlements } from '../../../functions/src/cinematic/catalog';
 interface Props { initialScreens?: number; initialSeats?: number; selectedPlan?: PlanName; busy?: boolean; onChoose: (name: PlanName, screens: number, seats: number) => void; }
 export const PlansPanel = ({ initialScreens = 1, initialSeats = 1, selectedPlan, busy = false, onChoose }: Props) => {
-  const { catalogue, loading, error, retry } = usePlanCatalogue();
+  const { catalogue, loading, error, notice, retry } = usePlanCatalogue();
   const [screenText, setScreens] = useState(String(initialScreens));
   const [seatText, setSeats] = useState(String(initialSeats));
   const screens = Number(screenText), seats = Number(seatText);
@@ -23,6 +24,7 @@ export const PlansPanel = ({ initialScreens = 1, initialSeats = 1, selectedPlan,
       {recommendation && <p className="mt-4 text-text-secondary">Lowest monthly price for ongoing playback at this size: <strong className="text-text">{recommendation === 'Franchise' ? 'Contact us for a larger plan' : recommendation}</strong>. Choose the features that fit your restaurant.</p>}
     </fieldset>
     <InlineFeedback message={loading ? 'Loading current plans…' : null} />
+    <InlineFeedback message={notice}>{notice && <button type="button" disabled={loading || busy} className="ui-button ui-button-secondary mt-3" onClick={retry}>Refresh plan details</button>}</InlineFeedback>
     <InlineFeedback tone="error" message={error}>{error && <button type="button" className="ui-button ui-button-secondary mt-3" onClick={retry}>Try again</button>}</InlineFeedback>
     {catalogue && <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
       {PLAN_NAMES.map(name => {
@@ -45,6 +47,7 @@ export const PlansPanel = ({ initialScreens = 1, initialSeats = 1, selectedPlan,
         </article>;
       })}
     </div>}
+    {catalogue && <PlanComparison catalogue={catalogue} />}
     <p className="text-sm text-text-secondary text-center">Prices are in US dollars per month. Any applicable taxes and the final total appear before you confirm payment. Free includes a five-minute screen preview.</p>
   </section>;
 };

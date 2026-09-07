@@ -1,5 +1,6 @@
-import { doc, getDoc, setDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, getDocFromServer, setDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { createCatalogueReader } from '../lib/planCatalogueCache';
 import { validateCatalogue } from '../../functions/src/journey/catalog';
 import type { WebsiteContent } from '../lib/websiteContent';
 import { PLAN_CONFIGS, type PlanType, type PlanLimits } from '../lib/plans';
@@ -7,6 +8,8 @@ import { PLAN_CONFIGS, type PlanType, type PlanLimits } from '../lib/plans';
 const SYSTEM_COLLECTION = 'system';
 const PLANS_DOC = 'plans';
 const GENERAL_DOC = 'general';
+// Firebase project IDs separate production and demo/emulator caches.
+const planReader = createCatalogueReader(db.app?.options.projectId || 'unconfigured', PLAN_CONFIGS);
 
  const removeUndefinedDeep = <T>(value: T): T => {
    if (value === undefined || value === null) return value;
@@ -102,20 +105,16 @@ export const ConfigService = {
     }
   },
 
-  /**
-   * Fetch the remotely managed plan catalogue when it is available.
-   * A bundled last-known-good catalogue keeps public plan comparison usable
-   * during preview/backend skew, a missing system document, or a temporary read failure.
-   * Checkout and paid access remain server-validated against the backend catalogue.
-   */
+  /** Prefer the live catalogue, then a validated saved copy, then bundled display defaults. */
+  getPlanCatalogue: () => planReader.load(async () => {
+    const snapshot = await getDocFromServer(doc(db, SYSTEM_COLLECTION, PLANS_DOC));
+    if (!snapshot.exists()) throw new Error('Current plan details are not available.');
+    return snapshot.data().configs;
+  }),
+
   getPlanConfigs: async (): Promise<Record<PlanType, PlanLimits>> => {
-    try {
-      const snapshot = await getDoc(doc(db, SYSTEM_COLLECTION, PLANS_DOC));
-      if (!snapshot.exists()) return validateCatalogue(PLAN_CONFIGS) as Record<PlanType, PlanLimits>;
-      return validateCatalogue(snapshot.data().configs) as Record<PlanType, PlanLimits>;
-    } catch {
-      return validateCatalogue(PLAN_CONFIGS) as Record<PlanType, PlanLimits>;
-    }
+    const result = await ConfigService.getPlanCatalogue();
+    return result.configs as Record<PlanType, PlanLimits>;
   },
 
   /**
@@ -128,6 +127,7 @@ export const ConfigService = {
         configs: validateCatalogue(configs),
         updatedAt: serverTimestamp()
       });
+      planReader.remember(configs);
     } catch {
       throw new Error('Failed to save plan configurations.');
     }

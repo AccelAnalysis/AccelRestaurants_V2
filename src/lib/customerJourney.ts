@@ -22,6 +22,9 @@ export function readJourneyIntent(scope = 'visitor'): JourneyIntent {
     return sanitizeIntent(raw);
   } catch { return { savedAt: Date.now() }; }
 }
+export function clearJourneyIntent(scope: string): void {
+  try { sessionStorage.removeItem(`${INTENT_KEY}:${scope}`); sessionStorage.removeItem(`${INTENT_KEY}:visitor`); } catch { /* Optional persistence. */ }
+}
 export function claimJourneyIntent(scope: string): JourneyIntent {
   const saved = readJourneyIntent(scope), incoming = readJourneyIntent();
   const result = saveJourneyIntent({ ...saved, ...incoming }, scope);
@@ -34,6 +37,11 @@ export function safeWebLink(value: unknown): string | undefined {
 }
 export function contactLink(email: unknown): string | undefined {
   return typeof email === 'string' && /^[^\s@<>?]+@[^\s@<>?]+\.[^\s@<>?]+$/.test(email) ? `mailto:${email}` : undefined;
+}
+export function phoneLink(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !/^[+0-9(). -]{5,40}$/.test(value)) return;
+  const normalized = value.replace(/[(). -]/g, '');
+  return /^\+?\d{5,20}$/.test(normalized) ? `tel:${normalized}` : undefined;
 }
 export function connectionState(timestamp: { seconds: number } | undefined, now = Date.now()): 'connected' | 'disconnected' | 'unknown' {
   if (!timestamp || !Number.isFinite(timestamp.seconds)) return 'unknown';

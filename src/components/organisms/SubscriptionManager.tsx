@@ -1,3 +1,4 @@
+import { PlanUsage } from '../journey/PlanUsage';
 import { useRef, useState } from 'react';
 import { useAuthStore } from '../../store/useAuthStore';
 import { BillingService } from '../../services/billingService';
@@ -35,6 +36,7 @@ export const SubscriptionManager = () => {
     <InlineFeedback tone="error" message={error} />
     <InlineFeedback message={returned.has('canceled') ? 'Checkout was canceled. Your subscription has not changed.' : returned.has('success') ? 'Your payment details are being confirmed. Your current plan is shown below.' : null} />
     <section aria-label="Current plan" className="rounded-xl border border-surface-highlight p-5 mb-8"><h2 className="text-xl font-semibold">{organization ? `Current plan: ${organization.plan}` : 'Loading your current plan…'}</h2><p className="mt-3 text-text-secondary">{status === 'active' ? 'Subscription active' : status === 'past_due' ? 'Your payment needs attention. Open billing details to review it.' : status === 'trialing' ? 'Trial active' : status === 'canceled' ? 'Subscription canceled' : organization?.plan === 'Free' ? 'Free design and five-minute screen preview' : 'Subscription details are not available yet.'}</p>{period && Number.isFinite(period) ? <p className="mt-2">Current billing period ends {new Date(period * 1000).toLocaleDateString()}.</p> : null}{organization?.stripeCustomerId && <button type="button" className="ui-button ui-button-secondary mt-4" disabled={busy} onClick={() => void manage()}>Manage subscription</button>}</section>
+    <PlanUsage />
     {organization?.subscriptionId && <p className="mb-6 text-text-secondary">Choose Manage subscription to change your plan or payment method, view invoices, or cancel. You will review the details before confirming a change.</p>}
     <PlansPanel initialScreens={Math.max(1, organization?.screenCount || 1)} initialSeats={Math.max(1, organization?.members?.length || 1)} selectedPlan={selected || organization?.plan} busy={busy} onChoose={(name, screens, seats) => void choose(name, screens, seats)} />
   </section>;

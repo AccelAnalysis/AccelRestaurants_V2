@@ -1,3 +1,6 @@
+import { DashboardOverview } from '../../src/components/organisms/DashboardOverview';
+import { PlayerRegistrationService } from '../../src/services/playerRegistrationService';
+import { MenuService } from '../../src/services/menuService';
 /* Isolated fixtures exercise the real components; never imported by the production entry. */
 import React, { useState } from 'react';
 import { LandingPage } from '../../src/pages/LandingPage';
@@ -65,12 +68,16 @@ Object.assign(fixture, { dbWrites: [], callables: [], checkoutCalls: [], portalC
 
 useAuthStore.setState({ loading: false, user: { uid: 'hig-user', email: 'review@example.invalid' }, userProfile: { uid: 'hig-user', email: 'review@example.invalid', orgId: 'hig-org', platformRole: 'user' }, organization: { id: 'hig-org', name: 'Test restaurant', plan: 'Free', ownerId: 'hig-user', members: ['hig-user'], isSetupComplete: true } });
 useConfigStore.setState({ loading: false, fetchConfigs: async () => {}, generalConfig: {}, planConfigs: { ...PLAN_CONFIGS, Free: { ...PLAN_CONFIGS.Free, screens: -1, allowedTiles: ALL_TILES } } });
-ScreenService.getScreens = async () => { if (fixture.failScreens) throw new Error('fixture network unavailable'); return [screen]; };
+fixture.readCounts = { screens: 0, slides: 0, registrations: 0 };
+ScreenService.getScreens = async () => { fixture.readCounts.screens++; if (fixture.failScreens) throw new Error('fixture network unavailable'); return [screen]; };
 ScreenService.getScreen = async () => screen;
 ScreenService.deleteScreen = async id => { fixture.deleted.push(id); };
 ScreenService.updateScreen = async (id, data) => { fixture.screenSaves.push({ id, data }); };
 ScreenService.createScreen = async data => { fixture.screenSaves.push({ data }); return 'new-screen'; };
-SlideService.getSlides = async () => [slide, secondSlide];
+SlideService.getSlides = async () => { fixture.readCounts.slides++; if (fixture.failSlides) throw new Error('fixture slide unavailable'); return fixture.noDesigns ? [] : [slide, secondSlide]; };
+MenuService.getMenus = async () => { if (fixture.failMenus) throw new Error('fixture menu unavailable'); return [{ id: 'menu-1' }]; };
+StorageService.listFiles = async () => { if (fixture.failMedia) throw new Error('fixture media unavailable'); return []; };
+PlayerRegistrationService.list = async () => { fixture.readCounts.registrations++; if (fixture.failRegistrations) throw new Error('fixture registration unavailable'); return { registrations: fixture.registered ? [{ screenId: 'screen-1', playerUid: 'fixture-display', assignedAt: Date.now() }] : [] }; };
 SlideService.getSlide = async () => ({ ...slide, elements: structuredClone(slide.elements) });
 SlideService.updateSlide = async (id, data) => {
   fixture.saves.push(structuredClone(data));
@@ -82,6 +89,7 @@ TemplateService.getTemplates = async () => { if (fixture.failTemplates) throw ne
 TemplateService.importTemplate = async () => { fixture.imports++; return { success: true, resourceId: 'imported' }; };
 
 const params = new URLSearchParams(location.search);
+fixture.failMedia = params.has('failMedia'); fixture.registered = params.has('registered');
 fixture.failPlans = params.has('failPlans'); fixture.failCallable = params.has('failCallable'); fixture.failNotifications = params.has('failNotifications'); fixture.failProfile = params.has('failProfile');
 const organization = { ...useAuthStore.getState().organization, stripeCustomerId: 'cus-test', industry: 'Restaurant', seats: 1, screenCount: 1, createdAt: stamp, subscriptionId: 'sub-test', subscriptionStatus: 'active' };
 useAuthStore.setState({ organization, userProfile: { ...useAuthStore.getState().userProfile, platformRole: 'admin' } });
@@ -93,7 +101,8 @@ fixture.journeyHelpers = journeyHelpers;
 fixture.setConfig = value => useConfigStore.setState({ generalConfig: { ...useConfigStore.getState().generalConfig, ...value } });
 fixture.screen = screen;
 fixture.setOwnerProfile = value => useAuthStore.setState({ organization: { ...useAuthStore.getState().organization, ...value } });
-ConfigService.getPlanConfigs = async () => { if (fixture.failPlans) throw new Error('fixture plan failure'); return fixture.planCatalogue || PLAN_CONFIGS; };
+ConfigService.getPlanCatalogue = async () => { if (fixture.failPlans) throw new Error('fixture plan failure'); return { configs: fixture.planCatalogue || PLAN_CONFIGS, source: fixture.planSource || 'live', savedAt: Date.now() }; };
+ConfigService.getPlanConfigs = async () => (await ConfigService.getPlanCatalogue()).configs;
 BillingService.createPlanCheckout = async (...args) => { fixture.checkoutCalls.push(args); throw new Error('fixture checkout failure'); };
 OrganizationService.updateOrganization = async (...args) => { if (fixture.failSave) throw new Error('fixture save failure'); fixture.dbWrites.push(args); };
 fixture.colorMath = { deriveBrandColors, contrastRatio, normalizeHex };
@@ -155,6 +164,7 @@ function Fixture() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/restaurants" element={<LandingPage />} />
       <Route path="/marketing" element={<LandingPage />} />
+      <Route path="/overview" element={<DashboardOverview />} />
       <Route path="/setup-guide" element={<FirstScreenGuide />} />
       <Route path="/restaurant-settings" element={<OrganizationView />} />
       <Route path="/super-admin/templates/:templateId" element={<TemplateEditor />} />

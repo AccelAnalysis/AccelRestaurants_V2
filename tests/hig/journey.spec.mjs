@@ -58,7 +58,7 @@ test('checkout return never assigns paid access and retains its chosen design', 
 test('current plan load failure does not block creating a free design', async ({ page }) => {
   await page.goto('/onboarding?failPlans=1');
   await page.getByRole('button', { name: 'Compare plans', exact: true }).click();
-  await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toContainText('load current plan');
+  await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toContainText('load plan');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Choose a restaurant design', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Your restaurant, screen-ready' })).toBeVisible();
@@ -94,8 +94,7 @@ test('intent storage whitelists values and is not an authorization store', async
 });
 test('connection guidance does not confuse enabled screens with visible playback', async ({ page }, info) => {
   await page.goto('/setup-guide');
-  await expect(page.getByText('Screen connected.', { exact: false })).toBeVisible();
-  await expect(page.getByText('It does not confirm that the TV is on', { exact: false })).toBeVisible();
+  await expect(page.getByText('A browser preview is not an activated restaurant display.', { exact: true })).toBeVisible();
   const statuses = await page.evaluate(() => {
     const status = window.__hig.journeyHelpers.connectionState;
     const now = 1000000000;
@@ -104,8 +103,8 @@ test('connection guidance does not confuse enabled screens with visible playback
   expect(statuses).toEqual(['unknown', 'unknown', 'disconnected', 'connected']);
   await accessible(page); await page.screenshot({ path: info.outputPath('screen-setup.png'), fullPage: true });
   await page.getByRole('button', { name: 'Hide setup tips' }).click();
-  await expect(page.getByRole('button', { name: 'Show screen setup tips' })).toBeVisible();
-  await page.getByRole('button', { name: 'Show screen setup tips' }).click();
+  await expect(page.getByRole('button', { name: 'Screen setup', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Screen setup', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Get your first screen ready' })).toBeVisible();
 });
 test('website content edits keep failed drafts and save structured fields', async ({ page }) => {
