@@ -45,7 +45,7 @@ test('display-address clipboard error offers manual entry and deletion can be ca
   await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('blocked'); } } }));
   await page.getByRole('button', { name: 'Setup / preview', exact: true }).click();
   await page.getByRole('button', { name: 'Copy display address', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('Enter displays.accelanalysis.com');
+  await expect(page.getByText('Copy is unavailable. Enter displays.accelanalysis.com in the TV browser manually.', { exact: true })).toBeVisible();
   await expect(page.getByLabel('TV browser address')).toHaveValue('https://displays.accelanalysis.com');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Delete Dining room' }).click();
