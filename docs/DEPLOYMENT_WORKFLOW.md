@@ -16,19 +16,21 @@ Every pull request runs:
 
 A failing CI job blocks the preview job.
 
-## 2. Pull requests: Firebase preview against staging only
+## 2. Pull requests: Firebase Hosting preview channels in the production Firebase project
 
-Same-repository pull requests deploy to a Firebase Hosting preview channel only after frontend and Functions CI pass.
+Same-repository pull requests deploy to a temporary Firebase Hosting preview channel only after frontend and Functions CI pass.
 
-The preview job uses the GitHub environment named `staging` and expires preview channels after 14 days. Firebase Hosting preview URLs use the real backend resources of the Firebase project they belong to, so the workflow explicitly refuses to run if staging is configured as the production project `accelrestaurant-d2c1f`.
+The preview job uses the GitHub environment named `staging`, but `staging` is only the GitHub Actions configuration scope for PR previews. It does not represent a separate Firebase backend. Preview channels use the existing Firebase project `accelrestaurant-d2c1f` and therefore share that project's real Auth, Firestore, Functions, Storage, and other backend resources.
 
-Fork pull requests run CI but do not receive staging credentials and do not deploy previews.
+The workflow requires the preview project ID to be exactly `accelrestaurant-d2c1f` so a PR cannot accidentally deploy to an unrelated Firebase project. Hosting preview channels expire after 14 days and do not replace the `live` channel.
+
+Fork pull requests run CI but do not receive preview credentials and do not deploy previews.
 
 ### Required `staging` GitHub environment configuration
 
 Environment variables:
 
-- `FIREBASE_PROJECT_ID` — must be a Firebase project separate from `accelrestaurant-d2c1f`
+- `FIREBASE_PROJECT_ID` = `accelrestaurant-d2c1f`
 - `VITE_FIREBASE_API_KEY`
 - `VITE_FIREBASE_AUTH_DOMAIN`
 - `VITE_FIREBASE_STORAGE_BUCKET`
@@ -40,13 +42,13 @@ Environment variables:
 
 Environment secret:
 
-- `FIREBASE_SERVICE_ACCOUNT` — service-account JSON authorized to deploy Firebase Hosting for the staging project
+- `FIREBASE_SERVICE_ACCOUNT` — service-account JSON authorized to deploy Firebase Hosting preview channels for `accelrestaurant-d2c1f`
 
 `VITE_FIREBASE_PROJECT_ID` is derived from `FIREBASE_PROJECT_ID` in the workflow so the build and deployment cannot silently target different Firebase projects.
 
-The staging Firebase project must contain only test/staging data and integrations. Do not configure production Stripe/email/customer data for PR previews.
+Because the preview frontend shares the production Firebase backend, preview testing must avoid destructive or real-world side effects unless explicitly intended. In particular, use caution with writes to production Firestore/Storage, callable Functions, transactional email/SMS, irreversible deletes, and Stripe/payment flows. Hosting is isolated by channel; backend resources are not.
 
-Until those staging settings exist, the preview job deliberately fails before build/deploy. This is a fail-closed safety control: CI can prove the code builds, but no preview is allowed to fall back to production backend resources.
+Until the required `staging` GitHub environment variables and service-account secret exist, the preview job deliberately fails before deployment.
 
 ## 3. Production: manual gated release
 
@@ -85,7 +87,7 @@ Environment secret:
 
 - `FIREBASE_SERVICE_ACCOUNT` — service-account JSON authorized to deploy Firebase Hosting for `accelrestaurant-d2c1f`
 
-If the GitHub plan/repository settings support environment protection rules, add a required approval rule to the `production` environment as an additional safeguard. The workflow already remains manually gated even without that optional protection rule.
+Keep the `production` GitHub environment. The production workflow explicitly references `environment: production`, and environment-scoped variables/secrets provide a separate permission boundary from PR previews. If supported by repository settings, add a required approval rule to the `production` environment as an additional safeguard. The workflow already remains manually gated even without that optional protection rule.
 
 ## Backend deployments
 
@@ -103,4 +105,4 @@ npm run build --prefix functions
 npm test --prefix functions -- --runInBand
 ```
 
-The validator fails immediately when required Vite variables are missing or when staging/production Firebase targeting is unsafe.
+The validator fails immediately when required Vite variables are missing or when preview/production Firebase targeting does not match `accelrestaurant-d2c1f`.
