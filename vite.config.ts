@@ -85,6 +85,13 @@ export default defineConfig({
       }
     })
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) { if (id.includes('/node_modules/recharts/')) return 'charts'; }
+      }
+    }
+  },
   optimizeDeps: {
     include: ['react-dnd', 'react-dnd-html5-backend', 'dnd-core']
   },

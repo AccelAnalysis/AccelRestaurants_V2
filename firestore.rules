@@ -321,6 +321,7 @@ service cloud.firestore {
     // First-party measurement: all operations go through server-authenticated, location-scoped APIs.
     match /measurement_campaigns/{document=**} { allow read, write: if false; }
     match /measurement_surveys/{document=**} { allow read, write: if false; }
+    match /measurement_screen_devices/{document=**} { allow read, write: if false; }
     match /measurement_devices/{document=**} { allow read, write: if false; }
     match /measurement_sessions/{document=**} { allow read, write: if false; }
     match /measurement_pairings/{document=**} { allow read, write: if false; }

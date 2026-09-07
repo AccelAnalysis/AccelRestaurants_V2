@@ -91,7 +91,7 @@ export function MeasurementDashboard() {
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
           <Metric label="Recorded placement plays" amount={hasData ? value(totals.plays || 0) : '—'} detail={`${value((totals.visibleMs || 0) / 3_600_000)} recorded placement-hours`} />
           <Metric label="QR scans" amount={hasData ? value(totals.scans || 0) : '—'} detail={`${value(scores.scanYield)} scans per 100 plays — not a viewer conversion rate`} />
-          <Metric label="Engaged scan sessions" amount={hasData ? value(totals.cohortEngaged || 0) : '—'} detail={`${value(scores.engagement, '%')} of scan cohorts in this date range`} />
+          <Metric label="Engaged scan sessions" amount={hasData ? value(totals.cohortEngaged || 0) : '—'} detail={`${value(scores.engagement, '%')} of first-party offer/survey scan cohorts`} />
           <Metric label="Survey responses" amount={hasData ? value(totals.surveySubmits || 0) : '—'} detail={`${value(scores.completion, '%')} completion within scan cohorts`} />
           <Metric label="Net Promoter Score" amount={value(scores.nps)} detail={`n=${totals.npsResponses || 0} · promoters minus detractors`} />
           <Metric label="Customer satisfaction" amount={value(scores.csat, '%')} detail={`n=${totals.csatResponses || 0} · ratings 4–5 on a 1–5 scale`} />

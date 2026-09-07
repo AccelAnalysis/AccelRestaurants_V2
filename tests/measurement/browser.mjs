@@ -28,6 +28,7 @@ await db.doc(`slides/${slideId}`).set({ id: slideId, orgId, name: 'Feedback', di
 const survey = await engine.createCampaign(owner, { orgId, requestId: 'browser-survey', campaign: { name: 'Guest feedback test', kind: 'survey', questions: [{ id: 'nps', label: 'How likely are you to recommend us?', type: 'nps', required: true }, { id: 'csat', label: 'How satisfied were you?', type: 'csat', required: true }], thankYouMessage: 'Your response helps us improve.' } });
 await engine.bindCampaign(owner, { orgId, campaignId: survey.campaignId, slideId, tileId: 'feedbackQR' });
 await db.doc(`measurement_devices/${hash(owner, screenId)}`).set({ uid: owner, screenId, orgId, revoked: false });
+await db.doc(`measurement_screen_devices/${screenId}`).set({ orgId, deviceId: hash(owner, screenId) });
 const session = await engine.openSession(owner, screenId, 'live');
 const version = (await db.doc(`slides/${slideId}`).get()).data().updatedAt.toMillis();
 const manifest = await engine.manifest(owner, { sessionId: session.sessionId, slideVersions: { [slideId]: version } });
@@ -62,8 +63,10 @@ try {
   await expect(guestPage.getByRole('heading', { name: 'Guest feedback test', exact: true })).toBeVisible();
   await expect(guestPage.getByRole('button', { name: 'Submit feedback' })).toBeVisible();
   assert.equal(new URL(guestPage.url()).hash, '');
-  await guestPage.getByRole('radio', { name: '0 — How likely are you to recommend us?', exact: true }).check();
-  await guestPage.getByRole('radio', { name: '5 — How satisfied were you?', exact: true }).check();
+  await guestPage.getByRole('radio', { name: '0 — How likely are you to recommend us?', exact: true }).locator('..').click();
+  await expect(guestPage.getByRole('radio', { name: '0 — How likely are you to recommend us?', exact: true })).toBeChecked();
+  await guestPage.getByRole('radio', { name: '5 — How satisfied were you?', exact: true }).locator('..').click();
+  await expect(guestPage.getByRole('radio', { name: '5 — How satisfied were you?', exact: true })).toBeChecked();
   await guestPage.screenshot({ path: 'tests/measurement/results/mobile-survey.png', fullPage: true });
   await guestPage.getByRole('button', { name: 'Submit feedback' }).click();
   await expect(guestPage.getByRole('heading', { name: 'Thank you', exact: true })).toBeVisible();
