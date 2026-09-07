@@ -65,7 +65,7 @@ try {
   await activationDialog.getByLabel('Screen this TV should show', { exact: true }).selectOption(firstScreen);
   await activationDialog.getByRole('button', { name: 'Activate display', exact: true }).click();
   await expect(adminPage.getByRole('heading', { name: 'Screens', exact: true })).toBeVisible({ timeout: 15000 });
-  await expect(adminPage.getByText('Front Counter Left activated.', { exact: true })).toBeVisible({ timeout: 15000 });
+  await expect(adminPage.getByText('Done: Front Counter Left activated.', { exact: true })).toBeVisible({ timeout: 15000 });
   checked('owner claims the TV code after sign-in and chooses the logical screen');
 
   await expect.poll(() => new URL(tvPage.url()).pathname, { timeout: 20000 }).toBe(`/display/player/${firstScreen}`);
@@ -88,7 +88,7 @@ try {
   await expect(manageDialog).toBeVisible();
   await manageDialog.getByLabel('Destination screen', { exact: true }).selectOption(secondScreen);
   await manageDialog.getByRole('button', { name: 'Move display', exact: true }).click();
-  await expect(adminPage.getByText('Display moved from Front Counter Left to Front Counter Right.', { exact: true })).toBeVisible({ timeout: 15000 });
+  await expect(adminPage.getByText('Done: Display moved from Front Counter Left to Front Counter Right.', { exact: true })).toBeVisible({ timeout: 15000 });
   await expect.poll(() => new URL(tvPage.url()).pathname, { timeout: 25000 }).toBe(`/display/player/${secondScreen}`);
   await tvPage.waitForFunction(() => document.body.innerText.includes('Front Counter Right') || document.body.innerText.includes('Press OK to enter full screen'), undefined, { timeout: 15000 });
   await enterFullscreenIfPrompted(tvPage);
