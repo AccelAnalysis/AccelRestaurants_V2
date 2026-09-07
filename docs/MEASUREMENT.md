@@ -6,7 +6,7 @@ Implementation base: PR #1 merged into `main` at `19ea52705ce1f7b158c870c93e39da
 
 Open **Analytics → Setup** as an organization administrator. Create a tracked external menu, offer reveal, NPS, CSAT, NPS + CSAT, quick poll, or open-feedback campaign. Attach the campaign to an existing `qr_code` tile on a slide. Publish/assign the slide using the existing screen editor.
 
-Open the actual player and enter its displayed 10-character measurement authorization code in Analytics → Setup. This one-time device authorization is separate from publishing: content still plays without telemetry authorization. It prevents an anonymous visitor who merely knows a screen URL from manufacturing live proof-of-play. Authorizing a replacement device invalidates the older device's measurement authorization. Unpaired administrator previews are test-only.
+Player authorization now follows the normal display lifecycle instead of requiring a second measurement-pairing ceremony. On the TV, open `displays.accelanalysis.com`; an unknown browser receives a six-digit activation code. In **Screens → Activate display**, an organization administrator enters or scans that code and chooses the logical screen. The browser's persistent anonymous Firebase identity becomes the trusted player identity. Replacing, moving, swapping, or deactivating a display updates the measurement device binding in the same backend transaction. A direct player URL alone still cannot manufacture live proof-of-play; unregistered administrator previews remain test-only.
 
 The player resolves an opaque QR placement for its real screen, location, slide revision, and campaign. Guests need no account. External-menu QRs redirect to the configured destination; offer/survey QRs open the first-party `/engage/:placementId` page. All scores and event attribution are calculated by the server.
 
@@ -42,8 +42,10 @@ All measurement collections are root collections and deny direct browser reads a
 | `measurement_surveys` | Immutable versioned question definitions | Retained |
 | `campaign_placements` | Immutable attribution/destination snapshots | Retained |
 | `measurement_placement_keys` | Stable placement lookup registry | Retained |
-| `measurement_devices` / `measurement_screen_devices` | Device authorization and current screen binding | Retained until lifecycle cleanup |
-| `measurement_pairings` / `measurement_pairing_requests` | Single-use pairing codes | 15-minute validity; TTL cleanup |
+| `player_registrations` / `player_screen_registrations` | Durable browser-player identity and current logical-screen assignment | Retained until display lifecycle cleanup |
+| `player_activation_codes` / `player_activation_requests` | Single-use six-digit display activation | 15-minute validity; expiry enforced in code |
+| `measurement_devices` / `measurement_screen_devices` | Measurement authorization derived from current player registration | Retained until lifecycle cleanup |
+| `measurement_pairings` / `measurement_pairing_requests` | Legacy compatibility records for the original measurement authorization API; not exposed as an operator workflow | Short-lived / lifecycle cleanup |
 | `measurement_sessions` | Auth UID/screen/device-bound telemetry sessions | 31 days |
 | `measurement_guests` | Hashed, capability-limited guest sessions | 24 hours |
 | `measurement_buckets` | Cumulative playback retry state | 98 days |
@@ -53,7 +55,7 @@ All measurement collections are root collections and deny direct browser reads a
 | `measurement_daily` | Daily counters and local-hour subcounters | Retained |
 | `measurement_usage` / `measurement_salts` | Short-lived rate counters and daily random salts | 2 days |
 
-TTL policy declarations and index exemptions are checked into `firestore.indexes.json`. TTL deletion is asynchronous; every sensitive session/pairing expiry is enforced in code immediately, regardless of whether its document has been deleted. No aggregate deletion is triggered when a raw event expires. Retention values are product defaults, not claims that they satisfy every jurisdiction or customer contract.
+TTL policy declarations and index exemptions are checked into `firestore.indexes.json`. TTL deletion is asynchronous; every sensitive session/activation expiry is enforced in code immediately, regardless of whether its document has been deleted. No aggregate deletion is triggered when a raw event expires. Retention values are product defaults, not claims that they satisfy every jurisdiction or customer contract.
 
 Raw events are transformed into six aggregates in one transaction: organization, campaign, location, screen, campaign/location, campaign/screen. The event receipt and all increments commit together. Trigger retries cannot double-increment totals. A scheduled reconciliation function processes the oldest 100 unprojected events every 15 minutes; alert/inspect backlog growth instead of treating stale data as a successful campaign result.
 
@@ -71,6 +73,8 @@ recordMeasurementAction         submitMeasurementSurvey
 measurementRedirect             aggregateMeasurementEvent
 reconcileMeasurementEvents
 ```
+
+`requestMeasurementPairing` and `approveMeasurementPairing` remain callable export names for release compatibility, but display activation/player-registration requests are routed through the shared player registration engine. The product does not ask an operator to authorize measurement separately.
 
 The old v1 player functions are not used as the measurement trust boundary. Their Timestamp/FieldValue access has been updated to modular Firebase Admin imports because real emulator testing exposed undefined namespace helpers. The measurement release also updates `syncPublicOrgConfig`, `createScreenSession`, and `sendHeartbeat`; unrelated billing Functions are not redeployed by this workflow.
 
@@ -94,17 +98,17 @@ Rate limits, payload bounds, server-side token validation, authorization and imm
 
 `.github/workflows/measurement-tests.yml` installs locked dependencies, lints, builds the production frontend and Functions, runs unit contracts, then uses loopback Firebase emulators with project `demo-accel-measurement` for Firestore transaction/security tests and real Playwright browser flows. No Firebase production service-account secret is available to those jobs. The built frontend refuses emulator mode unless its project ID starts with `demo-`.
 
-Browser evidence and emulator diagnostics are uploaded as workflow artifacts. Cases include redirect tampering/cache headers/HEAD exclusion, NPS zero, idempotent survey reload, offer actions, actual player playback buckets, offline replay, hidden tiles, and dashboard routing. The Actions run is authoritative for current pass/fail status; this document does not certify an unexecuted test.
+Browser evidence and emulator diagnostics are uploaded as workflow artifacts. Cases include redirect tampering/cache headers/HEAD exclusion, NPS zero, idempotent survey reload, offer actions, actual player playback buckets, offline replay, hidden tiles, dashboard routing, display activation, next-session restoration, fullscreen fallback, and remote reassignment. The Actions run is authoritative for current pass/fail status; this document does not certify an unexecuted test.
 
 The existing dependency lockfiles may report audit findings unrelated to this implementation. No forced dependency upgrade or claim of a clean vulnerability audit is part of this change. Review those findings separately before broad release.
 
 ## Production cutover — explicitly manual
 
-1. Review the implementation PR and its measurement verification run, then merge into `main`. Keep `accelrestaurant-d2c1f` as the only production target.
+1. Review the implementation PR and its measurement/player verification run, then merge into `main`. Keep `accelrestaurant-d2c1f` as the only production target.
 2. Set GitHub's existing `production` environment variable `MEASUREMENT_ORIGIN` to the already verified HTTPS Hosting origin without a trailing slash. The safe default is `https://accelrestaurant-d2c1f.web.app`. Use `https://displays.accelanalysis.com` only after its DNS, certificate and Firebase Hosting attachment are complete. The server—not `window.location.origin`—chooses QR origin.
 3. Run **Deploy Measurement Backend** from `main`, entering `DEPLOY`. The workflow builds/tests against a demo emulator before loading deployment credentials. It checks both the selected Firebase project and service-account project ID, then deploys the named measurement/player Functions plus checked-in Firestore rules/indexes/TTL configurations. It does not release Hosting. Confirm composite indexes are ready and TTL policies enabled before declaring reporting operational; emulator tests validate expiry fields and access logic, not production TTL cleanup execution.
 4. Run the existing **Deploy Production** Hosting workflow from the same reviewed commit. `/r` and `/r/**` must reach `measurementRedirect` before the SPA fallback; updated service workers must exclude those navigation routes. Do not publish first-party QR links pointing to a frontend/backend that has not yet been released.
-5. Reload one physical player, authorize its measurement code, attach a pilot campaign, and make a test scan/submission. Use the test dataset for deliberate testing; production Hosting previews are marked test by server origin checks. Verify the expected screen/location and score sample count in the dashboard.
+5. Open `displays.accelanalysis.com` on one physical TV browser, activate it from **Screens → Activate display**, attach a pilot campaign, and make a test scan/submission. Close and reopen the browser once to confirm the same screen restores without another activation code and the fullscreen attempt/OK fallback runs again. Verify the expected screen/location and score sample count in the dashboard.
 
 The backend rule cutover intentionally disables untrusted legacy `qr_scans` and `daily_metrics` writes. Old `/r?url=...` links return a republish notice instead of remaining an open redirect. Coordinate backend and Hosting releases in one maintenance window and republish any externally printed legacy tracked QRs. Legacy scan history is not silently promoted into the new trustworthy dataset. Existing ordinary nontracked QR destinations and signage playback remain usable.
 
