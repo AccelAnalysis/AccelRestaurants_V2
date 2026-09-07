@@ -3,7 +3,7 @@ import type { Firestore } from 'firebase-admin/firestore';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v1/https';
 import { createHash, randomUUID } from 'node:crypto';
-import { PLAN_NAMES, validateCatalogue, quotePlan, resolvePlan, assertBillingMember, type PlanCatalogue, type PlanName } from './catalog';
+import { PLAN_NAMES, validateBillingCatalogue, quotePlan, resolvePlan, assertBillingMember, type PlanCatalogue, type PlanName } from './catalog';
 export interface CheckoutRequest {
   orgId?: string; planName?: unknown; priceId?: string; screens?: number; seats?: number;
   returnTo?: 'setup' | 'billing'; requestId?: string; successUrl?: string;
@@ -11,7 +11,7 @@ export interface CheckoutRequest {
 }
 export async function loadJourneyCatalogue(db: Firestore) {
   const snap = await db.doc('system/plans').get();
-  try { return validateCatalogue(snap.data()?.configs); }
+  try { return validateBillingCatalogue(snap.data()?.configs); }
   catch { throw new HttpsError('failed-precondition', 'Current plans are not available.'); }
 }
 export async function publicSubscriptionPlans(db: Firestore) {
@@ -33,11 +33,6 @@ export function journeyBillingReturn(requested: unknown) {
 }
 export async function checkoutSubscription(db: Firestore, stripe: Stripe, data: CheckoutRequest, uid: string) {
   const base = origin();
-  const catalogue = await loadJourneyCatalogue(db);
-  let name: PlanName;
-  try { name = resolvePlan(catalogue, data.planName || data.priceId); } catch { throw new HttpsError('invalid-argument', 'Choose a current plan.'); }
-  if (name === 'Free' || name === 'Franchise') throw new HttpsError('invalid-argument', 'This plan does not use checkout.');
-  const config = catalogue[name];
   const profile = await db.doc(`users/${uid}`).get();
   const orgId = data.orgId || profile.data()?.orgId;
   if (typeof orgId !== 'string' || !/^[\w-]{1,128}$/.test(orgId)) throw new HttpsError('failed-precondition', 'Choose a restaurant first.');
@@ -46,7 +41,27 @@ export async function checkoutSubscription(db: Firestore, stripe: Stripe, data: 
   if (!orgSnap.exists) throw new HttpsError('not-found', 'Restaurant not found.');
   const org = orgSnap.data()!;
   try { assertBillingMember(org, memberSnap.data(), uid); } catch { throw new HttpsError('permission-denied', 'Only restaurant owners and administrators can manage billing.'); }
-  if (org.subscriptionId) throw new HttpsError('failed-precondition', 'Manage the existing subscription instead.');
+  let customer = typeof org.stripeCustomerId === 'string' ? org.stripeCustomerId : '';
+  const setup = data.returnTo === 'setup' || (!data.returnTo && isSetupReturn(data.successUrl));
+  const portal = async () => {
+    if (!customer) throw new HttpsError('failed-precondition', 'Your billing details need attention. Contact support.');
+    const session = await stripe.billingPortal.sessions.create({ customer, return_url: `${base}${setup ? '/onboarding?content=1' : '/admin/subscription'}` });
+    return { url: session.url };
+  };
+  if (org.subscriptionId) return portal();
+  // Older webhooks stored the customer but omitted subscriptionId. Ask Stripe
+  // before creating another subscription, including every page and unpaid states.
+  // A failed provider read must reject checkout, never imply no subscription.
+  if (customer) {
+    for await (const subscription of stripe.subscriptions.list({ customer, status: 'all', limit: 100 })) {
+      if (!['canceled', 'incomplete_expired'].includes(subscription.status)) return portal();
+    }
+  }
+  const catalogue = await loadJourneyCatalogue(db);
+  let name: PlanName;
+  try { name = resolvePlan(catalogue, data.planName || data.priceId); } catch { throw new HttpsError('invalid-argument', 'Choose a current plan.'); }
+  if (name === 'Free' || name === 'Franchise') throw new HttpsError('invalid-argument', 'This plan does not use checkout.');
+  const config = catalogue[name];
   const screens = data.screens ?? config.screens + (data.addOns?.screen || 0);
   const seats = data.seats ?? config.seats + (data.addOns?.seat || 0);
   const quote = quotePlan(name, config, screens, seats);
@@ -65,13 +80,11 @@ export async function checkoutSubscription(db: Firestore, stripe: Stripe, data: 
   const requestId = data.requestId || randomUUID();
   if (!/^[\w-]{8,64}$/.test(requestId)) throw new HttpsError('invalid-argument', 'Please try checkout again.');
   const key = createHash('sha256').update(JSON.stringify([orgId, uid, requestId, name, screens, seats, items])).digest('hex');
-  let customer = typeof org.stripeCustomerId === 'string' ? org.stripeCustomerId : '';
   if (!customer) {
     const created = await stripe.customers.create({ metadata: { orgId }, ...(profile.data()?.email ? { email: profile.data()!.email } : {}) }, { idempotencyKey: `restaurant-customer-${orgId}` });
     customer = created.id;
     await orgRef.update({ stripeCustomerId: customer, updatedAt: FieldValue.serverTimestamp() });
   }
-  const setup = data.returnTo === 'setup' || (!data.returnTo && isSetupReturn(data.successUrl));
   const metadata = { orgId, userId: uid, planName: name };
   const session = await stripe.checkout.sessions.create({
     customer, mode: 'subscription', line_items: items, client_reference_id: orgId,

@@ -57,6 +57,7 @@ credentials.json
 *.rej
 
 # Isolated browser verification artifacts
+test-results/
 tests/hig/results/
 tests/hig/report/
 

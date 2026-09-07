@@ -3,6 +3,16 @@ import AxeBuilder from '@axe-core/playwright';
 test.beforeEach(async ({ page }) => {
   await page.route('**/*', route => ['127.0.0.1', 'localhost'].includes(new URL(route.request().url()).hostname) ? route.continue() : route.abort('blockedbyclient'));
 });
+test('a migrated paid account cannot select its current plan for another purchase', async ({ page }, info) => {
+  await page.goto('/billing');
+  await page.evaluate(() => window.__hig.setOwnerProfile({ plan: 'Growth', subscriptionStatus: 'active', subscriptionId: undefined }));
+  await expect(page.getByRole('button', { name: 'Choose Growth plan', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Manage subscription', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: /billing details/ })).toBeVisible();
+  expect(await page.evaluate(() => window.__hig.checkoutCalls)).toEqual([]);
+  expect(await page.evaluate(() => window.__hig.portalCalls.length)).toBe(1);
+  await page.screenshot({ path: info.outputPath('legacy-billing.png'), fullPage: true });
+});
 test('billing restores purchased allowances, overrides and approaching-limit warnings', async ({ page }, info) => {
   await page.goto('/billing-status');
   await page.evaluate(() => window.__hig.setOwnerProfile({ plan: 'Growth', screenCount: 9, purchasedScreens: 3, purchasedSeats: 2, members: ['a','b','c'] }));

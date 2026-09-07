@@ -5,8 +5,8 @@ import { usePlanCatalogue } from '../../hooks/usePlanCatalogue';
 import { InlineFeedback } from '../atoms/InlineFeedback';
 import { PLAN_NAMES, quotePlan, recommendedPlan, type PlanName } from '../../../functions/src/journey/catalog';
 import { entitlements } from '../../../functions/src/cinematic/catalog';
-interface Props { initialScreens?: number; initialSeats?: number; selectedPlan?: PlanName; busy?: boolean; onChoose: (name: PlanName, screens: number, seats: number) => void; }
-export const PlansPanel = ({ initialScreens = 1, initialSeats = 1, selectedPlan, busy = false, onChoose }: Props) => {
+interface Props { initialScreens?: number; initialSeats?: number; selectedPlan?: PlanName; currentPlan?: PlanName; busy?: boolean; onChoose: (name: PlanName, screens: number, seats: number) => void; }
+export const PlansPanel = ({ initialScreens = 1, initialSeats = 1, selectedPlan, currentPlan, busy = false, onChoose }: Props) => {
   const { catalogue, loading, error, notice, retry } = usePlanCatalogue();
   const [screenText, setScreens] = useState(String(initialScreens));
   const [seatText, setSeats] = useState(String(initialSeats));
@@ -30,6 +30,7 @@ export const PlansPanel = ({ initialScreens = 1, initialSeats = 1, selectedPlan,
       {PLAN_NAMES.map(name => {
         const config = catalogue[name], quote = quotePlan(name, config, screens, seats);
         const selected = name === selectedPlan;
+        const currentPaid = name === currentPlan && name !== 'Free';
         return <article key={name} className={`p-5 sm:p-6 rounded-xl border bg-surface flex flex-col ${selected ? 'border-primary ring-1 ring-primary' : 'border-surface-highlight'}`}>
           <h3 className="text-xl font-semibold">{name}{selected && <span className="block text-sm text-text-secondary mt-1">Selected plan</span>}</h3>
           <p className="text-3xl font-semibold my-4">{name === 'Franchise' ? 'Let’s talk' : currency(quote.total ?? config.price)}{name !== 'Franchise' && <span className="text-base font-normal text-text-secondary"> / month</span>}</p>
@@ -43,7 +44,7 @@ export const PlansPanel = ({ initialScreens = 1, initialSeats = 1, selectedPlan,
           {quote.extraScreens > 0 && !quote.error && <p className="text-sm mb-2">Includes {quote.extraScreens} extra screens at {currency(config.addOns!.screen!)} each.</p>}
           {quote.extraSeats > 0 && !quote.error && <p className="text-sm mb-2">Includes {quote.extraSeats} extra team members at {currency(config.addOns!.seat!)} each.</p>}
           {valid && quote.error && <p className="text-sm mb-3">{quote.error}</p>}
-          {name === 'Franchise' ? <Link className="ui-button ui-button-secondary" to="/restaurants#contact">Contact us about a larger plan</Link> : <button type="button" className="ui-button ui-button-primary mt-3" aria-pressed={selected} aria-label={`Choose ${name} plan`} disabled={!valid || !!quote.error || busy} onClick={() => onChoose(name, screens, seats)}>{busy && selected ? 'Opening…' : name === 'Free' ? 'Continue free' : `Choose ${name}`}</button>}
+          {name === 'Franchise' ? <Link className="ui-button ui-button-secondary" to="/restaurants#contact">Contact us about a larger plan</Link> : <button type="button" className="ui-button ui-button-primary mt-3" aria-pressed={selected} aria-label={`Choose ${name} plan`} disabled={currentPaid || !valid || !!quote.error || busy} onClick={() => onChoose(name, screens, seats)}>{currentPaid ? 'Current plan' : busy && selected ? 'Opening…' : name === 'Free' ? 'Continue free' : `Choose ${name}`}</button>}
         </article>;
       })}
     </div>}

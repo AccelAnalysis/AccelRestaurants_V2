@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
-import ts from 'typescript';
+import ts from '../../node_modules/typescript/lib/typescript.js';
 const dir = mkdtempSync(join(tmpdir(), 'cinematic-unit-'));
 for (const name of ['catalog', 'typography', 'templates']) {
   const source = readFileSync(new URL(`../../functions/src/cinematic/${name}.ts`, import.meta.url), 'utf8');

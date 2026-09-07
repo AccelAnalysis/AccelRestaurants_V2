@@ -27,6 +27,25 @@ export function validateCatalogue(value: unknown): PlanCatalogue {
   }
   return result;
 }
+/** Payment configuration is stricter than display-only cached/bundled plans. */
+export function validateBillingCatalogue(value: unknown): PlanCatalogue {
+  const catalogue = validateCatalogue(value);
+  const ids = new Set<string>();
+  const priceId = (id: unknown) => {
+    if (typeof id !== 'string' || !/^price_[a-zA-Z0-9]+$/.test(id) || ids.has(id)) throw new Error('Plan payment details are unavailable.');
+    ids.add(id);
+  };
+  for (const name of ['Basic', 'Growth', 'Enterprise'] as const) {
+    const plan = catalogue[name];
+    priceId(plan.stripePriceId);
+    for (const kind of ['screen', 'seat'] as const) {
+      const amount = plan.addOns?.[kind], id = plan.addOns?.[`${kind}PriceId`];
+      if (amount !== undefined) priceId(id);
+      else if (id !== undefined) throw new Error('Plan payment details are unavailable.');
+    }
+  }
+  return catalogue;
+}
 export function quotePlan(name: PlanName, p: PlanConfig, screens: number, seats: number): PlanQuote {
   const invalid = (error: string): PlanQuote => ({ total: null, extraScreens: 0, extraSeats: 0, error });
   if (!count(screens) || !count(seats)) return invalid('Enter whole numbers of at least one.');

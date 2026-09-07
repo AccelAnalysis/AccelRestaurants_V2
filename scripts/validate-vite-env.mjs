@@ -28,10 +28,14 @@ if (firebaseProjectId && firebaseProjectId !== viteProjectId) {
   process.exit(1);
 }
 
-if (target === 'staging' && viteProjectId !== productionProjectId) {
+if (target === 'staging' && viteProjectId === productionProjectId) {
   console.error(
-    `Refusing PR preview because VITE_FIREBASE_PROJECT_ID is not ${productionProjectId}.`,
+    'Refusing TEST preview because staging points at the production Firebase project.',
   );
+  process.exit(1);
+}
+if (target === 'staging' && !process.env.VITE_STRIPE_PUBLISHABLE_KEY.startsWith('pk_test_')) {
+  console.error('Refusing TEST preview because Stripe is not configured for test mode.');
   process.exit(1);
 }
 

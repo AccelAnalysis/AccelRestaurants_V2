@@ -1,4 +1,4 @@
-import { PLAN_NAMES, validateCatalogue, quotePlan, recommendedPlan, resolvePlan, assertBillingMember, type PlanCatalogue } from './catalog';
+import { PLAN_NAMES, validateCatalogue, validateBillingCatalogue, quotePlan, recommendedPlan, resolvePlan, assertBillingMember, type PlanCatalogue } from './catalog';
 import { subscriptionAllowance, checkoutSubscription } from './billing';
 import type { Firestore } from 'firebase-admin/firestore';
 import type Stripe from 'stripe';
@@ -11,6 +11,19 @@ const catalogue: PlanCatalogue = {
 };
 describe('one commercial catalogue', () => {
   test('validates configured plans without changing prices', () => expect(validateCatalogue(catalogue)).toEqual(catalogue));
+  test('server billing validates all payable mappings without requiring them in display defaults', () => {
+    expect(validateBillingCatalogue(catalogue)).toEqual(catalogue);
+    const missing = { ...catalogue, Basic: { ...basic, stripePriceId: undefined } };
+    expect(validateCatalogue(missing)).toEqual(missing);
+    expect(() => validateBillingCatalogue(missing)).toThrow();
+  });
+  test.each([
+    { ...catalogue, Growth: { ...catalogue.Growth, stripePriceId: basic.stripePriceId } },
+    { ...catalogue, Basic: { ...basic, addOns: { ...basic.addOns, screenPriceId: undefined } } },
+    { ...catalogue, Basic: { ...basic, addOns: { ...basic.addOns, screenPriceId: basic.stripePriceId } } },
+    { ...catalogue, Basic: { ...basic, addOns: { ...basic.addOns, screen: undefined } } },
+    { ...catalogue, Basic: { ...basic, stripePriceId: 'price_placeholder_not_real' } },
+  ])('rejects missing, ambiguous and malformed payment mappings', input => expect(() => validateBillingCatalogue(input)).toThrow());
   test.each([null, {}, { ...catalogue, Basic: { ...basic, price: NaN } }, { ...catalogue, Basic: { ...basic, price: -1 } }, { ...catalogue, Basic: { ...basic, screens: 0 } }])('rejects malformed configuration %p', input => expect(() => validateCatalogue(input)).toThrow());
   test.each([[0, 1], [1.5, 1], [1, -1], [Infinity, 1], [1, NaN]])('rejects invalid quantities %p / %p', (screens, seats) => expect(quotePlan('Basic', basic, screens, seats).error).not.toBeNull());
   test('uses screen and team extras', () => expect(quotePlan('Basic', basic, 2, 2).total).toBe(63));
@@ -22,12 +35,14 @@ describe('one commercial catalogue', () => {
   test('webhook allowance is derived from actual subscription items', () => expect(subscriptionAllowance(catalogue, [{ price: { id: 'price_growth' }, quantity: 1 }, { price: { id: 'price_growthScreen' }, quantity: 2 }])).toEqual({ plan: 'Growth', purchasedScreens: 2, purchasedSeats: 0 }));
   test('rejects unknown and mismatched subscription items', () => { for (const items of [[{ price: { id: 'price_external' }, quantity: 1 }], [{ price: { id: 'price_growth' }, quantity: 2 }], [{ price: { id: 'price_growth' }, quantity: 1 }, { price: { id: 'price_basicScreen' }, quantity: 1 }]]) expect(() => subscriptionAllowance(catalogue, items)).toThrow(); });
 });
-function boundary(overrides: Record<string, unknown> = {}) {
+function boundary(overrides: Record<string, unknown> = {}, subscriptions: { status: string }[] = []) {
   const org = { ownerId: 'owner', members: ['owner'], screenCount: 1, stripeCustomerId: 'cus_restaurant', ...overrides };
   const db = { doc: (path: string) => ({ get: async () => ({ exists: true, data: () => path === 'system/plans' ? { configs: catalogue } : path.startsWith('users/') ? { orgId: 'restaurant' } : org }), collection: () => ({ doc: () => ({ get: async () => ({ data: () => ({ role: 'user', status: 'active' }) }) }) }) }) } as unknown as Firestore;
   const create = jest.fn(async () => ({ url: 'https://checkout.stripe.com/test' }));
-  const stripe = { prices: { retrieve: jest.fn(async (id: string) => ({ id, active: true, type: 'recurring', currency: 'usd', unit_amount: id === 'price_basic' ? 2900 : id === 'price_basicScreen' ? 1500 : 1900, recurring: { interval: 'month', interval_count: 1 } })) }, checkout: { sessions: { create } } } as unknown as Stripe;
-  return { db, stripe, create };
+  const portal = jest.fn(async () => ({ url: 'https://billing.stripe.com/test' }));
+  const list = jest.fn(async function* () { yield* subscriptions; });
+  const stripe = { subscriptions: { list }, billingPortal: { sessions: { create: portal } }, prices: { retrieve: jest.fn(async (id: string) => ({ id, active: true, type: 'recurring', currency: 'usd', unit_amount: id === 'price_basic' ? 2900 : id === 'price_basicScreen' ? 1500 : 1900, recurring: { interval: 'month', interval_count: 1 } })) }, checkout: { sessions: { create } } } as unknown as Stripe;
+  return { db, stripe, create, portal, list };
 }
 describe('subscription checkout boundary', () => {
   test('builds prices and return URLs on the server and uses idempotency', async () => {
@@ -38,7 +53,38 @@ describe('subscription checkout boundary', () => {
     expect(request.success_url).toMatch(/^https:\/\/[^/]+\/onboarding\?content=1$/);
     expect(options.idempotencyKey).toMatch(/^restaurant-checkout-/);
   });
-  test('does not open a second subscription', async () => { const { db, stripe, create } = boundary({ subscriptionId: 'sub_existing' }); await expect(checkoutSubscription(db, stripe, { planName: 'Basic' }, 'owner')).rejects.toThrow(); expect(create).not.toHaveBeenCalled(); });
+  test('an existing subscription opens the portal without depending on the current catalogue', async () => {
+    const { db, stripe, create, portal, list } = boundary({ subscriptionId: 'sub_existing' });
+    await expect(checkoutSubscription(db, stripe, { planName: 'retired-plan' }, 'owner')).resolves.toEqual({ url: 'https://billing.stripe.com/test' });
+    expect(portal).toHaveBeenCalledWith({ customer: 'cus_restaurant', return_url: 'https://accelrestaurant-d2c1f.web.app/admin/subscription' });
+    expect(create).not.toHaveBeenCalled(); expect(list).not.toHaveBeenCalled();
+  });
+  test.each(['active', 'trialing', 'past_due', 'unpaid', 'paused', 'incomplete'])('legacy %s subscriptions without a stored ID open the portal, never checkout', async status => {
+    const { db, stripe, create, portal, list } = boundary({ plan: 'Growth', subscriptionStatus: status }, [...Array.from({ length: 100 }, () => ({ status: 'canceled' })), { status }]);
+    await checkoutSubscription(db, stripe, { planName: 'Basic', returnTo: 'setup' }, 'owner');
+    expect(list).toHaveBeenCalledWith({ customer: 'cus_restaurant', status: 'all', limit: 100 });
+    expect(portal).toHaveBeenCalledWith({ customer: 'cus_restaurant', return_url: 'https://accelrestaurant-d2c1f.web.app/onboarding?content=1' });
+    expect(create).not.toHaveBeenCalled();
+  });
+  test('ended subscriptions allow a new checkout', async () => {
+    const { db, stripe, create, portal } = boundary({}, [{ status: 'canceled' }, { status: 'incomplete_expired' }]);
+    await checkoutSubscription(db, stripe, { planName: 'Basic' }, 'owner');
+    expect(create).toHaveBeenCalledTimes(1); expect(portal).not.toHaveBeenCalled();
+  });
+  test('a failed subscription lookup cannot create another subscription', async () => {
+    const { db, stripe, create, list } = boundary();
+    list.mockImplementation(async function* () { yield { status: 'canceled' }; throw new Error('Provider unavailable'); });
+    await expect(checkoutSubscription(db, stripe, { planName: 'Basic' }, 'owner')).rejects.toThrow('Provider unavailable');
+    expect(create).not.toHaveBeenCalled();
+  });
+  test('a missing customer or failed portal cannot fall through to checkout', async () => {
+    for (const customer of [undefined, 'cus_restaurant']) {
+      const { db, stripe, create, portal } = boundary({ subscriptionId: 'sub_existing', stripeCustomerId: customer });
+      portal.mockRejectedValue(new Error('Portal unavailable'));
+      await expect(checkoutSubscription(db, stripe, { planName: 'Basic' }, 'owner')).rejects.toThrow();
+      expect(create).not.toHaveBeenCalled();
+    }
+  });
   test('denies non-admins before checkout', async () => { const { db, stripe, create } = boundary(); await expect(checkoutSubscription(db, stripe, { planName: 'Basic' }, 'other')).rejects.toThrow(); expect(create).not.toHaveBeenCalled(); });
   test('does not charge when configured and payment-provider prices differ', async () => { const { db, stripe, create } = boundary(); (stripe.prices.retrieve as jest.Mock).mockResolvedValue({ active: true, type: 'recurring', currency: 'usd', unit_amount: 9999, recurring: { interval: 'month', interval_count: 1 } }); await expect(checkoutSubscription(db, stripe, { planName: 'Basic' }, 'owner')).rejects.toThrow(); expect(create).not.toHaveBeenCalled(); });
   test('does not accept unknown plan names', async () => { const { db, stripe, create } = boundary(); await expect(checkoutSubscription(db, stripe, { planName: 'attacker' }, 'owner')).rejects.toThrow(); expect(create).not.toHaveBeenCalled(); });

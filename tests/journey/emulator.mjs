@@ -67,6 +67,22 @@ try {
     const body = await response.json(); assert.deepEqual(webhook ? body.journeyRelease : body.result?.journeyRelease, expected, name);
   }
   pass('each actual Functions handler exposes the exact code contract without any payment or customer write');
+  const plansEndpoint = `http://127.0.0.1:5001/${projectId}/us-central1/getSubscriptionPlans`;
+  const readPlans = () => fetch(plansEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: {} }) });
+  assert.equal((await readPlans()).status, 400, 'display placeholder IDs are not a payable server catalogue');
+  const emulatorCatalogue = structuredClone(PLAN_CONFIGS);
+  // Synthetic IDs only exercise schema validation in the isolated demo project.
+  // These are not Stripe prices and this test never calls Stripe.
+  for (const name of ['Basic', 'Growth', 'Enterprise']) {
+    const plan = emulatorCatalogue[name];
+    plan.stripePriceId = `price_emulator${name}`;
+    for (const kind of ['screen', 'seat']) if (plan.addOns?.[kind] !== undefined) plan.addOns[`${kind}PriceId`] = `price_emulator${name}${kind}`;
+  }
+  await adminDB.doc('system/plans').set({ configs: emulatorCatalogue });
+  const plansResponse = await readPlans();
+  assert.equal(plansResponse.status, 200);
+  assert.deepEqual((await plansResponse.json()).result.map(plan => [plan.name, plan.price]), Object.entries(PLAN_CONFIGS).map(([name, plan]) => [name, plan.price]));
+  pass('actual public handler rejects display placeholder mappings and accepts a complete server catalogue schema');
   const unauth = await fetch(`http://127.0.0.1:5001/${projectId}/us-central1/createStripeCheckoutSession`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: { planName: 'Basic', screens: 1, seats: 1 } }) });
   assert.equal(unauth.status, 401);
   const badSignature = await fetch(`http://127.0.0.1:5001/${projectId}/us-central1/stripeWebhook`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });

@@ -3,24 +3,47 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const billingFunctions = ['getSubscriptionPlans', 'createStripeCheckoutSession', 'createStripePortalSession', 'stripeWebhook'];
 export const digest = content => createHash('sha256').update(content).digest('hex');
 export async function expectedRelease() {
-  const files = ['functions/src/index.ts', 'functions/src/journey/billing.ts', 'functions/src/journey/catalog.ts', 'functions/package-lock.json'];
+  const files = ['functions/src/index.ts', 'functions/src/journey/billing.ts', 'functions/src/journey/catalog.ts', 'functions/package.json', 'functions/package-lock.json', 'functions/tsconfig.json'];
   const parts = await Promise.all(files.map(async name => name + '\n' + await readFile(path.join(root, name), 'utf8')));
   return { contractVersion: 2, functionsHash: digest(parts.join('\n')), storageRulesHash: digest(await readFile(path.join(root, 'storage.rules'), 'utf8')) };
 }
 export function assessRelease(expected, observed) {
   const problems = [];
+  const handlerCompatibility = {};
   for (const name of billingFunctions) {
-    if (observed.functions?.[name]?.contractVersion !== expected.contractVersion || observed.functions?.[name]?.functionsHash !== expected.functionsHash) problems.push(`${name}: deployed billing code does not match this build`);
+    handlerCompatibility[name] = matchesContract(expected, observed.functions?.[name]);
+    if (!handlerCompatibility[name]) problems.push(`${name}: deployed billing code does not match this build`);
   }
   if (observed.storageRulesHash !== expected.storageRulesHash) problems.push('Storage: deployed rules have not been verified against this build');
   if (observed.catalogueReady !== true) problems.push('Plans: a valid server catalogue has not been confirmed');
-  return { compatible: problems.length === 0, problems, stripeLifecycleVerified: false };
+  const backendCompatible = problems.length === 0;
+  // Read-only health checks cannot attest to payment completion or media upload.
+  // Keep the release closed until the real test-environment suites provide those
+  // observations. Do not accept an environment flag or hand-written success file.
+  problems.push('Stripe: real TEST checkout and signed webhook lifecycle has not been verified');
+  problems.push('Homepage video: real TEST Storage upload and playback has not been verified');
+  return { compatible: false, backendCompatible, handlerCompatibility, storageRulesCompatible: observed.storageRulesHash === expected.storageRulesHash, catalogueReady: observed.catalogueReady === true, problems, stripeLifecycleVerified: false, homepageVideoUploadVerified: false };
 }
-async function observeRemote(projectId, bucket) {
+function matchesContract(expected, actual) {
+  return actual?.contractVersion === expected.contractVersion && actual?.functionsHash === expected.functionsHash;
+}
+export function validPublicPlans(plans) {
+  const names = ['Free', 'Basic', 'Growth', 'Enterprise', 'Franchise'];
+  return Array.isArray(plans) && plans.length === names.length && names.every(name => {
+    const matches = plans.filter(plan => plan?.name === name);
+    if (matches.length !== 1) return false;
+    const plan = matches[0];
+    return plan.id === name && typeof plan.price === 'number' && Number.isFinite(plan.price) && plan.price >= 0 &&
+      (name !== 'Free' || plan.price === 0) && plan.currency === 'USD' && plan.interval === 'month' &&
+      Array.isArray(plan.features) && plan.features.every(feature => typeof feature === 'string');
+  });
+}
+async function observeRemote(projectId, bucket, expected) {
   if (!/^[a-z][a-z0-9-]{4,62}$/.test(projectId || '')) throw new Error('Set FIREBASE_PROJECT_ID to the reviewed project.');
   const base = `https://us-central1-${projectId}.cloudfunctions.net`;
   const observed = { functions: {}, catalogueReady: false, storageRulesHash: null };
@@ -36,7 +59,9 @@ async function observeRemote(projectId, bucket) {
   try {
     const response = await fetch(`${base}/getSubscriptionPlans`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: {} }), signal: AbortSignal.timeout(15000) });
     const body = await response.json();
-    observed.catalogueReady = response.ok && Array.isArray(body.result) && ['Free', 'Basic', 'Growth', 'Enterprise', 'Franchise'].every(name => body.result.some(plan => plan.name === name));
+    // Only the matching reviewed handler proves that the authoritative document
+    // passed validateBillingCatalogue; an old endpoint returning names cannot.
+    observed.catalogueReady = response.ok && matchesContract(expected, observed.functions.getSubscriptionPlans) && validPublicPlans(body.result);
   } catch { /* Kept false. */ }
   // Read management metadata only. This check never publishes rules or writes a customer object.
   if (process.env.FIREBASE_SERVICE_ACCOUNT && bucket && /^[a-z0-9.-]+$/.test(bucket)) {
@@ -63,15 +88,16 @@ async function main() {
   }
   const preview = process.argv.includes('--preview');
   if (!preview && !process.argv.includes('--release')) throw new Error('Use --preview or --release.');
-  const observed = await observeRemote(process.env.FIREBASE_PROJECT_ID, process.env.VITE_FIREBASE_STORAGE_BUCKET);
+  const observed = await observeRemote(process.env.FIREBASE_PROJECT_ID, process.env.VITE_FIREBASE_STORAGE_BUCKET, expected);
   const assessment = assessRelease(expected, observed);
-  const report = { mode: preview ? 'hosting-preview' : 'release-preflight', checkedAt: new Date().toISOString(), revision: process.env.GITHUB_SHA || null, expected, observed, ...assessment };
+  const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+  const report = { mode: preview ? 'hosting-preview' : 'release-preflight', checkedAt: new Date().toISOString(), revision, triggeringRevision: process.env.GITHUB_SHA || null, projectId: process.env.FIREBASE_PROJECT_ID, storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || null, expected, observed, ...assessment };
   await mkdir(path.join(root, 'test-results'), { recursive: true });
   await writeFile(path.join(root, 'test-results/journey-release.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report, null, 2));
   if (process.env.GITHUB_STEP_SUMMARY) {
     const { appendFile } = await import('node:fs/promises');
-    await appendFile(process.env.GITHUB_STEP_SUMMARY, `\n## Customer journey deployment boundary\n${assessment.compatible ? 'Backend and Storage versions match this build.' : 'Hosting-only preview: backend-dependent flows are NOT verified.'}\n${assessment.problems.map(problem => '- ' + problem).join('\n')}\nStripe test-mode lifecycle has not been exercised by this read-only check.\n`);
+    await appendFile(process.env.GITHUB_STEP_SUMMARY, `\n## Customer journey deployment boundary\n${assessment.backendCompatible ? 'Backend and Storage versions match this build; end-to-end release verification remains incomplete.' : 'Backend-dependent flows are NOT verified.'}\n${assessment.problems.map(problem => '- ' + problem).join('\n')}\n`);
   }
   if (!assessment.compatible && !preview) process.exitCode = 1;
 }
