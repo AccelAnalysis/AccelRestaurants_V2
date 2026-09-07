@@ -23,6 +23,63 @@ jobs:
       - name: Apply Firebase audio integration
         run: python .github/patches/apply_firebase_audio_experience.py
 
+      - name: Normalize generated React effects
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          plane = Path('src/components/atoms/GlobalMediaPlane.tsx')
+          text = plane.read_text()
+          text = text.replace(
+              "  const config = normalizeScreenAudioConfig(screen.audioConfig);",
+              "  const config = useMemo(() => normalizeScreenAudioConfig(screen.audioConfig), [screen.audioConfig]);"
+          )
+          text = text.replace(
+              "  }, [screen.id, screen.audioConfig]);",
+              "  }, [config]);"
+          )
+          text = text.replace(
+              """  useEffect(() => {
+            if (!location?.id) {
+              setLocationSync(null);
+              return;
+            }
+            return AudioService.subscribeToLocationAudio(location.id, setLocationSync);
+          }, [location?.id]);
+          """,
+              """  useEffect(() => {
+            if (!location?.id) return;
+            return AudioService.subscribeToLocationAudio(location.id, setLocationSync);
+          }, [location?.id]);
+          """
+          )
+          text = text.replace(
+              """  useEffect(() => {
+            if (currentIndex >= tracks.length) setCurrentIndex(0);
+            setNextIndex(null);
+            setCrossfadeProgress(0);
+          }, [tracks.length, currentIndex]);
+          """,
+              """  useEffect(() => {
+            const reset = window.setTimeout(() => {
+              if (currentIndex >= tracks.length) setCurrentIndex(0);
+              setNextIndex(null);
+              setCrossfadeProgress(0);
+            }, 0);
+            return () => window.clearTimeout(reset);
+          }, [tracks.length, currentIndex]);
+          """
+          )
+          plane.write_text(text)
+
+          tile = Path('src/components/atoms/TileContent.tsx')
+          text = tile.read_text().replace(
+              "    else { audio.pause(); setStatus('idle'); }",
+              "    else { audio.pause(); }"
+          )
+          tile.write_text(text)
+          PY
+
       - name: Install frontend dependencies
         run: npm ci
 
