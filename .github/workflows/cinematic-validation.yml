@@ -4,21 +4,34 @@ on:
     branches: [feat/cinematic-productization]
     paths: [.github/workflows/cinematic-validation.yml]
 permissions:
-  contents: read
+  contents: write
 jobs:
-  validate:
+  materialize:
+    if: github.ref == 'refs/heads/feat/cinematic-productization'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: feat/cinematic-productization
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm ci
-      - run: npm ci --prefix functions
-      - name: Package isolated integration workspace
-        run: tar --exclude=.git --exclude=node_modules/.cache -czf /tmp/cinematic-workspace.tar.gz .
+      - name: Apply the validated change
+        run: python .github/cinematic-apply.py
+      - name: Lock isolated test dependencies
+        run: npm install --package-lock-only --ignore-scripts --prefix tests/cinematic
+      - name: Commit only to the cinematic branch
+        run: |
+          test "$(git branch --show-current)" = feat/cinematic-productization
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/cinematic-* .gitignore docs/cinematic firestore.rules functions/src src tests/cinematic tests/hig/full.spec.mjs
+          git diff --cached --check
+          git commit -m 'feat: productize cinematic presets, restaurant starters, onboarding and plan entitlements'
+          git push origin HEAD:refs/heads/feat/cinematic-productization
       - uses: actions/upload-artifact@v4
         with:
-          name: cinematic-workspace
-          path: /tmp/cinematic-workspace.tar.gz
+          name: cinematic-test-lock
+          path: tests/cinematic/package-lock.json
           retention-days: 1
