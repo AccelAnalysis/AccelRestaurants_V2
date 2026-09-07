@@ -31,6 +31,14 @@ test('setup is accessible, cancellable, responsive and draft-resumable',async({p
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
   await page.screenshot({path:info.outputPath('guided-setup.png'),fullPage:true});
 });
+test('Back on the first setup step exits without creating content',async({page})=>{
+  await page.emulateMedia({reducedMotion:'reduce'});await page.goto('/');
+  const open=page.getByRole('button',{name:'Open restaurant setup'});await open.click();
+  const back=page.getByRole('button',{name:'Back',exact:true});
+  await expect(back).toBeEnabled();await back.click();
+  await expect(page.getByRole('dialog',{name:'Your restaurant, screen-ready'})).toHaveCount(0);
+  expect(await page.evaluate(()=>window.__cinematic.calls.length)).toBe(0);
+});
 test('Free previews premium choices, then explicitly creates included static content',async({page})=>{
   await page.emulateMedia({reducedMotion:'reduce'});await page.goto('/?plan=Free');await page.getByRole('button',{name:'Open restaurant setup'}).click();
   await page.getByRole('button',{name:/Chef’s table/}).click();await page.getByRole('button',{name:'Continue',exact:true}).click();await page.getByRole('button',{name:'Continue',exact:true}).click();
