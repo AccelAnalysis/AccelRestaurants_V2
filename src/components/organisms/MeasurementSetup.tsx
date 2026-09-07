@@ -13,7 +13,7 @@ export function MeasurementSetup({ orgId, campaigns, onChange, canManage }: { or
   const [question, setQuestion] = useState('What would make your next visit better?'); const [pollOptions, setPollOptions] = useState('Option A\nOption B');
   const [comments, setComments] = useState(true); const [slides, setSlides] = useState<Slide[]>([]);
   const [campaignId, setCampaignId] = useState(''); const [slideId, setSlideId] = useState(''); const [tileId, setTileId] = useState('');
-  const [code, setCode] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
   const requestId = useRef(crypto.randomUUID());
   useEffect(() => {
     let cancelled = false;
@@ -42,7 +42,7 @@ export function MeasurementSetup({ orgId, campaigns, onChange, canManage }: { or
     }, 'Campaign created. Attach it to an existing QR tile below.');
   };
   const availableTiles = slides.find(slide => slide.id === slideId)?.elements.filter(tile => tile.type === 'qr_code') || [];
-  if (!canManage) return <p className="rounded-lg border border-surface-highlight bg-surface p-6">Campaign setup and player authorization are available to organization administrators. Your reports remain scoped to your assigned locations.</p>;
+  if (!canManage) return <p className="rounded-lg border border-surface-highlight bg-surface p-6">Campaign setup is available to organization administrators. Your reports remain scoped to your assigned locations.</p>;
   return <div className="space-y-8">
     <section className="rounded-xl border border-surface-highlight bg-surface p-5 sm:p-6">
       <h2 className="text-xl font-semibold mb-2">Create a measured campaign</h2>
@@ -71,12 +71,9 @@ export function MeasurementSetup({ orgId, campaigns, onChange, canManage }: { or
       </form>
     </section>
     <section className="rounded-xl border border-surface-highlight bg-surface p-5 sm:p-6">
-      <h2 className="text-xl font-semibold mb-2">Authorize a physical player</h2>
-      <p className="text-text-muted mb-6">Enter the measurement code displayed on the actual screen. This one-time authorization prevents anyone with a public player URL from manufacturing live play counts. Publishing and playback continue without it.</p>
-      <form onSubmit={event => { event.preventDefault(); void run(() => MeasurementService.approvePairing(orgId, code.trim()), 'Player authorized. Its measurement session will reconnect automatically.'); }} className="flex flex-col sm:flex-row gap-3">
-        <label className="flex-1"><span className="sr-only">Measurement pairing code</span><input aria-label="Measurement pairing code" className={inputClass} required minLength={10} maxLength={10} autoComplete="off" value={code} onChange={event => setCode(event.target.value.toUpperCase())} placeholder="10-character screen code" /></label>
-        <button disabled={busy} type="submit" className="ui-button ui-button-primary min-h-12">Authorize player</button>
-      </form>
+      <h2 className="text-xl font-semibold mb-2">Player attribution follows display activation</h2>
+      <p className="text-text-muted mb-4">There is no separate measurement pairing step. When a TV is activated, replaced, moved, swapped, or deactivated from Screens, its trusted measurement identity follows that same player registration automatically.</p>
+      <Link to="/admin/screens" className="ui-button ui-button-secondary min-h-11">Manage activated displays</Link>
     </section>
     <section className="rounded-xl border border-surface-highlight bg-surface p-5 sm:p-6">
       <h2 className="text-xl font-semibold mb-4">Campaign library</h2>
