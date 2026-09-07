@@ -29,6 +29,7 @@ const GENERAL_DOC = 'general';
        const next = removeUndefinedDeep(v);
        if (next === undefined) return acc;
        acc[k] = next;
+       return acc;
      }, {});
 
      return cleaned as unknown as T;
