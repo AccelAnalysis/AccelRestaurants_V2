@@ -1,0 +1,22 @@
+name: Cinematic validation
+on:
+  push:
+    branches: [feat/cinematic-productization]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - name: Package isolated test workspace
+        run: tar --exclude=.git --exclude=node_modules/.cache -czf /tmp/cinematic-workspace.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cinematic-workspace
+          path: /tmp/cinematic-workspace.tar.gz
+          retention-days: 1
