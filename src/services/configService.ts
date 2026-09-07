@@ -2,7 +2,7 @@ import { doc, getDoc, setDoc, serverTimestamp, Timestamp } from 'firebase/firest
 import { db } from '../lib/firebase';
 import { validateCatalogue } from '../../functions/src/journey/catalog';
 import type { WebsiteContent } from '../lib/websiteContent';
-import type { PlanType, PlanLimits } from '../lib/plans';
+import { PLAN_CONFIGS, type PlanType, type PlanLimits } from '../lib/plans';
 
 const SYSTEM_COLLECTION = 'system';
 const PLANS_DOC = 'plans';
@@ -29,7 +29,6 @@ const GENERAL_DOC = 'general';
        const next = removeUndefinedDeep(v);
        if (next === undefined) return acc;
        acc[k] = next;
-       return acc;
      }, {});
 
      return cleaned as unknown as T;
@@ -103,15 +102,20 @@ export const ConfigService = {
   },
 
   /**
-   * Fetch plan configurations from Firestore
-   * Falls back to local defaults if not found
+   * Fetch the remotely managed plan catalogue when it is available.
+   * A bundled last-known-good catalogue keeps public plan comparison usable
+   * during preview/backend skew, a missing system document, or a temporary read failure.
+   * Checkout and paid access remain server-validated against the backend catalogue.
    */
   getPlanConfigs: async (): Promise<Record<PlanType, PlanLimits>> => {
-    const snapshot = await getDoc(doc(db, SYSTEM_COLLECTION, PLANS_DOC));
-    if (!snapshot.exists()) throw new Error('Current plan details are not available.');
-    return validateCatalogue(snapshot.data().configs) as Record<PlanType, PlanLimits>;
+    try {
+      const snapshot = await getDoc(doc(db, SYSTEM_COLLECTION, PLANS_DOC));
+      if (!snapshot.exists()) return validateCatalogue(PLAN_CONFIGS) as Record<PlanType, PlanLimits>;
+      return validateCatalogue(snapshot.data().configs) as Record<PlanType, PlanLimits>;
+    } catch {
+      return validateCatalogue(PLAN_CONFIGS) as Record<PlanType, PlanLimits>;
+    }
   },
-
 
   /**
    * Save plan configurations to Firestore
