@@ -119,6 +119,10 @@ export const PlayerScreen = () => {
     let cancelled = false;
     const authenticatePlayer = async () => {
       try {
+        // Persistence hydrates asynchronously. Never replace an existing authorized
+        // identity just because currentUser is temporarily null during startup.
+        await auth.authStateReady();
+        if (cancelled) return;
         if (!auth.currentUser) {
           await signInAnonymously(auth);
         }

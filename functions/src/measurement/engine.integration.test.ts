@@ -194,6 +194,32 @@ suite('first-party measurement Firestore integration (emulator only)', () => {
     for (const row of (await db!.collection('measurement_daily').get()).docs) expect(row.data().expireAt).toBeUndefined();
   });
 
+  test('replacing a physical device immediately invalidates old measurement sessions', async () => {
+    const { e, session } = await prepare();
+    const pair = await e.requestPairing('playerB', 'screenA');
+    await e.approvePairing('ownerA', { orgId: 'orgA', code: pair.code });
+    await expect(e.checkedSession('playerA', session.sessionId)).rejects.toThrow('replaced');
+    expect((await e.openSession('playerB', 'screenA', 'live')).mode).toBe('live');
+  });
+
+  test('external-only scans do not become unobserved first-party non-conversions', async () => {
+    const { e, placementId } = await prepare('external');
+    expect(await e.scan(await e.placement(placementId))).toBe('https://restaurant.example/menu');
+    await projectAll(e);
+    const summary = await report();
+    expect(summary.totals.scans).toBe(1);
+    expect(summary.totals.cohortScans || 0).toBe(0);
+    expect((await db!.collection('measurement_guests').get()).size).toBe(0);
+  });
+
+  test('projected event status still prevents duplicate increments after receipt cleanup', async () => {
+    const { e, placementId } = await prepare('external');
+    await e.scan(await e.placement(placementId)); await projectAll(e);
+    for (const receipt of (await db!.collection('measurement_receipts').get()).docs) await receipt.ref.delete();
+    await projectAll(e);
+    expect((await report()).totals.scans).toBe(1);
+  });
+
   test('public Firestore REST cannot forge or read any measurement collection', async () => {
     const url = `http://${emulator}/v1/projects/${PROJECT}/databases/(default)/documents`;
     for (const collection of ['qr_scans','daily_metrics','measurement_events','measurement_daily','measurement_responses','campaign_placements','measurement_devices','measurement_sessions','measurement_guests']) {

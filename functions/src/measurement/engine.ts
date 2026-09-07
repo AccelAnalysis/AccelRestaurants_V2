@@ -107,7 +107,7 @@ export class MeasurementEngine {
   }
 
   async requestPairing(uid: string, screenId: string) {
-    id(uid); id(screenId); await this.rate(`pair-request:${uid}`, 10, 15 * MINUTE);
+    id(uid); id(screenId); await this.rate(`pair-request:${uid}`, 30, 15 * MINUTE);
     const screen = await this.db.doc(`screens/${screenId}`).get();
     requireValue(screen.data()?.orgId, 'Assign this screen to an organization before enabling measurement.', 'failed-precondition');
     const pendingRef = this.db.doc(`measurement_pairing_requests/${sessionKey(uid, screenId)}`);
@@ -133,6 +133,7 @@ export class MeasurementEngine {
       tx.set(this.db.doc(`measurement_devices/${sessionKey(p!.uid, p!.screenId)}`), {
         uid: p!.uid, screenId: p!.screenId, orgId, revoked: false, approvedBy: uid, approvedAt: this.timestamp(),
       });
+      tx.set(this.db.doc(`measurement_screen_devices/${p!.screenId}`), { orgId, deviceId: sessionKey(p!.uid, p!.screenId), approvedAt: this.timestamp() });
       tx.delete(pairRef); tx.delete(this.db.doc(`measurement_pairing_requests/${sessionKey(p!.uid, p!.screenId)}`));
     });
     return { success: true };
@@ -144,6 +145,8 @@ export class MeasurementEngine {
     requireValue(screen.data()?.orgId && screen.data()?.isActive, 'Screen must be assigned and active.', 'failed-precondition');
     const orgId = String(screen.data()!.orgId); const deviceId = sessionKey(uid, screenId);
     const device = await this.db.doc(`measurement_devices/${deviceId}`).get();
+    const activeDevice = await this.db.doc(`measurement_screen_devices/${screenId}`).get();
+    if (device.exists) requireValue(activeDevice.data()?.deviceId === deviceId && activeDevice.data()?.orgId === orgId, 'This player was replaced by another authorized device.', 'permission-denied');
     if (!device.exists) {
       // An unpaired administrator can preview instrumentation, but can never mint live playback evidence.
       await this.access(uid, orgId, true); mode = 'test';
@@ -164,7 +167,8 @@ export class MeasurementEngine {
     if (s!.previewAdmin) await this.access(uid, s!.orgId, true);
     else {
       const device = await this.db.doc(`measurement_devices/${s!.deviceId}`).get();
-      requireValue(device.exists && device.data()!.orgId === s!.orgId && !device.data()!.revoked, 'Device authorization was revoked.', 'permission-denied');
+      const active = await this.db.doc(`measurement_screen_devices/${s!.screenId}`).get();
+      requireValue(device.exists && device.data()!.orgId === s!.orgId && !device.data()!.revoked && active.data()?.deviceId === s!.deviceId && active.data()?.orgId === s!.orgId, 'Device authorization was revoked or replaced.', 'permission-denied');
     }
     return s!;
   }
@@ -286,7 +290,7 @@ export class MeasurementEngine {
   async scan(p: Placement) {
     const token = opaque(); const guestId = hash(token); const eventId = hash(guestId, 'scan');
     const batch = this.db.batch();
-    batch.create(this.db.doc(`measurement_events/${eventId}`), { ...this.event(p, 'scan', { scans: 1 }, this.now(), { cohortScans: 1 }), placementId: p.id });
+    batch.create(this.db.doc(`measurement_events/${eventId}`), { ...this.event(p, 'scan', { scans: 1 }, this.now(), p.kind === 'external' ? {} : { cohortScans: 1 }), placementId: p.id });
     if (p.kind !== 'external') batch.create(this.db.doc(`measurement_guests/${guestId}`), {
       placementId: p.id, startedAt: this.timestamp(), expireAt: this.expires(1), actions: {}, engaged: false, submitted: false,
     });
@@ -374,7 +378,7 @@ export class MeasurementEngine {
     await this.db.runTransaction(async tx => {
       const eventRef = this.db.doc(`measurement_events/${eventId}`); const receiptRef = this.db.doc(`measurement_receipts/${eventId}`);
       const [eventSnap, receipt] = await Promise.all([tx.get(eventRef), tx.get(receiptRef)]);
-      if (!eventSnap.exists || receipt.exists) return;
+      if (!eventSnap.exists || receipt.exists || eventSnap.data()?.projectedAt) return;
       const e = eventSnap.data()!;
       const portions = [{ at: asMillis(e.occurredAt), counts: e.metrics as Counts }, { at: asMillis(e.cohortAt), counts: e.cohortMetrics as Counts }];
       const writes = new Map<string, { metadata: DocumentData; counts: Counts; hours: Record<string, Counts> }>();

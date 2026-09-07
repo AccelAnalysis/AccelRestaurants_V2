@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, NavLink, useLocation, useMatch, useSearchParams } from 'react-router-dom';
 import { Activity, ArrowDownToLine, RefreshCw } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
@@ -47,6 +47,7 @@ export function MeasurementDashboard() {
   const timezone = organization?.timezone || 'America/New_York';
   const [to, setTo] = useState(() => localToday(timezone)); const [from, setFrom] = useState(() => shiftDate(localToday(timezone), -6));
   const [mode, setMode] = useState<MeasurementMode>('live');
+  const reportKey = useRef('');
   const [report, setReport] = useState<MeasurementReport | null>(null); const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false); const [revision, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision(n => n + 1), []);
@@ -54,7 +55,9 @@ export function MeasurementDashboard() {
   useEffect(() => {
     if (!organization?.id) return;
     let cancelled = false; let inFlight = false;
-    setReport(null); setError('');
+    const nextKey = JSON.stringify([organization.id, from, to, campaignId, mode]);
+    if (reportKey.current !== nextKey) { setReport(null); reportKey.current = nextKey; }
+    setError('');
     const load = async () => {
       if (inFlight) return; inFlight = true; setRefreshing(true);
       try { const result = await MeasurementService.report(organization.id, from, to, campaignId, mode); if (!cancelled) { setReport(result); setError(''); } }
@@ -91,7 +94,7 @@ export function MeasurementDashboard() {
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
           <Metric label="Recorded placement plays" amount={hasData ? value(totals.plays || 0) : '—'} detail={`${value((totals.visibleMs || 0) / 3_600_000)} recorded placement-hours`} />
           <Metric label="QR scans" amount={hasData ? value(totals.scans || 0) : '—'} detail={`${value(scores.scanYield)} scans per 100 plays — not a viewer conversion rate`} />
-          <Metric label="Engaged scan sessions" amount={hasData ? value(totals.cohortEngaged || 0) : '—'} detail={`${value(scores.engagement, '%')} of scan cohorts in this date range`} />
+          <Metric label="Engaged scan sessions" amount={hasData ? value(totals.cohortEngaged || 0) : '—'} detail={`${value(scores.engagement, '%')} of first-party offer/survey scan cohorts`} />
           <Metric label="Survey responses" amount={hasData ? value(totals.surveySubmits || 0) : '—'} detail={`${value(scores.completion, '%')} completion within scan cohorts`} />
           <Metric label="Net Promoter Score" amount={value(scores.nps)} detail={`n=${totals.npsResponses || 0} · promoters minus detractors`} />
           <Metric label="Customer satisfaction" amount={value(scores.csat, '%')} detail={`n=${totals.csatResponses || 0} · ratings 4–5 on a 1–5 scale`} />

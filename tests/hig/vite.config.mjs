@@ -12,7 +12,7 @@ export default defineConfig({
       enforce: 'pre',
       load(id) {
         if (id.replaceAll('\\', '/').endsWith('/src/lib/firebase.ts')) {
-          return 'export const auth = { currentUser: null, signOut: async () => {} }; export const db = {}; export const storage = {}; export const functions = {}; export const analytics = null; export const performance = null;';
+          return 'export const auth = { currentUser: null, authStateReady: async () => {}, signOut: async () => {} }; export const db = {}; export const storage = {}; export const functions = {}; export const analytics = null; export const performance = null;';
         }
       },
     },

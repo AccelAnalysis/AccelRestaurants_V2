@@ -28,6 +28,7 @@ await db.doc(`slides/${slideId}`).set({ id: slideId, orgId, name: 'Feedback', di
 const survey = await engine.createCampaign(owner, { orgId, requestId: 'browser-survey', campaign: { name: 'Guest feedback test', kind: 'survey', questions: [{ id: 'nps', label: 'How likely are you to recommend us?', type: 'nps', required: true }, { id: 'csat', label: 'How satisfied were you?', type: 'csat', required: true }], thankYouMessage: 'Your response helps us improve.' } });
 await engine.bindCampaign(owner, { orgId, campaignId: survey.campaignId, slideId, tileId: 'feedbackQR' });
 await db.doc(`measurement_devices/${hash(owner, screenId)}`).set({ uid: owner, screenId, orgId, revoked: false });
+await db.doc(`measurement_screen_devices/${screenId}`).set({ orgId, deviceId: hash(owner, screenId) });
 const session = await engine.openSession(owner, screenId, 'live');
 const version = (await db.doc(`slides/${slideId}`).get()).data().updatedAt.toMillis();
 const manifest = await engine.manifest(owner, { sessionId: session.sessionId, slideVersions: { [slideId]: version } });
@@ -46,9 +47,13 @@ assert.match(visit.headers.get('cache-control') || '', /no-store/);
 const guestUrl = visit.headers.get('location');
 assert.ok(guestUrl.startsWith(`${ORIGIN}/engage/`)); assert.ok(!guestUrl.includes('evil.example'));
 checked('server redirect ignores forged destination/tenant parameters, rejects legacy links, and excludes HEAD');
-
 const browser = await chromium.launch({ headless: true });
-const errors = [];
+const errors = []; const consoleMessages = []; const networkFailures = []; let desktopPage;
+const observe = page => {
+  page.on('pageerror', error => errors.push(error.stack || error.message));
+  page.on('console', message => { if (['error', 'warning'].includes(message.type())) consoleMessages.push({ page: page.url(), type: message.type(), message: message.text() }); });
+  page.on('requestfailed', request => networkFailures.push({ url: request.url(), error: request.failure()?.errorText }));
+};
 const guestContext = await browser.newContext({ viewport: { width: 390, height: 844 }, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1', permissions: ['clipboard-read', 'clipboard-write'] });
 const external = [];
 await guestContext.route('**/*', route => {
@@ -56,14 +61,16 @@ await guestContext.route('**/*', route => {
   if (!['127.0.0.1','localhost'].includes(url.hostname) && ['http:', 'https:'].includes(url.protocol)) { external.push(url.host); return route.abort(); }
   return route.continue();
 });
-const guestPage = await guestContext.newPage(); guestPage.on('pageerror', error => errors.push(error.message));
+const guestPage = await guestContext.newPage(); observe(guestPage);
 try {
   await guestPage.goto(guestUrl);
   await expect(guestPage.getByRole('heading', { name: 'Guest feedback test', exact: true })).toBeVisible();
   await expect(guestPage.getByRole('button', { name: 'Submit feedback' })).toBeVisible();
   assert.equal(new URL(guestPage.url()).hash, '');
-  await guestPage.getByRole('radio', { name: '0 — How likely are you to recommend us?', exact: true }).check();
-  await guestPage.getByRole('radio', { name: '5 — How satisfied were you?', exact: true }).check();
+  await guestPage.getByRole('radio', { name: '0 — How likely are you to recommend us?', exact: true }).locator('..').click();
+  await expect(guestPage.getByRole('radio', { name: '0 — How likely are you to recommend us?', exact: true })).toBeChecked();
+  await guestPage.getByRole('radio', { name: '5 — How satisfied were you?', exact: true }).locator('..').click();
+  await expect(guestPage.getByRole('radio', { name: '5 — How satisfied were you?', exact: true })).toBeChecked();
   await guestPage.screenshot({ path: 'tests/measurement/results/mobile-survey.png', fullPage: true });
   await guestPage.getByRole('button', { name: 'Submit feedback' }).click();
   await expect(guestPage.getByRole('heading', { name: 'Thank you', exact: true })).toBeVisible();
@@ -74,7 +81,6 @@ try {
   assert.equal(responses.docs[0].data().scores.npsDetractors, 1);
   assert.equal(external.some(host => /google-analytics|googletagmanager/.test(host)), false);
   checked('mobile survey submits NPS zero through real Functions, survives reload, and stores one response without GA requests');
-
   const offer = await engine.createCampaign(owner, { orgId, requestId: 'browser-offer', campaign: { name: 'Lunch offer test', kind: 'offer', destinationUrl: 'https://restaurant.example/menu', offerCode: 'LUNCH10', ctaLabel: 'View menu' } });
   await engine.bindCampaign(owner, { orgId, campaignId: offer.campaignId, slideId, tileId: 'feedbackQR' });
   const newVersion = (await db.doc(`slides/${slideId}`).get()).data().updatedAt.toMillis();
@@ -87,10 +93,8 @@ try {
   await guestPage.getByRole('button', { name: 'Copy code' }).click();
   await guestPage.screenshot({ path: 'tests/measurement/results/mobile-offer.png', fullPage: true });
   checked('mobile first-party offer reveal and clipboard action work');
-
-  // Test an actual production-built PlayerScreen. Authorization uses the existing owner test account only in this demo emulator.
   const adminContext = await browser.newContext({ viewport: { width: 1440, height: 960 } });
-  const page = await adminContext.newPage(); page.on('pageerror', error => errors.push(error.message));
+  const page = await adminContext.newPage(); desktopPage = page; observe(page);
   await page.goto(`${ORIGIN}/login?redirect=/admin/analytics`);
   await page.getByLabel('Email', { exact: true }).fill('measurement@example.test');
   await page.getByLabel('Password', { exact: true }).fill('Emulator-only-Password-123');
@@ -112,15 +116,15 @@ try {
   await expect.poll(async () => (await db.collection('measurement_buckets').where('orgId', '==', orgId).get()).size, { timeout: 45000 }).toBeGreaterThan(0);
   await page.screenshot({ path: 'tests/measurement/results/player-proof-of-play.png' });
   checked('actual player records qualifying QR rendering and replays IndexedDB telemetry after offline recovery');
-
-  // Hide the only QR tile: no new proof should accumulate while it is not rendered.
+  await page.reload();
+  await page.waitForSelector('[data-measurement-placement]', { timeout: 30000 });
+  checked('authorized player identity and canonical QR survive a full reload');
   const slide = (await db.doc(`slides/${slideId}`).get()).data();
   await db.doc(`slides/${slideId}`).update({ elements: slide.elements.map(t => ({ ...t, visible: false })), updatedAt: Timestamp.now() });
   await page.waitForTimeout(2000); const hiddenBefore = (await readBuckets()).reduce((sum, b) => sum + b.visibleMs, 0);
   await page.waitForTimeout(2000); const hiddenAfter = (await readBuckets()).reduce((sum, b) => sum + b.visibleMs, 0);
   assert.equal(hiddenAfter, hiddenBefore);
   checked('hidden QR tiles stop playback measurement without stopping the player');
-
   const events = await db.collection('measurement_events').where('orgId', '==', orgId).get();
   for (const event of events.docs) await engine.project(event.id);
   await page.goto(`${ORIGIN}/admin/analytics`);
@@ -139,10 +143,17 @@ try {
   checked('production-built aggregate dashboard, feedback, location comparison and campaign setup routes render');
   assert.deepEqual(errors, [], `Browser runtime errors: ${errors.join('; ')}`);
   checked('all tested pages have no uncaught JavaScript runtime errors');
-  await adminContext.close();
+  await adminContext.close(); desktopPage = null;
 } catch (error) {
+  const playerState = desktopPage ? await desktopPage.locator('body').innerText().catch(() => '') : '';
+  if (desktopPage) {
+    await desktopPage.screenshot({ path: 'tests/measurement/results/desktop-failure.png', fullPage: true }).catch(() => {});
+    await writeFile('tests/measurement/results/desktop-failure.html', await desktopPage.content().catch(() => ''));
+  }
   await guestPage.screenshot({ path: 'tests/measurement/results/failure.png', fullPage: true }).catch(() => {});
-  await writeFile('tests/measurement/results/failure.json', JSON.stringify({ message: String(error), browserErrors: errors, results }, null, 2));
+  const failure = { message: String(error), playerState, browserErrors: errors, consoleMessages, networkFailures, results };
+  await writeFile('tests/measurement/results/failure.json', JSON.stringify(failure, null, 2));
+  console.error('BROWSER_FAILURE', JSON.stringify(failure));
   throw error;
 } finally {
   await writeFile('tests/measurement/results/summary.json', JSON.stringify({ project: PROJECT, source: 'real production build + local Auth/Firestore/Functions/Hosting emulators', results, browserErrors: errors }, null, 2));

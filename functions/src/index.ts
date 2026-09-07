@@ -3,6 +3,7 @@ import * as functions from 'firebase-functions/v1';
 // Force redeploy
 import { onCall, CallableContext } from 'firebase-functions/v1/https';
 import * as admin from 'firebase-admin';
+import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import * as nodemailer from 'nodemailer';
 import * as crypto from 'crypto';
 import { promises as dns } from 'node:dns';
@@ -55,8 +56,8 @@ export const createOrganizationForUser = functions.auth.user().onCreate(async (u
     displayName: user.displayName,
     photoURL: user.photoURL,
     platformRole: 'user', // Default role
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    lastLoginAt: admin.firestore.FieldValue.serverTimestamp()
+    createdAt: FieldValue.serverTimestamp(),
+    lastLoginAt: FieldValue.serverTimestamp()
   };
   batch.set(userRef, userProfileData);
 
@@ -70,8 +71,8 @@ export const createOrganizationForUser = functions.auth.user().onCreate(async (u
     members: [user.uid], // Legacy support
     screenCount: 0,
     isSetupComplete: false, // Onboarding will flip this to true
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
   };
   batch.set(orgRef, orgData);
 
@@ -81,7 +82,7 @@ export const createOrganizationForUser = functions.auth.user().onCreate(async (u
     uid: user.uid,
     role: 'orgAdmin', // First user is always the admin
     status: 'active',
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdAt: FieldValue.serverTimestamp(),
     createdBy: user.uid
   };
   batch.set(memberRef, memberData);
@@ -295,8 +296,8 @@ export const sendInviteEmail = functions.runWith({ secrets: [sendgridApiKey, gma
       locationIds: locationIds || [],
       status: 'pending',
       tokenHash, // Store hash to verify later
-      createdAt: admin.firestore.Timestamp.now(),
-      expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+      createdAt: Timestamp.now(),
+      expiresAt: Timestamp.fromMillis(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
     };
 
     functions.logger.info(`Creating invite for ${emailLower} (length: ${emailLower.length})`);
@@ -416,7 +417,7 @@ export const acceptInvite = onCall(async (data: AcceptInviteData, context: Calla
     role: inviteData.role,
     locationIds: inviteData.locationIds || [],
     status: 'active',
-    createdAt: admin.firestore.Timestamp.now(),
+    createdAt: Timestamp.now(),
     createdBy: inviteData.inviterId
   });
 
@@ -424,20 +425,20 @@ export const acceptInvite = onCall(async (data: AcceptInviteData, context: Calla
   const userRef = db.doc(`users/${context.auth.uid}`);
   batch.set(userRef, {
     orgId: orgId, // Set primary org. Organization roles live only in membership docs.
-    updatedAt: admin.firestore.Timestamp.now()
+    updatedAt: Timestamp.now()
   }, { merge: true });
 
   // 3. Mark Invite Accepted
   batch.update(inviteRef, {
     status: 'accepted',
     acceptedByUid: context.auth.uid,
-    acceptedAt: admin.firestore.Timestamp.now()
+    acceptedAt: Timestamp.now()
   });
 
   // 4. Add to org members array (Legacy support / Quick read)
   const orgRef = db.doc(`organizations/${orgId}`);
   batch.update(orgRef, {
-    members: admin.firestore.FieldValue.arrayUnion(context.auth.uid)
+    members: FieldValue.arrayUnion(context.auth.uid)
   });
 
   await batch.commit();
@@ -547,9 +548,9 @@ export const sendDesignerInviteEmail = functions.runWith({ secrets: [sendgridApi
     // Update invite doc with token and expiry
     await db.doc(`designer_invites/${inviteId}`).update({
       tokenHash,
-      expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      expiresAt: Timestamp.fromMillis(Date.now() + 7 * 24 * 60 * 60 * 1000),
       status: 'pending',
-      updatedAt: admin.firestore.Timestamp.now()
+      updatedAt: Timestamp.now()
     });
   } catch (error) {
     functions.logger.error(`Failed to update invite doc ${inviteId}:`, error);
@@ -633,7 +634,7 @@ export const acceptDesignerInvite = onCall(async (data: { token: string; inviteI
   if (inviteData.expiresAt?.toMillis && inviteData.expiresAt.toMillis() < Date.now()) {
     await inviteRef.update({
       status: 'expired',
-      updatedAt: admin.firestore.Timestamp.now()
+      updatedAt: Timestamp.now()
     });
     throw new functions.https.HttpsError('failed-precondition', 'Invitation expired.');
   }
@@ -657,8 +658,8 @@ export const acceptDesignerInvite = onCall(async (data: { token: string; inviteI
     reviewCount: 0,
     specialties: [],
     rates: { menuDesign: 100 }, // Default rates
-    createdAt: admin.firestore.Timestamp.now(),
-    updatedAt: admin.firestore.Timestamp.now()
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now()
   });
 
   // 2. Update User Profile
@@ -666,14 +667,14 @@ export const acceptDesignerInvite = onCall(async (data: { token: string; inviteI
   batch.set(userRef, {
     platformRole: 'designer',
     displayName: inviteData.name,
-    updatedAt: admin.firestore.Timestamp.now()
+    updatedAt: Timestamp.now()
   }, { merge: true });
 
   // 3. Update Invite
   batch.update(inviteRef, {
     status: 'accepted',
     acceptedByUid: context.auth.uid,
-    acceptedAt: admin.firestore.Timestamp.now()
+    acceptedAt: Timestamp.now()
   });
 
   await batch.commit();
@@ -720,8 +721,8 @@ export const revokeInvite = onCall(async (data: { inviteId: string; orgId: strin
     await inviteRef.update({
       status: 'revoked',
       revokedBy: context.auth.uid,
-      revokedAt: admin.firestore.Timestamp.now(),
-      updatedAt: admin.firestore.Timestamp.now()
+      revokedAt: Timestamp.now(),
+      updatedAt: Timestamp.now()
     });
 
     functions.logger.info(`Successfully revoked invite ${inviteId}`);
@@ -783,13 +784,13 @@ export const resendInvite = functions.runWith({ secrets: [sendgridApiKey, gmailU
 
   const token = crypto.randomBytes(32).toString('hex');
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-  const expiresAt = admin.firestore.Timestamp.fromMillis(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
+  const expiresAt = Timestamp.fromMillis(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
 
   await inviteDoc.ref.update({
     tokenHash,
     expiresAt,
     status: 'pending',
-    updatedAt: admin.firestore.Timestamp.now()
+    updatedAt: Timestamp.now()
   });
 
   const email = isDesigner ? inviteData.email : inviteData.inviteeEmail;
@@ -853,7 +854,7 @@ export const updateMemberRole = onCall(async (data: { orgId: string; uid: string
   await memberRef.update({
     role,
     locationIds: locationIds || [],
-    updatedAt: admin.firestore.Timestamp.now(),
+    updatedAt: Timestamp.now(),
     updatedBy: context.auth.uid
   });
 
@@ -892,13 +893,13 @@ export const removeMember = onCall(async (data: { orgId: string; uid: string }, 
 
   // 2. Remove from Org members array
   batch.update(orgRef, {
-    members: admin.firestore.FieldValue.arrayRemove(uid)
+    members: FieldValue.arrayRemove(uid)
   });
 
   // 3. Update User Profile (unlink). Preserve any platform-level role.
   batch.update(userRef, {
-    orgId: admin.firestore.FieldValue.delete(),
-    updatedAt: admin.firestore.Timestamp.now()
+    orgId: FieldValue.delete(),
+    updatedAt: Timestamp.now()
   });
 
   await batch.commit();
@@ -1144,7 +1145,7 @@ export const createStripeConnectAccountLink = functions.runWith({ secrets: [stri
       accountId = account.id;
       await designerRef.update({
         stripeAccountId: accountId,
-        updatedAt: admin.firestore.Timestamp.now()
+        updatedAt: Timestamp.now()
       });
     }
 
@@ -1218,8 +1219,8 @@ export const payoutDesigner = functions.runWith({ secrets: [stripeSecretKey] }).
       paymentStatus: 'paid',
       payoutId: transfer.id,
       payoutAmount: amount,
-      payoutAt: admin.firestore.Timestamp.now(),
-      updatedAt: admin.firestore.Timestamp.now()
+      payoutAt: Timestamp.now(),
+      updatedAt: Timestamp.now()
     });
 
     return { success: true, payoutId: transfer.id };
@@ -1258,7 +1259,7 @@ export const syncPublicOrgConfig = functions.firestore
       timezone: newData.timezone || 'UTC',
       name: newData.name || 'Organization',
       // Add other safe fields if needed, but AVOID sensitive PII or internal IDs
-      updatedAt: admin.firestore.Timestamp.now()
+      updatedAt: Timestamp.now()
     };
 
     // Use set with merge to update
@@ -1283,15 +1284,15 @@ export const createScreenSession = onCall(async (data: { screenId: string }, con
 
   const screenSessionId = `sess_${crypto.randomBytes(16).toString('hex')}`;
   await screenRef.update({
-    lastHeartbeatAt: admin.firestore.Timestamp.now(),
+    lastHeartbeatAt: Timestamp.now(),
     activeSessionId: screenSessionId
   });
   await db.doc(`screen_sessions/${screenSessionId}`).set({
     screenId,
     authUid: context.auth.uid,
-    createdAt: admin.firestore.Timestamp.now(),
+    createdAt: Timestamp.now(),
     isActive: true,
-    lastHeartbeat: admin.firestore.Timestamp.now()
+    lastHeartbeat: Timestamp.now()
   });
 
   return {
@@ -1309,7 +1310,7 @@ export const sendHeartbeat = onCall(async (data: { screenId: string }, context: 
 
   try {
     await db.doc(`screens/${screenId}`).update({
-      lastHeartbeatAt: admin.firestore.Timestamp.now()
+      lastHeartbeatAt: Timestamp.now()
     });
     return { success: true };
   } catch (error) {
@@ -1336,14 +1337,14 @@ export const requestPairingCode = onCall(async (data: { screenId: string }, cont
   }
 
   const code = Math.floor(100000 + Math.random() * 900000).toString();
-  const expiresAt = admin.firestore.Timestamp.fromMillis(Date.now() + 15 * 60 * 1000);
+  const expiresAt = Timestamp.fromMillis(Date.now() + 15 * 60 * 1000);
 
   await db.collection('pairing_codes').doc(code).set({
     code,
     screenId,
     requestedByAuthUid: context.auth.uid,
     expiresAt,
-    createdAt: admin.firestore.Timestamp.now()
+    createdAt: Timestamp.now()
   });
 
   return { code, expiresAt: expiresAt.toMillis() };
@@ -1398,9 +1399,9 @@ export const validatePairing = onCall(async (data: { screenId: string; pairingCo
   await screenRef.set({
     orgId,
     isActive: true,
-    lastHeartbeatAt: admin.firestore.Timestamp.now(),
-    updatedAt: admin.firestore.Timestamp.now(),
-    pairedAt: admin.firestore.Timestamp.now(),
+    lastHeartbeatAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
+    pairedAt: Timestamp.now(),
     pairedBy: context.auth.uid
   }, { merge: true });
   await codeDoc.ref.delete();
@@ -1447,7 +1448,7 @@ export const fireTrigger = onCall(async (data: {
       type: triggerType,
       campaignId,
       payload: payload || {},
-      createdAt: admin.firestore.Timestamp.now(),
+      createdAt: Timestamp.now(),
       processed: false
     });
     return { success: true };
@@ -1565,7 +1566,7 @@ export const importTemplate = onCall(async (data: { templateId: string; targetOr
 
   newContent = await processAssets(newContent, bucket, sourcePrefix, targetPrefix);
 
-  const timestamp = admin.firestore.Timestamp.now();
+  const timestamp = Timestamp.now();
 
   // 2. Save Resource
   if (template.type === 'slide') {
@@ -1791,13 +1792,13 @@ export const createBurgerTemplate = onCall(async (data: Record<string, never>, c
           ]
         }
       ],
-      createdAt: admin.firestore.Timestamp.now(),
-      updatedAt: admin.firestore.Timestamp.now()
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now()
     },
     isPublic: false,
     createdBy: context.auth.uid,
-    createdAt: admin.firestore.Timestamp.now(),
-    updatedAt: admin.firestore.Timestamp.now(),
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
     version: 1,
     changelog: ["Initial Classic Burger Joint Menu template"],
     isDeleted: false
@@ -1888,9 +1889,9 @@ async function enforceFeedProxyRateLimit(uid: string): Promise<void> {
       throw new functions.https.HttpsError('resource-exhausted', 'Feed request limit reached. Try again shortly.');
     }
     transaction.set(ref, {
-      windowStart: admin.firestore.Timestamp.fromMillis(inWindow ? windowStart : now),
+      windowStart: Timestamp.fromMillis(inWindow ? windowStart : now),
       count: count + 1,
-      updatedAt: admin.firestore.Timestamp.now()
+      updatedAt: Timestamp.now()
     }, { merge: true });
   });
 }
@@ -2048,7 +2049,7 @@ export const submitForm = onCall(async (data: { formId: string; data: Record<str
       formId,
       title: title || 'Form Submission',
       data: formData,
-      submittedAt: admin.firestore.Timestamp.now(),
+      submittedAt: Timestamp.now(),
       submittedBy: context.auth?.uid || 'anonymous'
     });
 
@@ -2109,8 +2110,8 @@ export const createThemeTemplates = onCall(async (data: { themeName: string }, c
     content: themeData.menu,
     isPublic: true,
     createdBy: userId,
-    createdAt: admin.firestore.Timestamp.now(),
-    updatedAt: admin.firestore.Timestamp.now(),
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
     version: 1,
     changelog: ['Initial creation']
   });
@@ -2139,13 +2140,13 @@ export const createThemeTemplates = onCall(async (data: { themeName: string }, c
         particleConfig: null,
         elements: slide.elements,
         duration: 10000,
-        createdAt: admin.firestore.Timestamp.now(),
-        updatedAt: admin.firestore.Timestamp.now()
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now()
       },
       isPublic: true,
       createdBy: userId,
-      createdAt: admin.firestore.Timestamp.now(),
-      updatedAt: admin.firestore.Timestamp.now(),
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
       version: 1,
       changelog: ['Initial creation']
     });
@@ -2172,12 +2173,12 @@ export const createThemeTemplates = onCall(async (data: { themeName: string }, c
         livePlaylist: playlist,
         rotationSettings: screen.rotationSettings,
         isActive: false,
-        createdAt: admin.firestore.Timestamp.now()
+        createdAt: Timestamp.now()
       },
       isPublic: true,
       createdBy: userId,
-      createdAt: admin.firestore.Timestamp.now(),
-      updatedAt: admin.firestore.Timestamp.now(),
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
       version: 1,
       changelog: ['Initial creation']
     });
@@ -2257,7 +2258,7 @@ export const stripeWebhook = functions.runWith({ secrets: [stripeWebhookSecret, 
     await processedRef.set({
       eventId,
       type: event.type,
-      processedAt: admin.firestore.Timestamp.now(),
+      processedAt: Timestamp.now(),
       data: event.data.object
     });
 
@@ -2292,7 +2293,7 @@ async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
   // Just ensure status is active
   await db.doc(`organizations/${orgId}`).update({
     subscriptionStatus: 'active',
-    updatedAt: admin.firestore.Timestamp.now()
+    updatedAt: Timestamp.now()
   });
   functions.logger.info(`Updated org ${orgId} to active status`);
 }
@@ -2308,7 +2309,7 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
 
   await db.doc(`organizations/${orgId}`).update({
     subscriptionStatus: 'past_due',
-    updatedAt: admin.firestore.Timestamp.now()
+    updatedAt: Timestamp.now()
   });
   functions.logger.info(`Updated org ${orgId} to past_due status`);
 }
@@ -2334,11 +2335,11 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const updateData: any = {
     subscriptionStatus: status,
-    subscriptionPeriodEnd: admin.firestore.Timestamp.fromMillis(
+    subscriptionPeriodEnd: Timestamp.fromMillis(
       currentPeriodEnd * 1000
     ),
     cancelAtPeriodEnd: subscription.cancel_at_period_end,
-    updatedAt: admin.firestore.Timestamp.now()
+    updatedAt: Timestamp.now()
   };
 
   // Update plan name if available
@@ -2364,9 +2365,9 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
 
   await db.doc(`organizations/${orgId}`).update({
     subscriptionStatus: 'canceled',
-    subscriptionId: admin.firestore.FieldValue.delete(),
+    subscriptionId: FieldValue.delete(),
     plan: 'Free',
-    updatedAt: admin.firestore.Timestamp.now()
+    updatedAt: Timestamp.now()
   });
   functions.logger.info(`Canceled subscription for org ${orgId}`);
 }
@@ -2378,7 +2379,7 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
   if (orgId && customerId) {
     await db.doc(`organizations/${orgId}`).update({
       stripeCustomerId: customerId,
-      updatedAt: admin.firestore.Timestamp.now()
+      updatedAt: Timestamp.now()
     });
     functions.logger.info(`Linked Customer ${customerId} to Org ${orgId}`);
   } else {
@@ -2411,10 +2412,10 @@ export const startLocationAudio = onCall(async (data, context) => {
   const locationSnap = await locationRef.get();
   if (!locationSnap.exists) throw new functions.https.HttpsError('not-found', 'Location not found');
 
-  const now = admin.firestore.Timestamp.now();
+  const now = Timestamp.now();
   const scheduled = scheduledStartTime
-    ? admin.firestore.Timestamp.fromMillis(Number(scheduledStartTime))
-    : admin.firestore.Timestamp.fromMillis(Date.now() + 750);
+    ? Timestamp.fromMillis(Number(scheduledStartTime))
+    : Timestamp.fromMillis(Date.now() + 750);
   const syncRef = db.doc(`location_audio_sync/${locationId}`);
   const syncToken = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   await syncRef.set({
@@ -2440,7 +2441,7 @@ export const stopLocationAudio = onCall(async (data, context) => {
   if (!orgId || !locationId) throw new functions.https.HttpsError('invalid-argument', 'orgId and locationId are required');
   await assertOrgAudioAccess(context.auth.uid, orgId);
   const db = admin.firestore();
-  await db.doc(`location_audio_sync/${locationId}`).set({ isPlaying: false, updatedAt: admin.firestore.Timestamp.now() }, { merge: true });
+  await db.doc(`location_audio_sync/${locationId}`).set({ isPlaying: false, updatedAt: Timestamp.now() }, { merge: true });
   await db.doc(`organizations/${orgId}/locations/${locationId}`).set({ audioConfig: { isPlaying: false } }, { merge: true });
 });
 
