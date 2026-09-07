@@ -13,3 +13,4 @@ export const BillingStatusWidget = () => {
     <p className="text-text-secondary my-5">Review plans, payment details and invoices in one place.</p>
     <Link className="ui-button ui-button-secondary mt-auto" to="/admin/subscription">Manage subscription</Link>
   </section>;
+};
