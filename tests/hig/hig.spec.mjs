@@ -134,7 +134,11 @@ test('audio schedule names, switch, days and retained errors', async ({ page }) 
 test('reduced motion prevents WebGL engine startup', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.addInitScript(() => { window.__webglCalls = 0; const original = HTMLCanvasElement.prototype.getContext; HTMLCanvasElement.prototype.getContext = function(type, ...args) { if (String(type).includes('webgl')) window.__webglCalls++; return original.call(this,type,...args); }; });
-  await page.goto('/admin/motion'); await expect(page.locator('canvas')).toBeVisible(); expect(await page.evaluate(() => window.__webglCalls)).toBe(0);
+  await page.goto('/admin/motion');
+  await expect(page.getByRole('heading', { name: 'Motion preference', exact: true })).toBeVisible();
+  // Reduced motion now avoids allocating even an empty canvas; retain the zero-context assertion.
+  await expect(page.locator('canvas')).toHaveCount(0);
+  expect(await page.evaluate(() => window.__webglCalls)).toBe(0);
 });
 
 test('keyboard geometry respects locked tiles and bounds', () => {
