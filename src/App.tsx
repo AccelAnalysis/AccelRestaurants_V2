@@ -12,9 +12,10 @@ const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(module =
 const SuperAdminDashboard = lazy(() => import('./pages/SuperAdminDashboard').then(module => ({ default: module.SuperAdminDashboard })));
 const DesignerDashboard = lazy(() => import('./pages/DesignerDashboard').then(module => ({ default: module.DesignerDashboard })));
 const PlayerScreen = lazy(() => import('./pages/PlayerScreen').then(module => ({ default: module.PlayerScreen })));
+const DisplayHomePage = lazy(() => import('./pages/DisplayHomePage').then(module => ({ default: module.DisplayHomePage })));
+const RegisteredPlayerPage = lazy(() => import('./pages/RegisteredPlayerPage').then(module => ({ default: module.RegisteredPlayerPage })));
 const LoginPage = lazy(() => import('./pages/LoginPage').then(module => ({ default: module.LoginPage })));
 const JoinPage = lazy(() => import('./pages/JoinPage').then(module => ({ default: module.JoinPage })));
-const PairingPage = lazy(() => import('./pages/PairingPage').then(module => ({ default: module.PairingPage })));
 const LandingPage = lazy(() => import('./pages/LandingPage').then(module => ({ default: module.LandingPage })));
 const PricingPage = lazy(() => import('./pages/PricingPage').then(module => ({ default: module.PricingPage })));
 const OnboardingPage = lazy(() => import('./pages/OnboardingPage').then(module => ({ default: module.OnboardingPage })));
@@ -27,6 +28,7 @@ const TemplateEditor = lazy(() => import('./components/organisms/TemplateEditor'
 function App() {
   useAuthListener();
   const { fetchConfigs } = useConfigStore();
+  const isDisplayHost = /^displays\./i.test(window.location.hostname);
 
   useEffect(() => {
     fetchConfigs();
@@ -41,7 +43,9 @@ function App() {
         </div>
       }>
         <Routes>
-          <Route path="/" element={<LandingPage />} />
+          <Route path="/" element={isDisplayHost ? <DisplayHomePage /> : <LandingPage />} />
+          <Route path="/display" element={<DisplayHomePage />} />
+          <Route path="/display/player/:screenId" element={<RegisteredPlayerPage />} />
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/onboarding" element={<OnboardingPage />} />
           <Route path="/login" element={<LoginPage />} />
@@ -80,8 +84,9 @@ function App() {
               </SuperAdminRoute>
             }
           />
+          {/* Direct player URLs remain available for preview/troubleshooting.
+              Restaurant TVs should enter through the display activation surface instead. */}
           <Route path="/player/:screenId" element={<PlayerScreen />} />
-          <Route path="/pair/:screenId" element={<PairingPage />} />
           <Route path="/r" element={<RedirectTracker />} />
           <Route path="/engage/:placementId" element={<EngagementPage />} />
           <Route
