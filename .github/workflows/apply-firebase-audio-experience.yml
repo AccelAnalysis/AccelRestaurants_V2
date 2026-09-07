@@ -27,56 +27,36 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
           plane = Path('src/components/atoms/GlobalMediaPlane.tsx')
           text = plane.read_text()
+          # Memoize only the component's screen config; buildScreenTracks must remain a plain helper.
           text = text.replace(
-              "  const config = normalizeScreenAudioConfig(screen.audioConfig);",
-              "  const config = useMemo(() => normalizeScreenAudioConfig(screen.audioConfig), [screen.audioConfig]);"
+              "const buildScreenTracks = (screen: AppScreen): GlobalMediaTrack[] => {\n  const config = normalizeScreenAudioConfig(screen.audioConfig);",
+              "const buildScreenTracks = (screen: AppScreen): GlobalMediaTrack[] => {\n  const config = normalizeScreenAudioConfig(screen.audioConfig);"
           )
           text = text.replace(
-              "  }, [screen.id, screen.audioConfig]);",
-              "  }, [config]);"
+              "export const GlobalMediaPlane = ({ screen, location }: GlobalMediaPlaneProps) => {\n  const config = normalizeScreenAudioConfig(screen.audioConfig);",
+              "export const GlobalMediaPlane = ({ screen, location }: GlobalMediaPlaneProps) => {\n  const config = useMemo(() => normalizeScreenAudioConfig(screen.audioConfig), [screen.audioConfig]);"
           )
-          text = text.replace(
-              """  useEffect(() => {
-            if (!location?.id) {
-              setLocationSync(null);
-              return;
-            }
-            return AudioService.subscribeToLocationAudio(location.id, setLocationSync);
-          }, [location?.id]);
-          """,
-              """  useEffect(() => {
-            if (!location?.id) return;
-            return AudioService.subscribeToLocationAudio(location.id, setLocationSync);
-          }, [location?.id]);
-          """
+          text = text.replace("  }, [screen.id, screen.audioConfig]);", "  }, [config]);")
+          text = re.sub(
+              r"  useEffect\(\(\) => \{\n    if \(!location\?\.id\) \{\n      setLocationSync\(null\);\n      return;\n    \}\n    return AudioService\.subscribeToLocationAudio\(location\.id, setLocationSync\);\n  \}, \[location\?\.id\]\);",
+              "  useEffect(() => {\n    if (!location?.id) return;\n    return AudioService.subscribeToLocationAudio(location.id, setLocationSync);\n  }, [location?.id]);",
+              text,
+              count=1,
           )
-          text = text.replace(
-              """  useEffect(() => {
-            if (currentIndex >= tracks.length) setCurrentIndex(0);
-            setNextIndex(null);
-            setCrossfadeProgress(0);
-          }, [tracks.length, currentIndex]);
-          """,
-              """  useEffect(() => {
-            const reset = window.setTimeout(() => {
-              if (currentIndex >= tracks.length) setCurrentIndex(0);
-              setNextIndex(null);
-              setCrossfadeProgress(0);
-            }, 0);
-            return () => window.clearTimeout(reset);
-          }, [tracks.length, currentIndex]);
-          """
+          text = re.sub(
+              r"  useEffect\(\(\) => \{\n    if \(currentIndex >= tracks\.length\) setCurrentIndex\(0\);\n    setNextIndex\(null\);\n    setCrossfadeProgress\(0\);\n  \}, \[tracks\.length, currentIndex\]\);",
+              "  useEffect(() => {\n    const reset = window.setTimeout(() => {\n      if (currentIndex >= tracks.length) setCurrentIndex(0);\n      setNextIndex(null);\n      setCrossfadeProgress(0);\n    }, 0);\n    return () => window.clearTimeout(reset);\n  }, [tracks.length, currentIndex]);",
+              text,
+              count=1,
           )
           plane.write_text(text)
 
           tile = Path('src/components/atoms/TileContent.tsx')
-          text = tile.read_text().replace(
-              "    else { audio.pause(); setStatus('idle'); }",
-              "    else { audio.pause(); }"
-          )
+          text = tile.read_text().replace("    else { audio.pause(); setStatus('idle'); }", "    else { audio.pause(); }")
           tile.write_text(text)
           PY
 
