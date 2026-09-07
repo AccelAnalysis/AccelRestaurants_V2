@@ -1,10 +1,10 @@
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { initializeFirestore } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
+import { getAuth, connectAuthEmulator } from "firebase/auth";
+import { initializeFirestore, connectFirestoreEmulator } from "firebase/firestore";
+import { getStorage, connectStorageEmulator } from "firebase/storage";
 import { getAnalytics } from "firebase/analytics";
 import { getPerformance } from "firebase/performance";
-import { getFunctions } from "firebase/functions";
+import { getFunctions, connectFunctionsEmulator } from "firebase/functions";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -16,6 +16,8 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
+const emulatorMode = import.meta.env.VITE_USE_EMULATORS === 'true';
+if (emulatorMode && !String(firebaseConfig.projectId).startsWith('demo-')) throw new Error('Emulator builds must use a demo-* Firebase project.');
 const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
@@ -25,6 +27,13 @@ export const db = initializeFirestore(app, {
 export const storage = getStorage(app);
 export const functions = getFunctions(app);
 
-// Initialize Analytics and Performance only in browser environment
-export const analytics = typeof window !== 'undefined' ? getAnalytics(app) : null;
-export const performance = typeof window !== 'undefined' ? getPerformance(app) : null;
+if (emulatorMode) {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  connectFirestoreEmulator(db, '127.0.0.1', 8080);
+  connectFunctionsEmulator(functions, '127.0.0.1', 5001);
+  connectStorageEmulator(storage, '127.0.0.1', 9199);
+}
+// Guest engagement tokens and survey answers never enter third-party product analytics.
+const allowProductTelemetry = typeof window !== 'undefined' && !emulatorMode && !/^\/(engage|r|player)(?:\/|$)/.test(window.location.pathname);
+export const analytics = allowProductTelemetry ? getAnalytics(app) : null;
+export const performance = allowProductTelemetry ? getPerformance(app) : null;

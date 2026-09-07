@@ -622,6 +622,7 @@ export interface InteractiveTileProperties {
   qrErrorCorrection?: 'L' | 'M' | 'Q' | 'H';
   qrForegroundColor?: string;
   trackScan?: boolean;
+  measurementCampaignId?: string; // Server-authored campaign binding; never visitor-provided attribution.
   qrSource?: 'custom' | 'calendar_event';
   calendarUrl?: string;
 

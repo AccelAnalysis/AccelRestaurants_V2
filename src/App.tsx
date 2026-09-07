@@ -20,6 +20,7 @@ const PricingPage = lazy(() => import('./pages/PricingPage').then(module => ({ d
 const OnboardingPage = lazy(() => import('./pages/OnboardingPage').then(module => ({ default: module.OnboardingPage })));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy').then(module => ({ default: module.PrivacyPolicy })));
 const TermsOfService = lazy(() => import('./pages/TermsOfService').then(module => ({ default: module.TermsOfService })));
+const EngagementPage = lazy(() => import('./pages/EngagementPage').then(module => ({ default: module.EngagementPage })));
 const RedirectTracker = lazy(() => import('./pages/RedirectTracker').then(module => ({ default: module.RedirectTracker })));
 const TemplateEditor = lazy(() => import('./components/organisms/TemplateEditor').then(module => ({ default: module.TemplateEditor })));
 
@@ -82,6 +83,7 @@ function App() {
           <Route path="/player/:screenId" element={<PlayerScreen />} />
           <Route path="/pair/:screenId" element={<PairingPage />} />
           <Route path="/r" element={<RedirectTracker />} />
+          <Route path="/engage/:placementId" element={<EngagementPage />} />
           <Route
             path="/designer/*"
             element={

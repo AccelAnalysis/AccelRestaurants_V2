@@ -64,6 +64,7 @@ export default defineConfig({
         skipWaiting: true,
         clientsClaim: true,
         cleanupOutdatedCaches: true,
+        navigateFallbackDenylist: [/^\/r(?:\/|$)/, /^\/engage(?:\/|$)/],
         // Cache Google Fonts, images, etc.
         runtimeCaching: [
           {
