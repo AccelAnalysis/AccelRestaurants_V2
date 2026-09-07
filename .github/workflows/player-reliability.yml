@@ -1,0 +1,47 @@
+name: Player reliability validation
+on:
+  push:
+    branches: [feat/player-operational-trustworthiness]
+  pull_request:
+    paths:
+      - 'src/lib/player/**'
+      - 'src/components/player/**'
+      - 'src/pages/PlayerScreen.tsx'
+      - 'functions/src/player/**'
+      - 'tests/player/**'
+      - '.github/workflows/player-reliability.yml'
+permissions:
+  contents: read
+concurrency:
+  group: player-reliability-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm ci --prefix functions
+      - name: Validate frontend
+        run: npm run lint && npm run build
+      - name: Validate Functions
+        run: npm run build --prefix functions && npm test --prefix functions -- --runInBand
+      - name: Reliability regression tests
+        run: |
+          if test -f scripts/test-player.mjs; then node scripts/test-player.mjs; fi
+      - name: Development workspace (temporary, no credentials)
+        if: always() && github.event_name == 'push'
+        run: |
+          git ls-files -z | tar --null -T - --exclude='assets' --exclude='public' -czf /tmp/player-source.tgz
+      - uses: actions/upload-artifact@v4
+        if: always() && github.event_name == 'push'
+        with:
+          name: player-source
+          path: /tmp/player-source.tgz
+          retention-days: 1
