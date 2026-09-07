@@ -52,3 +52,10 @@ export function customerError(error: unknown, fallback: string): string {
   if (code.endsWith('resource-exhausted') || code.endsWith('too-many-requests')) return 'There have been too many attempts. Please try again later.';
   return fallback;
 }
+
+// Stable operator destinations never claim the display host's TV activation homepage.
+export function safeWorkspaceDestination(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length > 2048 || !/^\/(admin|designer|super-admin|pair)(\/|\?|$)/.test(value)) return undefined;
+  if (Array.from(value).some(c => c === '\\' || c.charCodeAt(0) < 32)) return undefined;
+  try { const url = new URL(value, 'https://workspace.invalid'); return url.origin === 'https://workspace.invalid' && /^\/(admin|designer|super-admin|pair)(\/|$)/.test(url.pathname) ? url.pathname + url.search + url.hash : undefined; } catch { return undefined; }
+}

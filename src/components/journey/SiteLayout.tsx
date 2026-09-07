@@ -14,9 +14,9 @@ export const SiteLayout = ({ children }: { children: ReactNode }) => {
     <a className="skip-link" href="#site-main">Skip to content</a>
     <header className="border-b border-surface-highlight bg-surface">
       <nav aria-label="Main navigation" className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-4">
-        <Link to="/" className="flex items-center gap-2 min-h-11 font-semibold text-lg"><img src={safeWebLink(config.logoUrl) || logo} alt="" className="h-8 w-auto" />AccelRestaurants</Link>
+        <Link to="/restaurants" className="flex items-center gap-2 min-h-11 font-semibold text-lg"><img src={safeWebLink(config.logoUrl) || logo} alt="" className="h-8 w-auto" />AccelRestaurants</Link>
         <div className="flex flex-wrap items-center gap-2 sm:gap-4">
-          <Link className="ui-button ui-button-secondary" to="/#templates">Designs</Link>
+          <Link className="ui-button ui-button-secondary" to="/restaurants#templates">Designs</Link>
           {config.featureFlags?.showPricingPage !== false && <Link className="ui-button ui-button-secondary" to="/pricing">Compare plans</Link>}
           <Link className="ui-button ui-button-secondary" to="/login">Sign in</Link>
           {config.featureFlags?.publicSignupEnabled !== false && <Link className="ui-button ui-button-primary" to="/onboarding">Start free</Link>}

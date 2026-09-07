@@ -45,4 +45,12 @@ export function measurementScores(c: Counts) {
     completion: c.cohortSurveyStarts ? 100 * (c.cohortSurveySubmits || 0) / c.cohortSurveyStarts : null,
   };
 }
-export const measurementError = (error: unknown) => error instanceof Error ? error.message.replace(/^FirebaseError: /, '') : 'Measurement is unavailable. Please retry.';
+export const measurementError = (error: unknown) => {
+  const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+  if (code.endsWith('unauthenticated')) return 'Please sign in again to continue.';
+  if (code.endsWith('permission-denied')) return 'You do not have access to these results. Ask your restaurant owner for help.';
+  if (code.endsWith('failed-precondition')) return 'This request is not ready yet. Check the selected campaign and screen, then try again.';
+  if (code.endsWith('invalid-argument')) return 'Check that all required entries are complete and valid, then try again.';
+  if (code.endsWith('resource-exhausted')) return 'There have been too many requests. Please try again shortly.';
+  return 'We could not complete this request. Check your connection, then try again. Your choices are still here.';
+};

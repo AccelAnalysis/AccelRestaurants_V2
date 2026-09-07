@@ -50,7 +50,7 @@ test('lost response retries the same request, not a second creation',async({page
   await page.emulateMedia({reducedMotion:'reduce'});await page.goto('/');await page.getByRole('button',{name:'Open restaurant setup'}).click();
   await page.getByRole('button',{name:'Continue',exact:true}).click();await page.getByRole('button',{name:'Continue',exact:true}).click();
   await page.evaluate(()=>window.__cinematic.fail=true);await page.getByRole('button',{name:'Save my design',exact:true}).click();
-  await expect(page.getByRole('alert')).toContainText('Connection lost');await page.getByRole('button',{name:'Save my design',exact:true}).click();
+  await expect(page.getByRole('alert')).toContainText('Your choices are still here');await page.getByRole('button',{name:'Save my design',exact:true}).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   const calls=await page.evaluate(()=>window.__cinematic.calls);expect(calls).toHaveLength(2);expect(calls[0].requestId).toBe(calls[1].requestId);
   expect(await page.evaluate(()=>window.__cinematic.responses.size)).toBe(1);

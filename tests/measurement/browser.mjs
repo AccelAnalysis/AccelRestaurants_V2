@@ -98,7 +98,7 @@ try {
   await page.goto(`${ORIGIN}/login?redirect=/admin/analytics`);
   await page.getByLabel('Email', { exact: true }).fill('measurement@example.test');
   await page.getByLabel('Password', { exact: true }).fill('Emulator-only-Password-123');
-  await page.getByRole('button', { name: 'Sign In', exact: true }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Engagement overview' })).toBeVisible({ timeout: 30000 });
   await page.goto(`${ORIGIN}/player/${screenId}`);
   await page.waitForSelector('[data-measurement-placement]', { timeout: 30000 });
@@ -133,7 +133,7 @@ try {
   await page.screenshot({ path: 'tests/measurement/results/overview.png', fullPage: true });
   await page.getByRole('link', { name: 'Guest feedback test', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Guest feedback test', exact: true })).toBeVisible();
-  await expect(page.getByText('Location comparison — recorded activity, not a causal ranking', { exact: true })).toBeVisible();
+  await expect(page.getByText('Location comparison — activity recorded during the selected dates', { exact: true })).toBeVisible();
   await page.screenshot({ path: 'tests/measurement/results/campaign-detail.png', fullPage: true });
   await page.getByRole('link', { name: 'Feedback', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Guest feedback', exact: true })).toBeVisible();
@@ -142,12 +142,12 @@ try {
   await page.getByRole('link', { name: 'Locations & screens', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Locations & screens', exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Setup', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Create a measured campaign', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Create a QR campaign', exact: true })).toBeVisible();
   await page.screenshot({ path: 'tests/measurement/results/setup.png', fullPage: true });
   checked('production-built overview, campaign detail, feedback, location comparison and setup routes render');
   await page.getByLabel('Campaign name', { exact: true }).fill('Counter follow-up');
   await page.getByRole('button', { name: 'Create campaign', exact: true }).click();
-  await expect(page.getByText('Campaign created. Attach it to an existing QR tile below.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Campaign created. Add it to a QR code in your design below.', { exact: true })).toBeVisible();
   const campaignDocs = await db.collection('measurement_campaigns').where('orgId', '==', orgId).get();
   const created = campaignDocs.docs.find(doc => doc.data().name === 'Counter follow-up');
   assert.ok(created);
@@ -155,7 +155,7 @@ try {
   await page.getByLabel('Slide', { exact: true }).selectOption(slideId);
   await page.getByLabel('QR tile', { exact: true }).selectOption('feedbackQR');
   await page.getByRole('button', { name: 'Attach campaign', exact: true }).click();
-  await expect(page.getByText('Campaign attached. Live players will receive the new slide revision.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Campaign added. Check your screen setup to make sure the updated design is showing.', { exact: true })).toBeVisible();
   assert.equal((await db.doc('slides/' + slideId).get()).data().elements[0].properties.measurementCampaignId, created.id);
   checked('operator creates and attaches a measured survey through the real UI without losing setup state on refresh');
   assert.deepEqual(errors, [], `Browser runtime errors: ${errors.join('; ')}`);

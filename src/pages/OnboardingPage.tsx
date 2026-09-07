@@ -12,7 +12,7 @@ import { InlineFeedback } from '../components/atoms/InlineFeedback';
 import { PlansPanel } from '../components/journey/PlansPanel';
 import { BillingService } from '../services/billingService';
 import { RESTAURANT_TEMPLATES } from '../../functions/src/cinematic/templates';
-import { claimJourneyIntent, customerError, readJourneyIntent, sanitizeIntent, saveJourneyIntent, safeWebLink } from '../lib/customerJourney';
+import { claimJourneyIntent, customerError, readJourneyIntent, sanitizeIntent, saveJourneyIntent, safeWebLink, safeWorkspaceDestination } from '../lib/customerJourney';
 import type { PlanName } from '../../functions/src/journey/catalog';
 import type { Organization } from '../types/schema';
 const fieldClass = 'block w-full mt-2 rounded-lg border border-surface-highlight bg-background min-h-11 px-3 py-3';
@@ -21,6 +21,7 @@ export const OnboardingPage = () => {
   const { user, userProfile, organization } = useAuthStore();
   const { generalConfig } = useConfigStore();
   const params = new URLSearchParams(location.search);
+  const returnTo = safeWorkspaceDestination(params.get("redirect"));
   const [intent, setIntent] = useState(() => {
     const state = location.state || {};
     return { ...readJourneyIntent(), ...sanitizeIntent({ ...state, templateId: state.templateId || state.selectedTemplate?.id || params.get('design') }) };
@@ -41,12 +42,15 @@ export const OnboardingPage = () => {
     if (!user || !organization) return;
     const key = `${user.uid}:${organization.id}`;
     if (initialized.current === key) return;
+    const firstAccount = initialized.current === null;
     initialized.current = key;
     const saved = claimJourneyIntent(key);
-    setIntent(current => saveJourneyIntent({ ...saved, ...current }, key));
+    setIntent(current => saveJourneyIntent(firstAccount ? { ...saved, ...current } : saved, key));
     setRestaurant(organization.name || ''); setIndustry(organization.industry || 'Restaurant');
     setTimezone(organization.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York');
     const query = new URLSearchParams(location.search);
+    const destination = safeWorkspaceDestination(query.get('redirect'));
+    if (destination && (organization.industry || organization.isSetupComplete)) { navigate(destination, { replace: true }); return; }
     const requested = query.has('design') || query.has('content') || query.has('canceled') || saved.templateId || intent.templateId || intent.plan;
     if (userProfile?.platformRole === 'designer') { navigate('/designer', { replace: true }); return; }
     if (userProfile?.platformRole === 'admin' && organization.isSetupComplete && !requested) { navigate('/super-admin', { replace: true }); return; }
@@ -73,7 +77,8 @@ export const OnboardingPage = () => {
     submitting.current = true; setBusy(true); setError(null);
     try {
       await updateDoc(doc(db, 'organizations', organization.id), { name: restaurant.trim(), industry, timezone });
-      setStep(3);
+      if (returnTo) navigate(returnTo, { replace: true });
+      else setStep(3);
     } catch (e) { setError(customerError(e, 'We could not save your restaurant details. Your changes are still here. Try again.')); }
     finally { submitting.current = false; setBusy(false); }
   };
@@ -105,7 +110,7 @@ export const OnboardingPage = () => {
   const timezones = Array.from(new Set([timezone, 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Phoenix', 'Pacific/Honolulu', 'Europe/London', 'UTC']));
   return <div className="min-h-screen bg-background text-text">
     <a className="skip-link" href="#setup-main">Skip to content</a>
-    <header className="border-b border-surface-highlight p-4 sm:px-8 flex flex-wrap justify-between gap-4"><Link to="/" className="font-semibold text-xl min-h-11 inline-flex items-center">AccelRestaurants</Link><nav aria-label="Setup progress"><p className="text-sm mb-2">Step {step} of 4</p><ol className="flex flex-wrap gap-4 text-sm">{['Account', 'Restaurant', 'Design', 'Connect'].map((label, i) => <li key={label} aria-current={step === i + 1 ? 'step' : undefined} className={step === i + 1 ? 'font-semibold' : 'text-text-secondary'}>{i + 1}. {label}</li>)}</ol></nav></header>
+    <header className="border-b border-surface-highlight p-4 sm:px-8 flex flex-wrap justify-between gap-4"><Link to="/restaurants" className="font-semibold text-xl min-h-11 inline-flex items-center">AccelRestaurants</Link><nav aria-label="Setup progress"><p className="text-sm mb-2">Step {step} of 4</p><ol className="flex flex-wrap gap-4 text-sm">{['Account', 'Restaurant', 'Design', 'Connect'].map((label, i) => <li key={label} aria-current={step === i + 1 ? 'step' : undefined} className={step === i + 1 ? 'font-semibold' : 'text-text-secondary'}>{i + 1}. {label}</li>)}</ol></nav></header>
     <main id="setup-main" className="max-w-3xl mx-auto p-4 sm:p-8 py-10">
       <InlineFeedback message={error} tone="error" />
       <InlineFeedback message={busy ? 'Saving your choices…' : null} />
@@ -116,7 +121,7 @@ export const OnboardingPage = () => {
         {generalConfig.featureFlags?.publicSignupEnabled === false ? <><p>New registration is currently paused. Existing accounts and team invitations still work.</p><Link className="ui-button ui-button-primary mt-5" to="/login">Sign in</Link></> : <form onSubmit={signup} className="space-y-5" aria-busy={busy}>
           <label className="block" htmlFor="setup-name">Full name<input id="setup-name" autoComplete="name" value={name} maxLength={100} required onChange={e => setName(e.target.value)} className={fieldClass} /></label>
           <label className="block" htmlFor="setup-email">Email<input id="setup-email" type="email" autoComplete="email" value={email} required onChange={e => setEmail(e.target.value)} className={fieldClass} /></label>
-          <label className="block" htmlFor="setup-password">Password<input id="setup-password" type="password" autoComplete="new-password" minLength={8} value={password} required onChange={e => setPassword(e.target.value)} className={fieldClass} /><span className="block text-sm text-text-secondary mt-2">Use at least eight characters.</span></label>
+          <label className="block" htmlFor="setup-password">Password<input aria-label="Password" aria-describedby="setup-password-help" id="setup-password" type="password" autoComplete="new-password" minLength={8} value={password} required onChange={e => setPassword(e.target.value)} className={fieldClass} /><span id="setup-password-help" className="block text-sm text-text-secondary mt-2">Use at least eight characters.</span></label>
           <label className="flex items-start gap-3 py-2"><input type="checkbox" checked={terms} required onChange={e => setTerms(e.target.checked)} className="mt-1" /><span>I agree to the <a className="underline" href={safeWebLink(generalConfig.termsOfServiceUrl) || '/terms'} target="_blank" rel="noreferrer">terms</a> and <a className="underline" href={safeWebLink(generalConfig.privacyPolicyUrl) || '/privacy'} target="_blank" rel="noreferrer">privacy policy</a>.</span></label>
           <button type="submit" className="ui-button ui-button-primary" disabled={busy}>{busy ? 'Creating account…' : 'Create account'}</button>
         </form>}
@@ -129,6 +134,7 @@ export const OnboardingPage = () => {
       </form></section> : <section className="rounded-xl border border-surface-highlight bg-surface p-5 sm:p-8"><h1 ref={heading} tabIndex={-1} className="text-3xl font-semibold">Make your first menu board</h1><p className="text-text-secondary mt-4">{selectedDesign ? `${selectedDesign.name} is selected. Add your menu, then connect your screen.` : 'Choose a restaurant design, add your items and prices, then connect your screen.'}</p>{intent.templateId && !selectedDesign && intent.templateId !== '1' && <p role="status" className="mt-3">That design is no longer in this collection. Choose another design to continue.</p>}
         <button type="button" className="ui-button ui-button-primary mt-6" onClick={() => setShowDesigns(true)} disabled={busy}>{selectedDesign ? `Customize ${selectedDesign.name}` : 'Choose a restaurant design'}</button>
         <p className="text-text-secondary mt-5">Your current plan: {organization.plan}. {organization.plan === 'Free' ? 'Includes a five-minute screen preview.' : 'Your existing plan stays in place while you design.'}</p>
+        {intent.plan && intent.plan !== organization.plan && <p className="mt-4">You selected {intent.plan}{intent.screens ? ` for ${intent.screens} screens` : ""}{intent.seats ? ` and ${intent.seats} team members` : ""}. Compare plans below to review payment, or start with your current plan.</p>}
         <div className="flex flex-wrap gap-3 mt-4"><button type="button" className="ui-button ui-button-secondary" onClick={() => setShowPlans(true)} disabled={busy}>Compare plans</button><button type="button" className="ui-button ui-button-secondary" onClick={() => { setError(null); setStep(2); }} disabled={busy}>Edit restaurant details</button><button type="button" className="ui-button ui-button-secondary" onClick={() => { void finish('/admin').catch(() => {}); }} disabled={busy}>Set up later</button></div>
       </section>}
     </main>

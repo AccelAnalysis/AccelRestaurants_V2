@@ -6,4 +6,5 @@ export const httpsCallable = (_functions, name) => async input => {
   if (name === 'getInviteDetails') return { data: { orgId: 'hig-org', orgName: 'Test restaurant', email: 'review@example.invalid', type: f.inviteType || 'org' } };
   return { data: {} };
 };
+export const connectFunctionsEmulator = () => {};
 export const getFunctions = () => ({});

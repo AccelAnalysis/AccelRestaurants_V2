@@ -19,7 +19,7 @@ test('marketing uses real sample designs and preserves the chosen design', async
   await page.getByRole('button', { name: 'Use Grill House design' }).click();
   await expect(page.getByRole('button', { name: 'Customize Grill House' })).toBeVisible();
   await page.getByRole('button', { name: 'Customize Grill House' }).click();
-  await expect(page.getByRole('dialog').getByRole('button', { name: /Grill House/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('dialog').getByRole('button', { name: /Grill house/ })).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: 'Save for later', exact: true }).click();
   expect(await page.evaluate(() => window.__hig.checkoutCalls.length)).toBe(0);
   expect(await page.evaluate(() => window.__hig.callables.length)).toBe(0);
@@ -36,7 +36,7 @@ test('price recommendations calculate totals and reject fractional quantities', 
   await expect(recommendation).toContainText('Growth');
   await page.getByLabel('Number of screens', { exact: true }).fill('1.5');
   await expect(page.getByRole('button', { name: 'Choose Basic plan' })).toBeDisabled();
-  await expect(page.getByText('Enter whole numbers', { exact: false })).toBeVisible();
+  await expect(page.getByText('Enter whole numbers between 1 and 10,000.', { exact: true })).toBeVisible();
   await accessible(page);
 });
 test('checkout return never assigns paid access and retains its chosen design', async ({ page }) => {
@@ -51,7 +51,7 @@ test('checkout return never assigns paid access and retains its chosen design', 
 test('current plan load failure does not block creating a free design', async ({ page }) => {
   await page.goto('/onboarding?failPlans=1');
   await page.getByRole('button', { name: 'Compare plans', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('load current plan');
+  await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toContainText('load current plan');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Choose a restaurant design', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Your restaurant, screen-ready' })).toBeVisible();
@@ -101,7 +101,7 @@ test('website content edits keep failed drafts and save structured fields', asyn
   await page.getByLabel('Benefit 1 heading', { exact: true }).fill('A menu that feels like your restaurant');
   await page.evaluate(() => window.__hig.failSettings = true);
   await page.getByRole('button', { name: 'Save website content', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('edits are still here');
+  await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toContainText('edits are still here');
   await expect(page.getByLabel('Benefit 1 heading')).toHaveValue('A menu that feels like your restaurant');
   await page.evaluate(() => window.__hig.failSettings = false);
   await page.getByRole('button', { name: 'Save website content', exact: true }).click();
@@ -118,7 +118,7 @@ test('restaurant settings show no sample payment method or inert destructive act
   await page.getByLabel('Restaurant name', { exact: true }).fill('Updated restaurant');
   await page.evaluate(() => window.__hig.failSave = true);
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('still here');
+  await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toContainText('still here');
   await expect(page.getByLabel('Restaurant name')).toHaveValue('Updated restaurant');
   await accessible(page);
 });

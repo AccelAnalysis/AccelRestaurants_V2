@@ -92,6 +92,7 @@ function App() {
               </DesignerRoute>
             }
           />
+          <Route path="/restaurants" element={<LandingPage />} />
         </Routes>
       </Suspense>
       </ApplicationSurface>

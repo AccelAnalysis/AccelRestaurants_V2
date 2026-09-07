@@ -153,6 +153,7 @@ function Fixture() {
   return <BrowserRouter><DndProvider backend={HTML5Backend}><ApplicationSurface>
     <Routes>
       <Route path="/" element={<LandingPage />} />
+      <Route path="/restaurants" element={<LandingPage />} />
       <Route path="/marketing" element={<LandingPage />} />
       <Route path="/setup-guide" element={<FirstScreenGuide />} />
       <Route path="/restaurant-settings" element={<OrganizationView />} />

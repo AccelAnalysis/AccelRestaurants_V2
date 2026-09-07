@@ -40,8 +40,8 @@ export const PlansPanel = ({ initialScreens = 1, initialSeats = 1, selectedPlan,
           </ul>
           {quote.extraScreens > 0 && !quote.error && <p className="text-sm mb-2">Includes {quote.extraScreens} extra screens at {currency(config.addOns!.screen!)} each.</p>}
           {quote.extraSeats > 0 && !quote.error && <p className="text-sm mb-2">Includes {quote.extraSeats} extra team members at {currency(config.addOns!.seat!)} each.</p>}
-          {quote.error && <p className="text-sm mb-3">{quote.error}</p>}
-          {name === 'Franchise' ? <Link className="ui-button ui-button-secondary" to="/#contact">Contact us about a larger plan</Link> : <button type="button" className="ui-button ui-button-primary mt-3" aria-pressed={selected} aria-label={`Choose ${name} plan`} disabled={!valid || !!quote.error || busy} onClick={() => onChoose(name, screens, seats)}>{busy && selected ? 'Opening…' : name === 'Free' ? 'Continue free' : `Choose ${name}`}</button>}
+          {valid && quote.error && <p className="text-sm mb-3">{quote.error}</p>}
+          {name === 'Franchise' ? <Link className="ui-button ui-button-secondary" to="/restaurants#contact">Contact us about a larger plan</Link> : <button type="button" className="ui-button ui-button-primary mt-3" aria-pressed={selected} aria-label={`Choose ${name} plan`} disabled={!valid || !!quote.error || busy} onClick={() => onChoose(name, screens, seats)}>{busy && selected ? 'Opening…' : name === 'Free' ? 'Continue free' : `Choose ${name}`}</button>}
         </article>;
       })}
     </div>}
