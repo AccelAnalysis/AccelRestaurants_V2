@@ -28,6 +28,12 @@ class ActivationCollision extends Error {}
 const asMillis = (value: unknown): number => value instanceof Timestamp ? value.toMillis() : 0;
 const activationKey = (code: string) => createHash('sha256').update(code).digest('hex');
 const measurementDeviceId = (playerUid: string, screenId: string) => hash(playerUid, screenId);
+const publicRegistration = (value: Registration | undefined) => value ? {
+  screenId: value.screenId,
+  orgId: value.orgId,
+  active: value.active === true,
+  status: value.status || (value.active ? 'active' : 'deactivated'),
+} : null;
 
 /**
  * Durable browser-player identity and logical-screen assignment.
@@ -80,13 +86,26 @@ export class PlayerRegistrationEngine {
     }, { merge: true });
   }
 
-  /** Create/reuse a short-lived code on the TV before any logical screen is chosen. */
+  /**
+   * Resolve the browser's durable assignment first. Only an unregistered or
+   * replaced/deactivated browser receives a short-lived activation code.
+   */
   async requestActivation(playerUid: string) {
     id(playerUid);
+    const registrationSnap = await this.db.doc(`player_registrations/${playerUid}`).get();
+    const registration = registrationSnap.data() as Registration | undefined;
+    if (registration?.active && registration.screenId && registration.orgId) {
+      return { registration: publicRegistration(registration), code: null, expiresAt: 0 };
+    }
+
     const requestRef = this.db.doc(`player_activation_requests/${playerUid}`);
     const existing = await requestRef.get();
     if (existing.exists && asMillis(existing.data()!.expireAt) > this.now()) {
-      return { code: String(existing.data()!.code), expiresAt: asMillis(existing.data()!.expireAt) };
+      return {
+        registration: publicRegistration(registration),
+        code: String(existing.data()!.code),
+        expiresAt: asMillis(existing.data()!.expireAt),
+      };
     }
 
     for (let attempt = 0; attempt < MAX_CODE_ATTEMPTS; attempt++) {
@@ -94,16 +113,28 @@ export class PlayerRegistrationEngine {
       const codeRef = this.db.doc(`player_activation_codes/${activationKey(code)}`);
       try {
         const result = await this.db.runTransaction(async tx => {
-          const [latestRequest, candidate] = await Promise.all([tx.get(requestRef), tx.get(codeRef)]);
+          const [latestRequest, candidate, latestRegistration] = await Promise.all([
+            tx.get(requestRef),
+            tx.get(codeRef),
+            tx.get(this.db.doc(`player_registrations/${playerUid}`)),
+          ]);
+          const latest = latestRegistration.data() as Registration | undefined;
+          if (latest?.active && latest.screenId && latest.orgId) {
+            return { registration: publicRegistration(latest), code: null, expiresAt: 0 };
+          }
           if (latestRequest.exists && asMillis(latestRequest.data()!.expireAt) > this.now()) {
-            return { code: String(latestRequest.data()!.code), expiresAt: asMillis(latestRequest.data()!.expireAt) };
+            return {
+              registration: publicRegistration(latest),
+              code: String(latestRequest.data()!.code),
+              expiresAt: asMillis(latestRequest.data()!.expireAt),
+            };
           }
           if (candidate.exists && asMillis(candidate.data()!.expireAt) > this.now()) throw new ActivationCollision();
           const expireAt = Timestamp.fromMillis(this.now() + ACTIVATION_TTL_MS);
           const value = { code, playerUid, createdAt: this.timestamp(), expireAt };
           tx.set(codeRef, value);
           tx.set(requestRef, value);
-          return { code, expiresAt: expireAt.toMillis() };
+          return { registration: publicRegistration(latest), code, expiresAt: expireAt.toMillis() };
         });
         return result;
       } catch (error) {
