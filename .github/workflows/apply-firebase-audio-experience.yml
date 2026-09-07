@@ -53,7 +53,7 @@ jobs:
 
           tile = Path('src/components/atoms/TileContent.tsx')
           text = tile.read_text().replace("    else { audio.pause(); setStatus('idle'); }", "    else { audio.pause(); }")
-          text = text.replace("<Volume2 size={28}", "<Volume size={28}")
+          text = text.replace("  MapPin\n} from 'lucide-react';", "  MapPin,\n  Volume2\n} from 'lucide-react';")
           tile.write_text(text)
           PY
 
