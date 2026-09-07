@@ -2,8 +2,8 @@ import type { FormEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { doc, updateDoc } from 'firebase/firestore';
-import { auth, db } from '../lib/firebase';
+import { auth } from '../lib/firebase';
+import { saveSetupChanges } from '../services/onboardingService';
 import { useAuthStore } from '../store/useAuthStore';
 import { useConfigStore } from '../store/useConfigStore';
 import { RestaurantStarterWizard } from '../components/cinematic/RestaurantStarterWizard';
@@ -21,7 +21,7 @@ export const OnboardingPage = () => {
   const { user, userProfile, organization } = useAuthStore();
   const { generalConfig } = useConfigStore();
   const params = new URLSearchParams(location.search);
-  const returnTo = safeWorkspaceDestination(params.get("redirect"));
+  const returnTo = safeWorkspaceDestination(params.get('redirect'));
   const [intent, setIntent] = useState(() => {
     const state = location.state || {};
     return { ...readJourneyIntent(), ...sanitizeIntent({ ...state, templateId: state.templateId || state.selectedTemplate?.id || params.get('design') }) };
@@ -61,24 +61,21 @@ export const OnboardingPage = () => {
     event.preventDefault();
     if (submitting.current || generalConfig.featureFlags?.publicSignupEnabled === false) return;
     if (!terms) { setError('Please agree to the terms and privacy policy to create your account.'); return; }
-    submitting.current = true; setBusy(true); setError(null);
-    saveJourneyIntent(intent);
+    submitting.current = true; setBusy(true); setError(null); saveJourneyIntent(intent);
     try {
       const result = await createUserWithEmailAndPassword(auth, email.trim(), password);
-      await updateProfile(result.user, { displayName: name.trim() });
-      setPassword('');
+      await updateProfile(result.user, { displayName: name.trim() }); setPassword('');
     } catch (e) { setError(customerError(e, 'We could not create your account. Check your details and try again.')); }
     finally { submitting.current = false; setBusy(false); }
   };
   const saveRestaurant = async (event: FormEvent) => {
-    event.preventDefault(); if (!organization || submitting.current) return;
+    event.preventDefault(); if (!organization || !user || submitting.current) return;
     if (!restaurant.trim()) { setError('Enter your restaurant name.'); return; }
     try { new Intl.DateTimeFormat('en-US', { timeZone: timezone }); } catch { setError('Choose a valid time zone.'); return; }
     submitting.current = true; setBusy(true); setError(null);
     try {
-      await updateDoc(doc(db, 'organizations', organization.id), { name: restaurant.trim(), industry, timezone });
-      if (returnTo) navigate(returnTo, { replace: true });
-      else setStep(3);
+      if (!await saveSetupChanges(organization.id, user.uid, { name: restaurant.trim(), industry, timezone })) return;
+      if (returnTo) navigate(returnTo, { replace: true }); else setStep(3);
     } catch (e) { setError(customerError(e, 'We could not save your restaurant details. Your changes are still here. Try again.')); }
     finally { submitting.current = false; setBusy(false); }
   };
@@ -88,22 +85,19 @@ export const OnboardingPage = () => {
     if (plan === 'Free') { setShowPlans(false); return; }
     submitting.current = true; setBusy(true); setError(null);
     try {
-      if (organization.subscriptionId) {
-        window.location.assign(await BillingService.createPortalSession(`${window.location.origin}/onboarding?content=1`));
-      } else {
-        window.location.assign(await BillingService.createPlanCheckout(organization.id, plan, screens, seats, 'setup', checkoutRequest.current));
-      }
+      if (organization.subscriptionId) window.location.assign(await BillingService.createPortalSession(`${window.location.origin}/onboarding?content=1`));
+      else window.location.assign(await BillingService.createPlanCheckout(organization.id, plan, screens, seats, 'setup', checkoutRequest.current));
     } catch (e) { setError(customerError(e, 'Payment options could not be opened. No payment was confirmed here. Try again or continue with your current plan.')); }
     finally { submitting.current = false; setBusy(false); }
   };
   const finish = async (destination: string) => {
-    if (!organization || submitting.current) return;
+    if (!organization || !user || submitting.current) return;
     submitting.current = true; finishing.current = true; setBusy(true); setError(null);
     try {
-      // This legacy flag means profile setup only. Connection and playback are never inferred from it.
-      await updateDoc(doc(db, 'organizations', organization.id), { isSetupComplete: true });
+      // Profile completion is not a claim that a physical screen is playing.
+      if (!await saveSetupChanges(organization.id, user.uid, { isSetupComplete: true })) return;
       navigate(destination);
-    } catch (e) { finishing.current = false; setError(customerError(e, 'Your design is saved, but we could not finish this step. Try again.')); throw e; }
+    } catch (e) { finishing.current = false; setError(customerError(e, 'Your choices are saved, but we could not finish this step. Try again.')); throw e; }
     finally { submitting.current = false; setBusy(false); }
   };
   const selectedDesign = RESTAURANT_TEMPLATES.find(t => t.id === intent.templateId);
@@ -112,8 +106,7 @@ export const OnboardingPage = () => {
     <a className="skip-link" href="#setup-main">Skip to content</a>
     <header className="border-b border-surface-highlight p-4 sm:px-8 flex flex-wrap justify-between gap-4"><Link to="/restaurants" className="font-semibold text-xl min-h-11 inline-flex items-center">AccelRestaurants</Link><nav aria-label="Setup progress"><p className="text-sm mb-2">Step {step} of 4</p><ol className="flex flex-wrap gap-4 text-sm">{['Account', 'Restaurant', 'Design', 'Connect'].map((label, i) => <li key={label} aria-current={step === i + 1 ? 'step' : undefined} className={step === i + 1 ? 'font-semibold' : 'text-text-secondary'}>{i + 1}. {label}</li>)}</ol></nav></header>
     <main id="setup-main" className="max-w-3xl mx-auto p-4 sm:p-8 py-10">
-      <InlineFeedback message={error} tone="error" />
-      <InlineFeedback message={busy ? 'Saving your choices…' : null} />
+      <InlineFeedback message={error} tone="error" /><InlineFeedback message={busy ? 'Saving your choices…' : null} />
       {params.has('canceled') && <InlineFeedback message="Checkout was canceled. Your design choices are still here. You can continue with your current plan." />}
       {params.has('content') && <InlineFeedback message="Welcome back. Your available features update when your payment is confirmed. You can continue designing while this finishes." />}
       {!user ? <section className="rounded-xl border border-surface-highlight bg-surface p-5 sm:p-8">
@@ -134,7 +127,7 @@ export const OnboardingPage = () => {
       </form></section> : <section className="rounded-xl border border-surface-highlight bg-surface p-5 sm:p-8"><h1 ref={heading} tabIndex={-1} className="text-3xl font-semibold">Make your first menu board</h1><p className="text-text-secondary mt-4">{selectedDesign ? `${selectedDesign.name} is selected. Add your menu, then connect your screen.` : 'Choose a restaurant design, add your items and prices, then connect your screen.'}</p>{intent.templateId && !selectedDesign && intent.templateId !== '1' && <p role="status" className="mt-3">That design is no longer in this collection. Choose another design to continue.</p>}
         <button type="button" className="ui-button ui-button-primary mt-6" onClick={() => setShowDesigns(true)} disabled={busy}>{selectedDesign ? `Customize ${selectedDesign.name}` : 'Choose a restaurant design'}</button>
         <p className="text-text-secondary mt-5">Your current plan: {organization.plan}. {organization.plan === 'Free' ? 'Includes a five-minute screen preview.' : 'Your existing plan stays in place while you design.'}</p>
-        {intent.plan && intent.plan !== organization.plan && <p className="mt-4">You selected {intent.plan}{intent.screens ? ` for ${intent.screens} screens` : ""}{intent.seats ? ` and ${intent.seats} team members` : ""}. Compare plans below to review payment, or start with your current plan.</p>}
+        {intent.plan && intent.plan !== organization.plan && <p className="mt-4">You selected {intent.plan}{intent.screens ? ` for ${intent.screens} screens` : ''}{intent.seats ? ` and ${intent.seats} team members` : ''}. Compare plans below to review payment, or start with your current plan.</p>}
         <div className="flex flex-wrap gap-3 mt-4"><button type="button" className="ui-button ui-button-secondary" onClick={() => setShowPlans(true)} disabled={busy}>Compare plans</button><button type="button" className="ui-button ui-button-secondary" onClick={() => { setError(null); setStep(2); }} disabled={busy}>Edit restaurant details</button><button type="button" className="ui-button ui-button-secondary" onClick={() => { void finish('/admin').catch(() => {}); }} disabled={busy}>Set up later</button></div>
       </section>}
     </main>
