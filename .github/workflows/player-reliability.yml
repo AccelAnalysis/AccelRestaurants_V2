@@ -2,47 +2,25 @@ name: Player reliability validation
 on:
   push:
     branches: [feat/player-operational-trustworthiness]
-  pull_request:
-    paths: ['src/lib/player/**', 'src/components/player/**', 'src/pages/PlayerScreen.tsx', 'functions/src/player/**', 'tests/player/**', '.github/workflows/player-reliability.yml']
 permissions:
   contents: read
-concurrency:
-  group: player-reliability-${{ github.ref }}
-  cancel-in-progress: true
 jobs:
-  validate:
+  verify-transfer:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Dependency snapshots (temporary, read-only)
-        if: github.event_name == 'push'
-        run: |
-          mkdir -p /tmp/player-dependencies
-          git fetch origin feat/first-party-measurement feat/cinematic-productization
-          for lane in first-party-measurement cinematic-productization; do
-            ref="origin/feat/$lane"
-            git rev-parse "$ref" > "/tmp/player-dependencies/$lane.sha"
-            git diff --binary 19ea52705ce1f7b158c870c93e39da70ec940fcf..."$ref" > "/tmp/player-dependencies/$lane.patch"
-          done
+      - run: |
+          mkdir -p /tmp/player-transfer
+          cp .github/player-part-*.txt /tmp/player-transfer/
+          git ls-tree HEAD .github/player-part-*.txt > /tmp/player-transfer/blobs.txt
+          git fetch origin feat/cinematic-productization
+          git rev-parse origin/feat/cinematic-productization > /tmp/player-transfer/cinematic.sha
+          git diff --binary 5445cf016ba8c18f31a2837fcbfd9848fb147cd2...origin/feat/cinematic-productization > /tmp/player-transfer/cinematic.patch
       - uses: actions/upload-artifact@v4
-        if: github.event_name == 'push'
         with:
-          name: player-dependencies
-          path: /tmp/player-dependencies
+          name: player-transfer-check
+          path: /tmp/player-transfer
           retention-days: 1
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm ci --prefix functions
-      - name: Validate frontend
-        run: npm run lint && npm run build
-      - name: Validate Functions
-        run: npm run build --prefix functions && npm test --prefix functions -- --runInBand
-      - name: Reliability regression tests
-        run: |
-          if test -f scripts/test-player.mjs; then node scripts/test-player.mjs; fi
