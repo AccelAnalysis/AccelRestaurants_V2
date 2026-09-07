@@ -1,0 +1,64 @@
+name: Deploy Measurement Backend
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type DEPLOY to release measurement Functions and Firestore configuration
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.repository == 'AccelAnalysis/AccelRestaurants_V2'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+    steps:
+      - name: Require reviewed main and explicit target
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/main || { echo 'Release must run from main.'; exit 1; }
+          test "$CONFIRM" = DEPLOY || { echo 'Explicit DEPLOY confirmation is required.'; exit 1; }
+          test "$FIREBASE_PROJECT_ID" = accelrestaurant-d2c1f || { echo 'Incorrect production Firebase project.'; exit 1; }
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Build and test backend from this commit
+        run: |
+          npm ci --prefix functions
+          npm install --global firebase-tools@15.29.0
+          npm run build --prefix functions
+          npm test --prefix functions -- --runInBand
+          firebase emulators:exec --project demo-accel-measurement --only firestore 'npm test --prefix functions -- --runInBand --testPathPatterns=measurement/engine.integration.test.ts --testTimeout=30000'
+      - name: Authenticate deployment after emulator tests
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          node -e 'const fs=require("node:fs");const raw=process.env.FIREBASE_SERVICE_ACCOUNT;if(!raw)throw Error("Missing production service account");const key=JSON.parse(raw);if(key.project_id!=="accelrestaurant-d2c1f")throw Error("Wrong service-account project");const path=process.env.RUNNER_TEMP+"/measurement-firebase-credentials.json";fs.writeFileSync(path,raw,{mode:0o600});fs.appendFileSync(process.env.GITHUB_ENV,"GOOGLE_APPLICATION_CREDENTIALS="+path+"\n");'
+      - name: Configure canonical QR origin
+        env:
+          MEASUREMENT_ORIGIN: ${{ vars.MEASUREMENT_ORIGIN }}
+        run: |
+          node -e 'const fs=require("node:fs");const value=process.env.MEASUREMENT_ORIGIN||"https://accelrestaurant-d2c1f.web.app";const url=new URL(value);if(url.protocol!=="https:"||url.origin!==value||url.username||url.password)throw Error("MEASUREMENT_ORIGIN must be an HTTPS origin without trailing slash");fs.writeFileSync("functions/.env.accelrestaurant-d2c1f","MEASUREMENT_ORIGIN="+value+"\nMEASUREMENT_REQUIRE_APP_CHECK=false\n");'
+      - name: Deploy only measurement functions and checked-in Firestore rules/indexes
+        run: |
+          firebase deploy --project accelrestaurant-d2c1f --non-interactive --only 'functions:createMeasurementCampaign,functions:setMeasurementCampaignStatus,functions:bindMeasurementCampaign,functions:requestMeasurementPairing,functions:approveMeasurementPairing,functions:openMeasurementSession,functions:getMeasurementManifest,functions:ingestMeasurementBuckets,functions:getMeasurementDashboard,functions:getMeasurementEngagement,functions:recordMeasurementAction,functions:submitMeasurementSurvey,functions:measurementRedirect,functions:aggregateMeasurementEvent,functions:reconcileMeasurementEvents,firestore:rules,firestore:indexes'
+      - name: Remove temporary credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/measurement-firebase-credentials.json" functions/.env.accelrestaurant-d2c1f
