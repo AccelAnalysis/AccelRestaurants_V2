@@ -6,11 +6,13 @@ import { defineString, defineBoolean } from 'firebase-functions/params';
 import * as logger from 'firebase-functions/logger';
 import { MeasurementEngine } from './engine';
 import { MeasurementError, object, id, text, hash, requireValue } from './core';
+import { PlayerRegistrationEngine } from '../playerRegistration';
 
 const publicOrigin = defineString('MEASUREMENT_ORIGIN', { default: 'https://accelrestaurant-d2c1f.web.app', description: 'Canonical first-party QR origin. Use the verified custom domain after DNS/Hosting setup.' });
 const requireAppCheck = defineBoolean('MEASUREMENT_REQUIRE_APP_CHECK', { default: false, description: 'Enable after App Check is configured on supported player and guest browsers.' });
 const options = { region: 'us-central1', maxInstances: 10, timeoutSeconds: 30 };
 const engine = () => new MeasurementEngine(getFirestore(), publicOrigin.value().replace(/\/$/, ''));
+const playerRegistration = () => new PlayerRegistrationEngine(getFirestore());
 
 function callable(run: (service: MeasurementEngine, data: Record<string, unknown>, uid: string, request: CallableRequest) => Promise<unknown>, authenticated = true) {
   return onCall(options, async request => {
@@ -31,8 +33,8 @@ function callable(run: (service: MeasurementEngine, data: Record<string, unknown
 export const createMeasurementCampaign = callable((service, data, uid) => service.createCampaign(uid, data));
 export const setMeasurementCampaignStatus = callable((service, data, uid) => service.campaignStatus(uid, data));
 export const bindMeasurementCampaign = callable((service, data, uid) => service.bindCampaign(uid, data));
-export const requestMeasurementPairing = callable((service, data, uid) => service.requestPairing(uid, id(data.screenId)));
-export const approveMeasurementPairing = callable((service, data, uid) => service.approvePairing(uid, data));
+export const requestMeasurementPairing = callable((service, data, uid) => data.playerActivation === true ? playerRegistration().requestActivation(uid) : service.requestPairing(uid, id(data.screenId)));
+export const approveMeasurementPairing = callable((service, data, uid) => data.playerRegistrationAction ? playerRegistration().manage(uid, data) : service.approvePairing(uid, data));
 export const openMeasurementSession = callable((service, data, uid, request) => {
   // Preview Hosting shares production Firestore. Its instrumentation MUST be marked test by the server.
   const origin = request.rawRequest.get('origin');
