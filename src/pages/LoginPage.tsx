@@ -17,7 +17,7 @@ export const LoginPage = () => {
       if (reset) { await sendPasswordResetEmail(auth, email.trim()); setMessage('Password reset email sent. Please check your inbox.'); return; }
       await signInWithEmailAndPassword(auth, email.trim(), password);
       const requested = params.get('redirect');
-      const safe = requested && /^\/(admin|designer|super-admin|pair)(\/|\?|$)/.test(requested) && !/[\\\u0000-\u001f]/.test(requested) ? requested : '/onboarding';
+      const safe = requested && /^\/(admin|designer|super-admin|pair)(\/|\?|$)/.test(requested) && !Array.from(requested).some(character => character === '\\' || character.charCodeAt(0) < 32) ? requested : '/onboarding';
       navigate(safe, { replace: true });
     } catch (e) {
       const code = (e as { code?: string }).code;

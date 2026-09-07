@@ -6,10 +6,9 @@ export function usePlanCatalogue() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const retry = useCallback(() => setAttempt(n => n + 1), []);
+  const retry = useCallback(() => { setLoading(true); setError(null); setCatalogue(null); setAttempt(n => n + 1); }, []);
   useEffect(() => {
     let disposed = false;
-    setLoading(true); setError(null); setCatalogue(null);
     ConfigService.getPlanConfigs().then(value => {
       const checked = validateCatalogue(value);
       if (!disposed) setCatalogue(checked);
