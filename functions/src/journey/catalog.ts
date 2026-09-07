@@ -22,6 +22,7 @@ export function validateCatalogue(value: unknown): PlanCatalogue {
     if (!p || !money(p.price) || !count(p.screens, true) || !count(p.seats, true) || !Array.isArray(p.allowedTiles) || !p.allowedTiles.every(t => typeof t === 'string') || typeof p.description !== 'string' || typeof p.deploymentDurationLimit !== 'boolean') throw new Error('Plan details are unavailable.');
     if (name === 'Free' && p.price !== 0) throw new Error('Plan details are unavailable.');
     if ((p.maxScreens !== undefined && (!count(p.maxScreens) || (p.screens !== -1 && p.maxScreens < p.screens))) || (p.maxSeats !== undefined && (!count(p.maxSeats) || (p.seats !== -1 && p.maxSeats < p.seats)))) throw new Error('Plan details are unavailable.');
+    if (p.addOns !== undefined && (!p.addOns || typeof p.addOns !== 'object' || Array.isArray(p.addOns))) throw new Error('Plan details are unavailable.');
     if (p.addOns && ((p.addOns.screen !== undefined && !money(p.addOns.screen)) || (p.addOns.seat !== undefined && !money(p.addOns.seat)))) throw new Error('Plan details are unavailable.');
     result[name] = { ...p, allowedTiles: [...p.allowedTiles], ...(p.addOns ? { addOns: { ...p.addOns } } : {}) };
   }

@@ -11,6 +11,10 @@ const catalogue: PlanCatalogue = {
 };
 describe('one commercial catalogue', () => {
   test('validates configured plans without changing prices', () => expect(validateCatalogue(catalogue)).toEqual(catalogue));
+  test.each([null, 5, 'extras', []])('rejects malformed add-on containers without silently dropping prices', addOns => {
+    expect(() => validateCatalogue({ ...catalogue, Basic: { ...basic, addOns } })).toThrow();
+    expect(() => validateBillingCatalogue({ ...catalogue, Basic: { ...basic, addOns } })).toThrow();
+  });
   test('server billing validates all payable mappings without requiring them in display defaults', () => {
     expect(validateBillingCatalogue(catalogue)).toEqual(catalogue);
     const missing = { ...catalogue, Basic: { ...basic, stripePriceId: undefined } };
