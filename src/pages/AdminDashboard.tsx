@@ -10,7 +10,7 @@ import { SlideListView } from '../components/organisms/SlideListView';
 import { SlideEditor } from '../components/organisms/SlideEditor';
 import { MediaAssetsView } from '../components/organisms/MediaAssetsView';
 import { ScreenListView } from '../components/organisms/ScreenListView';
-import { ScreenEditor } from '../components/organisms/ScreenEditor';
+import { ScreenSetupPage as ScreenEditor } from '../components/journey/ScreenSetupPage';
 import { DashboardOverview } from '../components/organisms/DashboardOverview';
 import { SubscriptionManager } from '../components/organisms/SubscriptionManager';
 import { DesignerMarketplace } from '../components/organisms/DesignerMarketplace';

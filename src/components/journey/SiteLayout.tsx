@@ -31,8 +31,8 @@ export const SiteLayout = ({ children }: { children: ReactNode }) => {
           {contactLink(config.contactEmail) ? <a className="ui-button ui-button-secondary" href={contactLink(config.contactEmail)}>Contact us</a> : <Link className="ui-button ui-button-secondary" to="/admin/help">Get setup help</Link>}
           {safeWebLink(config.marketing?.bookingUrl) && <a className="ui-button ui-button-primary" href={safeWebLink(config.marketing?.bookingUrl)}>Book a setup call</a>}
         </div></div>
-        <div className="sm:text-right"><p>AccelRestaurants</p><p className="text-text-secondary mt-2">Part of AccelDigitalDisplays</p><div className="flex sm:justify-end flex-wrap gap-4 mt-4"><a className="min-h-11 inline-flex items-center underline" href={safeWebLink(config.privacyPolicyUrl) || '/privacy'}>Privacy</a><a className="min-h-11 inline-flex items-center underline" href={safeWebLink(config.termsOfServiceUrl) || '/terms'}>Terms</a></div></div>
-      </div>
+        <div className="sm:text-right"><p>AccelRestaurants</p><p className="text-text-secondary mt-2">{config.footerCopyrightText || "Restaurant screens and guest feedback"}</p><div className="flex sm:justify-end flex-wrap gap-4 mt-4"><a className="min-h-11 inline-flex items-center underline" href={safeWebLink(config.privacyPolicyUrl) || '/privacy'}>Privacy</a><a className="min-h-11 inline-flex items-center underline" href={safeWebLink(config.termsOfServiceUrl) || '/terms'}>Terms</a></div></div>
+      <div className="max-w-7xl mx-auto flex flex-wrap gap-4 mt-6">{[...(config.footerLinks || []), ...(config.socialLinks || []).map(row => ({ label: row.platform, url: row.url }))].filter(row => safeWebLink(row.url)).map((row, i) => <a key={i} className="min-h-11 inline-flex items-center underline" href={safeWebLink(row.url)}>{row.label}</a>)}</div></div>
     </footer>
   </div>;
 };

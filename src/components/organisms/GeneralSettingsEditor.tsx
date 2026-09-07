@@ -1,3 +1,4 @@
+import type { FormEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { useConfigStore } from '../../store/useConfigStore';
 import type { GeneralConfig } from '../../services/configService';
@@ -23,7 +24,7 @@ export const GeneralSettingsEditor = () => {
     if (!dirty.current) setSettings(Object.fromEntries([...keys, 'featureFlags', 'maintenanceMode', 'footerLinks', 'socialLinks'].map(key => [key, generalConfig[key as keyof GeneralConfig]])));
   }, [generalConfig]);
   const change = (next: GeneralConfig) => { dirty.current = true; setSaved(false); setSettings(next); };
-  const save = async (event: React.FormEvent) => {
+  const save = async (event: FormEvent) => {
     event.preventDefault(); if (busy) return;
     if (settings.primaryBrandColor && !normalizeHex(settings.primaryBrandColor)) { setError('Enter a valid brand color, such as #EA580C. Your changes have not been saved.'); return; }
     const links = [settings.logoUrl, settings.landingPageVideoUrl, settings.privacyPolicyUrl, settings.termsOfServiceUrl, ...(settings.footerLinks || []).map(row => row.url), ...(settings.socialLinks || []).map(row => row.url)];

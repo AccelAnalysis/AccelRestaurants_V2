@@ -45,6 +45,6 @@ export const PlansPanel = ({ initialScreens = 1, initialSeats = 1, selectedPlan,
         </article>;
       })}
     </div>}
-    <p className="text-sm text-text-secondary text-center">Prices are in US dollars per month. Any applicable taxes and the final total appear before you confirm payment. Free is a limited preview, not a 14-day trial.</p>
+    <p className="text-sm text-text-secondary text-center">Prices are in US dollars per month. Any applicable taxes and the final total appear before you confirm payment. Free includes a five-minute screen preview.</p>
   </section>;
 };

@@ -1,3 +1,4 @@
+import type { FormEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
@@ -48,11 +49,11 @@ export const OnboardingPage = () => {
     const query = new URLSearchParams(location.search);
     const requested = query.has('design') || query.has('content') || query.has('canceled') || saved.templateId || intent.templateId || intent.plan;
     if (userProfile?.platformRole === 'designer') { navigate('/designer', { replace: true }); return; }
-    if (userProfile?.platformRole === 'admin' && !requested) { navigate('/super-admin', { replace: true }); return; }
+    if (userProfile?.platformRole === 'admin' && organization.isSetupComplete && !requested) { navigate('/super-admin', { replace: true }); return; }
     if (organization.isSetupComplete && !requested && !finishing.current) { navigate('/admin', { replace: true }); return; }
     setStep(organization.industry ? 3 : 2); setBusy(false);
   }, [user, organization, userProfile, location.search, navigate, intent.templateId, intent.plan]);
-  const signup = async (event: React.FormEvent) => {
+  const signup = async (event: FormEvent) => {
     event.preventDefault();
     if (submitting.current || generalConfig.featureFlags?.publicSignupEnabled === false) return;
     if (!terms) { setError('Please agree to the terms and privacy policy to create your account.'); return; }
@@ -65,7 +66,7 @@ export const OnboardingPage = () => {
     } catch (e) { setError(customerError(e, 'We could not create your account. Check your details and try again.')); }
     finally { submitting.current = false; setBusy(false); }
   };
-  const saveRestaurant = async (event: React.FormEvent) => {
+  const saveRestaurant = async (event: FormEvent) => {
     event.preventDefault(); if (!organization || submitting.current) return;
     if (!restaurant.trim()) { setError('Enter your restaurant name.'); return; }
     try { new Intl.DateTimeFormat('en-US', { timeZone: timezone }); } catch { setError('Choose a valid time zone.'); return; }
@@ -104,7 +105,7 @@ export const OnboardingPage = () => {
   const timezones = Array.from(new Set([timezone, 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Phoenix', 'Pacific/Honolulu', 'Europe/London', 'UTC']));
   return <div className="min-h-screen bg-background text-text">
     <a className="skip-link" href="#setup-main">Skip to content</a>
-    <header className="border-b border-surface-highlight p-4 sm:px-8 flex flex-wrap justify-between gap-4"><Link to="/" className="font-semibold text-xl min-h-11 inline-flex items-center">AccelRestaurants</Link><nav aria-label="Setup progress"><ol className="flex flex-wrap gap-4 text-sm">{['Account', 'Restaurant', 'Design', 'Connect'].map((label, i) => <li key={label} aria-current={step === i + 1 ? 'step' : undefined} className={step === i + 1 ? 'font-semibold' : 'text-text-secondary'}>{i + 1}. {label}</li>)}</ol></nav></header>
+    <header className="border-b border-surface-highlight p-4 sm:px-8 flex flex-wrap justify-between gap-4"><Link to="/" className="font-semibold text-xl min-h-11 inline-flex items-center">AccelRestaurants</Link><nav aria-label="Setup progress"><p className="text-sm mb-2">Step {step} of 4</p><ol className="flex flex-wrap gap-4 text-sm">{['Account', 'Restaurant', 'Design', 'Connect'].map((label, i) => <li key={label} aria-current={step === i + 1 ? 'step' : undefined} className={step === i + 1 ? 'font-semibold' : 'text-text-secondary'}>{i + 1}. {label}</li>)}</ol></nav></header>
     <main id="setup-main" className="max-w-3xl mx-auto p-4 sm:p-8 py-10">
       <InlineFeedback message={error} tone="error" />
       <InlineFeedback message={busy ? 'Saving your choices…' : null} />

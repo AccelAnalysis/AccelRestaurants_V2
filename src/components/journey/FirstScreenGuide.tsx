@@ -37,7 +37,7 @@ export const FirstScreenGuide = ({ screenId }: { screenId?: string }) => {
   const connection = error ? 'unknown' : connectionState(screen?.lastHeartbeatAt, now);
   const screenLink = screen ? `/admin/screens/${screen.id}?setup=1` : '/admin/screens/new';
   return <section aria-label="Screen setup help" className="rounded-xl border border-surface-highlight bg-surface p-5 sm:p-6 mb-8">
-    <div className="flex flex-wrap justify-between gap-4"><h2 className="text-2xl font-semibold">{screenId ? 'Connect your restaurant screen' : 'Get your first screen ready'}</h2><button type="button" className="ui-button ui-button-secondary" onClick={() => { setDismissed(true); try { localStorage.setItem(key, 'hidden'); } catch { /* Optional preference. */ } }} disabled={!!screenId}>Hide setup tips</button></div>
+    <div className="flex flex-wrap justify-between gap-4"><h2 className="text-2xl font-semibold">{screenId ? 'Connect your restaurant screen' : 'Get your first screen ready'}</h2>{!screenId && <button type="button" className="ui-button ui-button-secondary" onClick={() => { setDismissed(true); try { localStorage.setItem(key, 'hidden'); } catch { /* Optional preference. */ } }} >Hide setup tips</button>}</div>
     <InlineFeedback tone="error" message={error}>{error && <button type="button" className="ui-button ui-button-secondary mt-2" onClick={() => setAttempt(n => n + 1)}>Check again</button>}</InlineFeedback>
     {!state && !error && <p role="status" className="mt-4">Checking your setup…</p>}
     {state && <ol className="grid md:grid-cols-3 gap-6 mt-6">

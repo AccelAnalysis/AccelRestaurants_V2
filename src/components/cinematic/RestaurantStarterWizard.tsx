@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { customerError } from '../../lib/customerJourney';
 import { AccessibleDialog } from '../atoms/AccessibleDialog';
 import { InlineFeedback } from '../atoms/InlineFeedback';
 import { AtmospherePresetPanel } from './AtmospherePresetPanel';
@@ -8,7 +9,7 @@ import { ATMOSPHERE_PRESETS, entitlements, presetConfig } from '../../../functio
 import { RESTAURANT_TEMPLATES, defaultStarter, validateStarter, assertStarterEntitled, buildRestaurantSlide, type StarterInput } from '../../../functions/src/cinematic/templates';
 import type { Slide } from '../../types/schema';
 interface Props {
-  orgId: string; userId: string; plan: unknown; brandName: string; firstScreen?: boolean;
+  orgId: string; userId: string; plan: unknown; brandName: string; firstScreen?: boolean; initialTemplateId?: string;
   onClose: () => void; onComplete: (result: StarterResult) => void | Promise<void>;
   createStarter?: (request: StarterRequest) => Promise<StarterResult>;
 }
@@ -17,7 +18,7 @@ function newRequestId() {
   // Random UUID where supported; cryptographic fallback for older kiosk browsers.
   return crypto.randomUUID?.() || Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
 }
-function readDraft(key: string, brandName: string, firstScreen: boolean): Draft {
+function readDraft(key: string, brandName: string, firstScreen: boolean, initialTemplateId?: string): Draft {
   try {
     const raw = localStorage.getItem(key);
     if (raw && raw.length < 20000) {
@@ -26,12 +27,12 @@ function readDraft(key: string, brandName: string, firstScreen: boolean): Draft 
         return { ...draft, input: validateStarter(draft.input) };
     }
   } catch { /* A stale draft or disabled storage must never block setup. */ }
-  return { version: 1, input: defaultStarter('coffee-house', brandName.slice(0, 32) || 'Your restaurant'), createScreen: firstScreen, requestId: newRequestId() };
+  return { version: 1, input: defaultStarter(RESTAURANT_TEMPLATES.some(t => t.id === initialTemplateId) ? initialTemplateId! : 'coffee-house', brandName.slice(0, 32) || 'Your restaurant'), createScreen: firstScreen, requestId: newRequestId() };
 }
 const fieldClass = 'mt-1 w-full rounded-lg border border-surface-highlight bg-background p-2 text-text';
-export const RestaurantStarterWizard = ({ orgId, userId, plan, brandName, firstScreen = false, onClose, onComplete, createStarter = CinematicService.createStarter }: Props) => {
-  const key = `accel:restaurant-starter:v1:${orgId}:${userId}`;
-  const [draft, setDraft] = useState<Draft>(() => readDraft(key, brandName, firstScreen));
+export const RestaurantStarterWizard = ({ orgId, userId, plan, brandName, firstScreen = false, initialTemplateId, onClose, onComplete, createStarter = CinematicService.createStarter }: Props) => {
+  const key = `accel:restaurant-starter:v1:${orgId}:${userId}${initialTemplateId ? `:${initialTemplateId}` : ""}`;
+  const [draft, setDraft] = useState<Draft>(() => readDraft(key, brandName, firstScreen, initialTemplateId));
   const [step, setStep] = useState(1), [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
   const [motion, setMotion] = useState(true), [result, setResult] = useState<StarterResult | null>(null);
   const submitting = useRef(false), heading = useRef<HTMLHeadingElement>(null);
@@ -61,7 +62,7 @@ export const RestaurantStarterWizard = ({ orgId, userId, plan, brandName, firstS
       setResult(created);
       try { localStorage.removeItem(key); } catch { /* Persistence is optional. */ }
       await onComplete(created);
-    } catch (e) { setError(e instanceof Error ? e.message : 'Content could not be created. Your choices are saved; retry safely.'); }
+    } catch (e) { setError(customerError(e, 'We could not complete this step. Your choices are still here. Try again, or open your saved design below.')); }
     finally { submitting.current = false; setBusy(false); }
   };
   const chooseTemplate = (id: string) => {
@@ -72,7 +73,7 @@ export const RestaurantStarterWizard = ({ orgId, userId, plan, brandName, firstS
     <nav aria-label="Restaurant setup progress" className="text-sm text-text-secondary mb-4">{['Choose a design', 'Make it yours', 'Review & create'].map((label, i) => <span key={label} aria-current={step === i + 1 ? 'step' : undefined} className={`inline-block mr-5 mb-1 ${step === i + 1 ? 'text-primary font-semibold' : ''}`}>{i + 1}. {label}</span>)}</nav>
     <h2 ref={heading} tabIndex={-1} className="text-xl font-semibold mb-4">{step === 1 ? 'Start with a restaurant design' : step === 2 ? 'Add your real menu and pricing' : 'Check the board before creating it'}</h2>
     <InlineFeedback message={error} tone="error" />
-    {result ? <div role="status"><p>Your content was created successfully.</p><a className="ui-button ui-button-primary mt-4" href={result.screenId ? `/admin/screens/${result.screenId}` : `/admin/slides/${result.slideId}`}>Open {result.screenId ? 'screen setup' : 'slide editor'}</a></div> : <>
+    {result ? <div role="status"><p>Your content was created successfully.</p><a className="ui-button ui-button-primary mt-4" href={result.screenId ? `/admin/screens/${result.screenId}` : `/admin/slides/${result.slideId}`}>Open {result.screenId ? 'screen setup' : 'your design'}</a></div> : <>
       {step === 1 && <>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {RESTAURANT_TEMPLATES.map(t => <button type="button" key={t.id} aria-pressed={input.templateId === t.id} onClick={() => chooseTemplate(t.id)} disabled={busy}
@@ -106,8 +107,8 @@ export const RestaurantStarterWizard = ({ orgId, userId, plan, brandName, firstS
             change({ presetId: 'clear', ...(t.signature && !access.signatureTemplates ? { templateId: 'coffee-house' } : {}) });
           }}>Use an included static design</button></div>}
           <label className="flex gap-3 items-start text-sm"><input type="checkbox" checked={draft.createScreen} onChange={e => setDraft(d => ({ ...d, createScreen: e.target.checked, requestId: newRequestId() }))} />
-            <span>Set up my first screen<small className="block mt-1 text-text-secondary">Creates a location and inactive screen draft. Existing screens are never replaced. Leave off to create a slide only.</small></span></label>
-          <p className="text-sm text-text-secondary">Review names and prices before publishing. QR tracking can be added in the editor using the measurement tools; this wizard creates no QR destinations or tracking events.</p>
+            <span>Set up my first screen<small className="block mt-1 text-text-secondary">Adds a screen for this design. Your other screens stay unchanged. Connect it when you are ready. Turn this off to save just the design.</small></span></label>
+          <p className="text-sm text-text-secondary">Check your menu names and prices before showing them to guests. After connecting your screen, you can add a QR offer or feedback form from your dashboard.</p>
         </div>
         <div className="space-y-3">{preview && <RestaurantSlidePreview slide={preview} motion={motion} />}<button type="button" aria-pressed={!motion} className="ui-button ui-button-secondary" onClick={() => setMotion(m => !m)}>{motion ? 'Pause atmosphere preview' : 'Play atmosphere preview'}</button>
           <p className="text-sm text-text-secondary">{input.orientation} · {ATMOSPHERE_PRESETS.find(p => p.id === input.presetId)?.name} · {input.items.length} editable menu items</p>
@@ -116,7 +117,7 @@ export const RestaurantStarterWizard = ({ orgId, userId, plan, brandName, firstS
       <div className="mt-6 pt-4 border-t border-surface-highlight flex flex-wrap items-center justify-between gap-3">
         <button type="button" className="ui-button ui-button-secondary" onClick={() => { setError(null); if (step === 1) onClose(); else setStep(s => s - 1); }} disabled={busy}>Back</button>
         <p className="text-xs text-text-secondary">Your draft is saved on this browser for this account.</p>
-        {step < 3 ? <button type="button" className="ui-button ui-button-primary" onClick={next}>Continue</button> : <button type="button" className="ui-button ui-button-primary" disabled={busy || !!planError || !preview} onClick={() => void create()}>{busy ? 'Creating…' : draft.createScreen ? 'Create screen draft' : 'Create editable slide'}</button>}
+        {step < 3 ? <button type="button" className="ui-button ui-button-primary" onClick={next}>Continue</button> : <button type="button" className="ui-button ui-button-primary" disabled={busy || !!planError || !preview} onClick={() => void create()}>{busy ? 'Creating…' : draft.createScreen ? 'Create my screen' : 'Save my design'}</button>}
       </div>
     </>}
   </AccessibleDialog>;

@@ -21,6 +21,7 @@ const groups = [
   { title: 'Manage', links: [
     { to: '/admin/analytics', label: 'Analytics', icon: TrendingUp },
     { to: '/admin/master-dashboard', label: 'All locations', icon: LayoutDashboard },
+    { to: '/admin/subscription', label: 'Plan and billing', icon: Settings },
     { to: '/admin/settings', label: 'Settings', icon: Settings },
     { to: '/admin/help', label: 'Help & support', icon: HelpCircle },
   ] },

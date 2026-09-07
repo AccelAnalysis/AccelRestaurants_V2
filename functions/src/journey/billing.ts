@@ -24,7 +24,13 @@ function origin() {
   if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new HttpsError('failed-precondition', 'Billing is not available right now.');
   return url.origin;
 }
+export function journeyBillingReturn(requested: unknown) {
+  let setup = false;
+  try { setup = typeof requested === 'string' && new URL(requested).pathname === '/onboarding'; } catch { /* Use billing by default. */ }
+  return origin() + (setup ? '/onboarding?content=1' : '/admin/subscription');
+}
 export async function checkoutSubscription(db: Firestore, stripe: Stripe, data: CheckoutRequest, uid: string) {
+  const base = origin();
   const catalogue = await loadJourneyCatalogue(db);
   let name: PlanName;
   try { name = resolvePlan(catalogue, data.planName || data.priceId); } catch { throw new HttpsError('invalid-argument', 'Choose a current plan.'); }
@@ -63,7 +69,6 @@ export async function checkoutSubscription(db: Firestore, stripe: Stripe, data: 
     customer = created.id;
     await orgRef.update({ stripeCustomerId: customer, updatedAt: FieldValue.serverTimestamp() });
   }
-  const base = origin();
   const setup = data.returnTo === 'setup';
   const metadata = { orgId, userId: uid, planName: name };
   const session = await stripe.checkout.sessions.create({

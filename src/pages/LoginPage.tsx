@@ -1,3 +1,4 @@
+import type { FormEvent } from 'react';
 import { useState } from 'react';
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
@@ -10,7 +11,7 @@ export const LoginPage = () => {
   const { generalConfig } = useConfigStore();
   const [reset, setReset] = useState(false), [email, setEmail] = useState(''), [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null), [message, setMessage] = useState<string | null>(null);
-  const submit = async (event: React.FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault(); if (busy) return;
     setBusy(true); setError(null); setMessage(null);
     try {

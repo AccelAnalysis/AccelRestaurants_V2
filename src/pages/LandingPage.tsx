@@ -47,6 +47,6 @@ export const LandingPage = () => {
       { question: 'Do I need to change my point-of-sale system?', answer: 'No. Create and manage restaurant screens alongside your existing point-of-sale system.' },
       { question: 'What do I need for my screen?', answer: 'You need a display, a compatible device with a modern web browser, and an internet connection for setup and updates. Test your device with the free preview before committing.' },
       { question: 'What does Free include?', answer: 'Create an editable restaurant design and try a five-minute screen preview. Choose a paid plan for ongoing playback.' },
-    ]).map(item => <details key={item.question} className="border-b border-surface-highlight py-3"><summary className="min-h-11 flex items-center cursor-pointer font-semibold">{item.question}</summary><p className="text-text-secondary py-3 leading-relaxed">{item.answer}</p></details>)}</section>
+    ]).map(item => <details key={item.question} className="border-b border-surface-highlight py-3"><summary className="min-h-11 py-3 cursor-pointer font-semibold">{item.question}</summary><p className="text-text-secondary py-3 leading-relaxed">{item.answer}</p></details>)}</section>
   </SiteLayout>;
 };

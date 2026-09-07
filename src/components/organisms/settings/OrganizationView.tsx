@@ -1,3 +1,4 @@
+import type { FormEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
@@ -11,6 +12,7 @@ import { InlineFeedback } from '../../atoms/InlineFeedback';
 import { customerError } from '../../../lib/customerJourney';
 export const OrganizationView = () => {
   const { user, organization } = useAuthStore();
+  const orgId = organization?.id, ownerId = organization?.ownerId;
   const [tab, setTab] = useState('Restaurant');
   const [allowed, setAllowed] = useState<boolean | null>(null);
   const [name, setName] = useState(''), [timezone, setTimezone] = useState('America/New_York');
@@ -23,14 +25,14 @@ export const OrganizationView = () => {
   }, [user?.uid, organization]);
   useEffect(() => {
     let disposed = false; setAllowed(null);
-    if (!user || !organization) return;
-    if (organization.ownerId === user.uid) { setAllowed(true); return; }
-    getDoc(doc(db, 'organizations', organization.id, 'members', user.uid)).then(snapshot => {
+    if (!user || !orgId) return;
+    if (ownerId === user.uid) { setAllowed(true); return; }
+    getDoc(doc(db, 'organizations', orgId, 'members', user.uid)).then(snapshot => {
       if (!disposed) setAllowed(snapshot.data()?.status === 'active' && snapshot.data()?.role === 'orgAdmin');
     }).catch(() => { if (!disposed) { setAllowed(false); setError('We could not check your access. Reload this page to try again.'); } });
     return () => { disposed = true; };
-  }, [user, organization?.id, organization?.ownerId]);
-  const save = async (event: React.FormEvent) => {
+  }, [user, orgId, ownerId]);
+  const save = async (event: FormEvent) => {
     event.preventDefault(); if (!organization || !allowed || busy) return;
     if (!name.trim()) { setError('Enter your restaurant name.'); return; }
     try { new Intl.DateTimeFormat('en-US', { timeZone: timezone }); } catch { setError('Choose a valid time zone.'); return; }

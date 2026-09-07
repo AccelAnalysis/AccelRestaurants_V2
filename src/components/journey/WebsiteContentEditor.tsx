@@ -1,3 +1,4 @@
+import type { FormEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { useConfigStore } from '../../store/useConfigStore';
 import { WEBSITE_CONTENT, type WebsiteContent } from '../../lib/websiteContent';
@@ -11,7 +12,7 @@ export const WebsiteContentEditor = () => {
   const dirty = useRef(false);
   useEffect(() => { if (!dirty.current) setCopy({ ...WEBSITE_CONTENT, ...generalConfig.marketing }); }, [generalConfig.marketing]);
   const change = (next: Required<WebsiteContent>) => { dirty.current = true; setSaved(false); setCopy(next); };
-  const save = async (event: React.FormEvent) => {
+  const save = async (event: FormEvent) => {
     event.preventDefault(); if (busy) return;
     if (copy.bookingUrl && !safeWebLink(copy.bookingUrl)) { setError('Enter a secure web address for booking, beginning with https://.'); return; }
     if (copy.benefits.length !== 3 || copy.benefits.some(row => !row.title.trim() || !row.body.trim()) || copy.faqs.length < 1 || copy.faqs.length > 8 || copy.faqs.some(row => !row.question.trim() || !row.answer.trim()) || !copy.measurementDescription.trim()) { setError('Complete each heading and description before saving.'); return; }
@@ -26,5 +27,5 @@ export const WebsiteContentEditor = () => {
     <label className="block">Guest feedback explanation<textarea aria-label="Guest feedback explanation" required maxLength={1200} disabled={busy} value={copy.measurementDescription} onChange={e => change({ ...copy, measurementDescription: e.target.value })} className={fieldClass} /></label>
     <h4 className="font-semibold">Common questions</h4>{copy.faqs.map((row, i) => <fieldset key={i} className="border border-surface-highlight rounded-lg p-4 space-y-4"><legend className="px-2">Question {i + 1}</legend><label className="block">Question<input aria-label={`Question ${i + 1}`} required maxLength={180} disabled={busy} value={row.question} onChange={e => change({ ...copy, faqs: copy.faqs.map((value, n) => n === i ? { ...value, question: e.target.value } : value) })} className={fieldClass} /></label><label className="block">Answer<textarea aria-label={`Answer ${i + 1}`} required maxLength={1200} disabled={busy} value={row.answer} onChange={e => change({ ...copy, faqs: copy.faqs.map((value, n) => n === i ? { ...value, answer: e.target.value } : value) })} className={fieldClass} /></label>{copy.faqs.length > 1 && <button type="button" className="ui-button ui-button-secondary" disabled={busy} onClick={() => change({ ...copy, faqs: copy.faqs.filter((_, n) => n !== i) })}>Remove question {i + 1}</button>}</fieldset>)}
     <div className="flex flex-wrap gap-3">{copy.faqs.length < 8 && <button type="button" className="ui-button ui-button-secondary" disabled={busy} onClick={() => change({ ...copy, faqs: [...copy.faqs, { question: '', answer: '' }] })}>Add a question</button>}<button type="submit" className="ui-button ui-button-primary" disabled={busy}>{busy ? 'Saving website content…' : 'Save website content'}</button></div>
-  </form><details className="border-t border-surface-highlight pt-4"><summary className="min-h-11 flex items-center cursor-pointer font-semibold">Preview your website text</summary><div className="grid md:grid-cols-3 gap-5 py-4">{copy.benefits.map((row, i) => <article key={i}><h4 className="font-semibold">{row.title}</h4><p className="text-text-secondary mt-2">{row.body}</p></article>)}</div><p>{copy.measurementDescription}</p></details></section>;
+  </form><details className="border-t border-surface-highlight pt-4"><summary className="min-h-11 py-3 cursor-pointer font-semibold">Preview your website text</summary><div className="grid md:grid-cols-3 gap-5 py-4">{copy.benefits.map((row, i) => <article key={i}><h4 className="font-semibold">{row.title}</h4><p className="text-text-secondary mt-2">{row.body}</p></article>)}</div><p>{copy.measurementDescription}</p></details></section>;
 };

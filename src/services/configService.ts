@@ -1,6 +1,7 @@
 import { doc, getDoc, setDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { PLAN_CONFIGS } from '../lib/plans';
+import { validateCatalogue } from '../../functions/src/journey/catalog';
+import type { WebsiteContent } from '../lib/websiteContent';
 import type { PlanType, PlanLimits } from '../lib/plans';
 
 const SYSTEM_COLLECTION = 'system';
@@ -43,6 +44,7 @@ export interface SystemPlanConfig {
 }
 
 export interface GeneralConfig {
+  marketing?: WebsiteContent;
   landingPageVideoUrl?: string;
   landingPageTitle?: string;
   landingPageDescription?: string;
@@ -105,22 +107,11 @@ export const ConfigService = {
    * Falls back to local defaults if not found
    */
   getPlanConfigs: async (): Promise<Record<PlanType, PlanLimits>> => {
-    try {
-      const docRef = doc(db, SYSTEM_COLLECTION, PLANS_DOC);
-      const docSnap = await getDoc(docRef);
-
-      if (docSnap.exists()) {
-        const data = docSnap.data() as SystemPlanConfig;
-        return data.configs;
-      } else {
-        // Initialize with defaults if not exists
-        await ConfigService.savePlanConfigs(PLAN_CONFIGS);
-        return PLAN_CONFIGS;
-      }
-    } catch {
-      return PLAN_CONFIGS; // Fallback to defaults on error
-    }
+    const snapshot = await getDoc(doc(db, SYSTEM_COLLECTION, PLANS_DOC));
+    if (!snapshot.exists()) throw new Error('Current plan details are not available.');
+    return validateCatalogue(snapshot.data().configs) as Record<PlanType, PlanLimits>;
   },
+
 
   /**
    * Save plan configurations to Firestore
@@ -129,7 +120,7 @@ export const ConfigService = {
     try {
       const docRef = doc(db, SYSTEM_COLLECTION, PLANS_DOC);
       await setDoc(docRef, {
-        configs,
+        configs: validateCatalogue(configs),
         updatedAt: serverTimestamp()
       });
     } catch {

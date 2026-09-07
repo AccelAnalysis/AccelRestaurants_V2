@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { FirstScreenGuide } from '../journey/FirstScreenGuide';
 import { 
   Monitor, 
   FileText, 
@@ -101,17 +102,18 @@ export const DashboardOverview = () => {
   );
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
+      <FirstScreenGuide />
       <div className="mb-8">
         <h2 className="text-3xl font-bold text-text mb-2">Dashboard Overview</h2>
-        <p className="text-text-muted">Welcome back to AccelRestaurants Admin</p>
+        <p className="text-text-muted">Manage your restaurant screens and content</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
         <StatCard 
           title="Total Screens" 
           value={stats.screens} 
-          subtitle={`${stats.activeScreens} active now`}
+          subtitle={`${stats.activeScreens} enabled for playback`}
           icon={Monitor} 
           link="/admin/screens"
         />
