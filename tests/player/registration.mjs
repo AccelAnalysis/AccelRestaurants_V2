@@ -54,11 +54,11 @@ try {
   const adminContext = await browser.newContext({ viewport: { width: 1440, height: 960 } });
   adminPage = await adminContext.newPage(); observe(adminPage);
   await adminPage.goto(`${ORIGIN}/admin/screens?activation=${code}`);
-  await expect(adminPage.getByRole('heading', { name: 'Sign In', exact: true })).toBeVisible();
+  await expect(adminPage.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
   assert.match(adminPage.url(), /redirect=/, 'protected activation URL should survive login');
   await adminPage.getByLabel('Email', { exact: true }).fill('player@example.test');
   await adminPage.getByLabel('Password', { exact: true }).fill(PASSWORD);
-  await adminPage.getByRole('button', { name: 'Sign In', exact: true }).click();
+  await adminPage.getByRole('button', { name: 'Sign in', exact: true }).click();
   const activationDialog = adminPage.getByRole('dialog', { name: 'Activate display', exact: true });
   await expect(activationDialog).toBeVisible({ timeout: 30000 });
   await expect(activationDialog.getByLabel('Activation code', { exact: true })).toHaveValue(code);
