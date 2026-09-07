@@ -8,6 +8,11 @@ export type PlayerRegistration = {
   active: boolean;
   status: PlayerRegistrationStatus;
 };
+export type PlayerActivationResolution = {
+  registration: PlayerRegistration | null;
+  code: string | null;
+  expiresAt: number;
+};
 export type PlayerRegistrationSummary = {
   screenId: string;
   playerUid: string;
@@ -42,8 +47,7 @@ export const PlayerRegistrationService = {
     try { window.localStorage.removeItem(CACHE_KEY); } catch { /* Best effort only. */ }
   },
 
-  current: () => call<{ registration: PlayerRegistration | null }>('approveMeasurementPairing', { playerRegistrationAction: 'current' }),
-  requestActivation: () => call<{ code: string; expiresAt: number }>('requestMeasurementPairing', { playerActivation: true }),
+  requestActivation: () => call<PlayerActivationResolution>('requestMeasurementPairing', { playerActivation: true }),
   claim: (orgId: string, code: string, screenId: string) => call<{ success: true; screenId: string; orgId: string }>('approveMeasurementPairing', { playerRegistrationAction: 'claim', orgId, code, screenId }),
   list: (orgId: string) => call<{ registrations: PlayerRegistrationSummary[] }>('approveMeasurementPairing', { playerRegistrationAction: 'list', orgId }),
   reassign: (orgId: string, sourceScreenId: string, targetScreenId: string) => call<{ success: true }>('approveMeasurementPairing', { playerRegistrationAction: 'reassign', orgId, sourceScreenId, targetScreenId }),
