@@ -44,9 +44,10 @@ test('display-address clipboard error offers manual entry and deletion can be ca
   await page.goto('/admin/screens');
   await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('blocked'); } } }));
   await page.getByRole('button', { name: 'Setup / preview', exact: true }).click();
-  await page.getByRole('button', { name: 'Copy display address', exact: true }).click();
-  await expect(page.getByText('Copy is unavailable. Enter displays.accelanalysis.com in the TV browser manually.', { exact: true })).toBeVisible();
-  await expect(page.getByLabel('TV browser address')).toHaveValue('https://displays.accelanalysis.com');
+  const setupDialog = page.getByRole('dialog', { name: 'Display setup and preview', exact: true });
+  await setupDialog.getByRole('button', { name: 'Copy display address', exact: true }).click();
+  await expect(setupDialog.getByRole('alert')).toContainText('Copy is unavailable. Enter displays.accelanalysis.com in the TV browser manually.');
+  await expect(setupDialog.getByLabel('TV browser address')).toHaveValue('https://displays.accelanalysis.com');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Delete Dining room' }).click();
   await expect(page.getByRole('dialog')).toHaveAccessibleName('Delete Dining room?');
@@ -59,10 +60,11 @@ test('failed screen load is not mistaken for empty data and Retry works', async 
   await page.goto('/admin'); await page.evaluate(() => { window.__hig.failScreens = true; });
   const nav = page.getByRole('button', { name: 'Open navigation' }); if (await nav.isVisible()) await nav.click();
   await page.getByRole('navigation').getByRole('link', { name: 'Screens', exact: true }).click();
-  await expect(page.getByText('Screens could not be loaded. Your saved screens have not been changed.', { exact: true })).toBeVisible();
+  const loadAlert = page.getByRole('alert').filter({ hasText: 'Screens could not be loaded. Your saved screens have not been changed.' });
+  await expect(loadAlert).toBeVisible();
   await expect(page.getByRole('heading', { name: 'No screens yet' })).toHaveCount(0);
   await page.evaluate(() => { window.__hig.failScreens = false; });
-  await page.getByRole('button', { name: 'Retry', exact: true }).click();
+  await loadAlert.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(page.getByRole('link', { name: 'Dining room', exact: true })).toBeVisible();
 });
 
