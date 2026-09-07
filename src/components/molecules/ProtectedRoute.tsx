@@ -1,21 +1,12 @@
 import type { ReactNode } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../store/useAuthStore';
-
-interface ProtectedRouteProps {
-  children: ReactNode;
-}
-
-export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
-  const { user, loading } = useAuthStore();
-
-  if (loading) {
-    return <div className="flex h-screen items-center justify-center bg-background text-text">Loading...</div>;
-  }
-
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
-
+export const ProtectedRoute = ({ children }: { children: ReactNode }) => {
+  const { user, userProfile, organization, loading } = useAuthStore();
+  const location = useLocation();
+  if (loading) return <main className="min-h-screen bg-background text-text flex items-center justify-center"><p role="status">Loading your workspace…</p></main>;
+  if (!user) return <Navigate to={`/login?redirect=${encodeURIComponent(location.pathname + location.search + location.hash)}`} replace />;
+  // Require only the owner's basic restaurant details. TV connection and optional tips never block work.
+  if (userProfile?.platformRole !== 'admin' && userProfile?.platformRole !== 'designer' && (!organization || (organization.ownerId === user.uid && !organization.industry))) return <Navigate to="/onboarding" replace />;
   return <>{children}</>;
 };
