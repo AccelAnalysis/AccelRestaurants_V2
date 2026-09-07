@@ -54,13 +54,17 @@ export function usePlayerMeasurement(screenId: string | undefined, ready: boolea
       if (loading || cancelled) return;
       loading = true;
       try {
-        if (!current || current.expiresAt <= Date.now()) current = await MeasurementService.openSession(screenId);
+        if (!current || current.expiresAt <= Date.now() || current.mode === 'test') current = await MeasurementService.openSession(screenId);
         const slideVersions = (JSON.parse(fingerprint) as { versions: Record<string, number> }).versions;
         const manifest = await MeasurementService.manifest(current.sessionId, slideVersions);
         if (cancelled) return;
         const mapping = Object.fromEntries(manifest.placements.map(p => [`${p.slideId}:${p.tileId}`, p]));
         anchor.current = { epoch: manifest.serverTime, monotonic: performance.now() };
         setSession(current); setPlacements(mapping); setPairingCode('');
+        if (current.mode === 'test') {
+          const pending = await MeasurementService.requestPairing(screenId).catch(() => null);
+          if (!cancelled && pending) setPairingCode(pending.code);
+        }
         setMessage(manifest.warnings[0] || (manifest.mode === 'test' ? 'Test measurement — excluded from live reports' : ''));
         try { localStorage.setItem(storageKey, JSON.stringify({ session: current, placements: mapping, fingerprint, offset: manifest.serverTime - Date.now() } satisfies CachedManifest)); } catch { /* In-memory measurement still works. */ }
         void flushPlayback();

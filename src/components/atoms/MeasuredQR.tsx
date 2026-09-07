@@ -23,9 +23,10 @@ export function MeasuredQR({ tile, placement, active, measurement }: { tile: Til
   const element = useRef<HTMLDivElement>(null);
   const props = tile.properties as InteractiveTileProperties;
   const sessionId = measurement?.session?.sessionId; const uid = measurement?.uid;
+  const placementId = placement?.placementId;
   const enabled = measurement?.enabled; const serverNow = measurement?.serverNow;
   useEffect(() => {
-    if (!active || !enabled || !sessionId || !uid || !placement || !serverNow) return;
+    if (!active || !enabled || !sessionId || !uid || !placementId || !serverNow) return;
     let previous = performance.now(); let consecutive = 0; let qualified = false;
     const timer = window.setInterval(() => {
       const now = performance.now(); const elapsed = Math.floor(now - previous); previous = now;
@@ -33,10 +34,10 @@ export function MeasuredQR({ tile, placement, active, measurement }: { tile: Til
       consecutive += elapsed;
       const play = !qualified && consecutive >= 1000 ? 1 : 0;
       if (play) qualified = true;
-      void recordPlayback(uid, sessionId, placement.placementId, serverNow(), elapsed, play);
+      void recordPlayback(uid, sessionId, placementId, serverNow(), elapsed, play);
     }, 250);
     return () => clearInterval(timer);
-  }, [active, enabled, sessionId, uid, placement, serverNow]);
+  }, [active, enabled, sessionId, uid, placementId, serverNow]);
 
   // Never substitute an unrelated URL for a configured survey when attribution is unavailable.
   const value = placement?.redirectUrl || (!props.measurementCampaignId ? String(props.content || '') : '');

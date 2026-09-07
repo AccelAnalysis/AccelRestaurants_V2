@@ -4,14 +4,12 @@ import {
   FileText, 
   Image as ImageIcon, 
   ArrowUpRight,
-  QrCode,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { ScreenService } from '../../services/screenService';
 import { MenuService } from '../../services/menuService';
 import { SlideService } from '../../services/slideService';
 import { StorageService } from '../../services/storageService';
-import { AnalyticsService } from '../../services/analyticsService';
 import { useAuthStore } from '../../store/useAuthStore';
 import { STORAGE_PATHS } from '../../lib/constants';
 import { DesignerConnectionsWidget } from './DesignerConnectionsWidget';
@@ -27,8 +25,7 @@ export const DashboardOverview = () => {
     activeScreens: 0,
     menus: 0,
     slides: 0,
-    media: 0,
-    qrScans: 0
+    media: 0
   });
   const [loading, setLoading] = useState(true);
 
@@ -42,12 +39,11 @@ export const DashboardOverview = () => {
       const orgId = organization.id; 
 
       try {
-        const [screens, menus, slides, mediaFiles, qrScans] = await Promise.all([
+        const [screens, menus, slides, mediaFiles] = await Promise.all([
           ScreenService.getScreens(orgId),
           MenuService.getMenus(orgId),
           SlideService.getSlides(orgId),
           StorageService.listFiles(STORAGE_PATHS.ORGANIZATION_ASSETS(orgId)).catch(() => []),
-          AnalyticsService.getQRScanCount(orgId)
         ]);
 
         setStats({
@@ -55,8 +51,7 @@ export const DashboardOverview = () => {
           activeScreens: screens.filter(s => s.isActive).length,
           menus: menus.length,
           slides: slides.length,
-          media: mediaFiles.length,
-          qrScans
+          media: mediaFiles.length
         });
       } catch {
         // Silent fail for stats fetch
@@ -144,14 +139,7 @@ export const DashboardOverview = () => {
           link="/admin/media"
           colorClass="text-blue-500"
         />
-        <StatCard 
-          title="Total Interactions" 
-          value={stats.qrScans} 
-          subtitle="QR Code Scans"
-          icon={QrCode} 
-          link="/admin/analytics"
-          colorClass="text-orange-500"
-        />
+
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">

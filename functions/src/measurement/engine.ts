@@ -318,7 +318,7 @@ export class MeasurementEngine {
 
   async action(token: string, action: string) {
     const fields: Record<string, string> = { landing_view: 'landingViews', cta_click: 'ctaClicks', offer_reveal: 'offerReveals', offer_copy: 'offerCopies', survey_start: 'surveyStarts' };
-    requireValue(Object.hasOwnProperty.call(fields, action), 'Unsupported action.');
+    requireValue(Object.prototype.hasOwnProperty.call(fields, action), 'Unsupported action.');
     return this.guestTransaction(token, async (tx, g, p) => {
       requireValue(!action.startsWith('offer_') || p.kind === 'offer', 'This campaign has no offer.');
       requireValue(action !== 'survey_start' || p.kind === 'survey', 'This campaign has no survey.');

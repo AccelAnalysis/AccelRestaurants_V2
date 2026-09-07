@@ -12,6 +12,8 @@ import { THEMES } from './themes';
 import { defineSecret } from 'firebase-functions/params';
 
 admin.initializeApp();
+
+export { createMeasurementCampaign, setMeasurementCampaignStatus, bindMeasurementCampaign, requestMeasurementPairing, approveMeasurementPairing, openMeasurementSession, getMeasurementManifest, ingestMeasurementBuckets, getMeasurementDashboard, getMeasurementEngagement, recordMeasurementAction, submitMeasurementSurvey, measurementRedirect, aggregateMeasurementEvent, reconcileMeasurementEvents } from './measurement';
 const db = admin.firestore();
 
 const stripeSecretKey = defineSecret('STRIPE_SECRET_KEY');
