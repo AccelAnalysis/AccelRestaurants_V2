@@ -1,0 +1,62 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Helper function to check org membership via Firestore
+    function isOrgMember(orgId) {
+       return isSuperAdmin() || (
+         request.auth != null &&
+         firestore.exists(/databases/(default)/documents/organizations/$(orgId)) &&
+         (
+           (firestore.get(/databases/(default)/documents/organizations/$(orgId)).data.ownerId == request.auth.uid) ||
+           (firestore.get(/databases/(default)/documents/organizations/$(orgId)).data.members is list &&
+            request.auth.uid in firestore.get(/databases/(default)/documents/organizations/$(orgId)).data.members) ||
+           firestore.exists(/databases/(default)/documents/organizations/$(orgId)/members/$(request.auth.uid))
+         )
+       );
+    }
+
+    // Helper function to check if user is Super Admin
+    function isSuperAdmin() {
+      return request.auth != null && 
+        firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.platformRole == 'admin';
+    }
+
+    // Allow access to org-scoped paths (e.g. 'demo-org-123/...')
+    match /{orgId}/{allPaths=**} {
+      allow read, write: if isOrgMember(orgId);
+    }
+    
+    // Templates
+    match /templates/{templateId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if isSuperAdmin();
+    }
+    
+    // Menu assets
+    // Special case for creating new menus (temp storage)
+    match /menus/new/{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Existing menus
+    match /menus/{menuId}/{allPaths=**} {
+      // Public can only download specific files (no listing)
+      allow get: if true;
+      // Members can list and write
+      allow list, write: if firestore.exists(/databases/(default)/documents/menus/$(menuId)) &&
+                         isOrgMember(firestore.get(/databases/(default)/documents/menus/$(menuId)).data.orgId);
+    }
+
+    // Slide assets
+    match /slides/{slideId}/{allPaths=**} {
+      allow get: if true;
+      allow list, write: if firestore.exists(/databases/(default)/documents/slides/$(slideId)) &&
+                         isOrgMember(firestore.get(/databases/(default)/documents/slides/$(slideId)).data.orgId);
+    }
+    
+    // Legacy/Alternative support for nested organizations folder
+    match /organizations/{orgId}/{allPaths=**} {
+      allow read, write: if isOrgMember(orgId);
+    }
+  }
+}
