@@ -6,5 +6,6 @@ import { useLocation } from 'react-router-dom';
 export const ApplicationSurface = ({ children }: { children: ReactNode }) => {
   const { pathname } = useLocation();
   const style = useBrandStyle();
-  return pathname.startsWith('/player/') ? <>{children}</> : <div className="app-ui min-h-screen" style={style}>{children}</div>;
+  const isPlayerSurface = pathname.startsWith('/player/') || pathname === '/display' || pathname.startsWith('/display/player/');
+  return isPlayerSurface ? <>{children}</> : <div className="app-ui min-h-screen" style={style}>{children}</div>;
 };
