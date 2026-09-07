@@ -8,6 +8,7 @@ import { MeasurementSetup } from './MeasurementSetup';
 
 const format = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
 const value = (n: number | null | undefined, suffix = '') => n === null || n === undefined ? '—' : `${format.format(n)}${suffix}`;
+function durationLabel(ms: number) { return ms < 60000 ? `${value(ms / 1000)} sec` : ms < 3600000 ? `${value(ms / 60000)} min` : `${value(ms / 3600000)} hr`; }
 function localToday(timezone: string) {
   const parts = new Intl.DateTimeFormat('en-GB', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
   const get = (type: string) => parts.find(p => p.type === type)!.value;
@@ -92,7 +93,7 @@ export function MeasurementDashboard() {
       <div className="rounded-lg border border-surface-highlight bg-surface p-4 text-sm text-text-muted"><p>{mode === 'test' ? 'TEST DATA · Excluded from live reporting. ' : ''}{report.restrictedLocations ? 'Limited to your assigned locations. ' : ''}{report.updatedAt ? `Latest aggregate update: ${new Date(report.updatedAt).toLocaleString('en-US', { timeZone: timezone })} (${timezone}).` : 'No aggregate data has been recorded for this selection.'}{refreshing ? ' Refreshing…' : ' Refreshes every 20 seconds.'}</p><p className="mt-1">Plays count qualifying QR placement renders, not people. Scans count filtered redirect requests, not unique diners. Copied offers and outbound clicks are not verified purchases.</p></div>
       {view === 'setup' ? <MeasurementSetup orgId={organization.id} campaigns={report.campaigns} canManage={report.admin} onChange={refresh} /> : <>
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-          <Metric label="Recorded placement plays" amount={hasData ? value(totals.plays || 0) : '—'} detail={`${value((totals.visibleMs || 0) / 3_600_000)} recorded placement-hours`} />
+          <Metric label="Recorded placement plays" amount={hasData ? value(totals.plays || 0) : '—'} detail={`${durationLabel(totals.visibleMs || 0)} of recorded placement time`} />
           <Metric label="QR scans" amount={hasData ? value(totals.scans || 0) : '—'} detail={`${value(scores.scanYield)} scans per 100 plays — not a viewer conversion rate`} />
           <Metric label="Engaged scan sessions" amount={hasData ? value(totals.cohortEngaged || 0) : '—'} detail={`${value(scores.engagement, '%')} of first-party offer/survey scan cohorts`} />
           <Metric label="Survey responses" amount={hasData ? value(totals.surveySubmits || 0) : '—'} detail={`${value(scores.completion, '%')} completion within scan cohorts`} />

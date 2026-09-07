@@ -220,6 +220,17 @@ suite('first-party measurement Firestore integration (emulator only)', () => {
     expect((await report()).totals.scans).toBe(1);
   });
 
+  test('server-authored microsecond timestamps match the browser revision representation', async () => {
+    const { e, session } = await prepare();
+    const updatedAt = new Timestamp(Math.floor(now / 1000), 123456000);
+    await db!.doc('slides/slideA').update({ updatedAt });
+    const browserMilliseconds = updatedAt.seconds * 1000 + updatedAt.nanoseconds / 1e6;
+    expect(browserMilliseconds).not.toBe(updatedAt.toMillis());
+    const manifest = await e.manifest('playerA', { sessionId: session.sessionId, slideVersions: { slideA: browserMilliseconds } });
+    expect(manifest.placements).toHaveLength(1);
+    expect(manifest.placements[0].slideVersion).toBe(browserMilliseconds);
+  });
+
   test('public Firestore REST cannot forge or read any measurement collection', async () => {
     const url = `http://${emulator}/v1/projects/${PROJECT}/databases/(default)/documents`;
     for (const collection of ['qr_scans','daily_metrics','measurement_events','measurement_daily','measurement_responses','campaign_placements','measurement_devices','measurement_sessions','measurement_guests']) {
