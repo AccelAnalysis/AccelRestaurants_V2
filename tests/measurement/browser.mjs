@@ -1,0 +1,150 @@
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { mkdir, writeFile } from 'node:fs/promises';
+const requireFunctions = createRequire(new URL('../../functions/package.json', import.meta.url));
+const requireBrowser = createRequire(new URL('../hig/package.json', import.meta.url));
+const { initializeApp } = requireFunctions('firebase-admin/app');
+const { getFirestore, Timestamp } = requireFunctions('firebase-admin/firestore');
+const { getAuth } = requireFunctions('firebase-admin/auth');
+const { MeasurementEngine } = requireFunctions('./lib/measurement/engine.js');
+const { hash } = requireFunctions('./lib/measurement/core.js');
+const { chromium, expect } = requireBrowser('@playwright/test');
+const PROJECT = 'demo-accel-measurement';
+const ORIGIN = 'http://127.0.0.1:5000';
+if (process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8080' || process.env.FIREBASE_AUTH_EMULATOR_HOST !== '127.0.0.1:9099' || process.env.GCLOUD_PROJECT !== PROJECT) throw new Error('Refusing browser tests outside the loopback demo emulators.');
+const app = initializeApp({ projectId: PROJECT }, 'measurement-browser');
+const db = getFirestore(app); const auth = getAuth(app); const engine = new MeasurementEngine(db, ORIGIN);
+const results = []; const checked = name => { results.push({ test: name, passed: true }); console.log(`PASS ${name}`); };
+await mkdir('tests/measurement/results', { recursive: true });
+const owner = 'measurementBrowserOwner'; const orgId = 'measurementBrowserOrg'; const screenId = 'measurementBrowserScreen'; const slideId = 'measurementBrowserSlide';
+await db.doc(`organizations/${orgId}`).set({ id: orgId, ownerId: owner, members: [owner], name: 'Measurement Test Restaurant', plan: 'Enterprise', timezone: 'America/New_York', isSetupComplete: true, screenCount: 1, createdAt: Timestamp.now() });
+await db.doc(`users/${owner}`).set({ uid: owner, email: 'measurement@example.test', displayName: 'Measurement Owner', platformRole: 'user', orgId, createdAt: Timestamp.now() });
+await db.doc(`organizations/${orgId}/members/${owner}`).set({ uid: owner, role: 'orgAdmin', status: 'active' });
+await auth.createUser({ uid: owner, email: 'measurement@example.test', password: 'Emulator-only-Password-123', emailVerified: true });
+await db.doc(`organizations/${orgId}/locations/browserLocation`).set({ id: 'browserLocation', orgId, name: 'Counter', timezone: 'America/New_York' });
+await db.doc(`public_organizations/${orgId}`).set({ id: orgId, name: 'Measurement Test Restaurant', plan: 'Enterprise', timezone: 'America/New_York' });
+await db.doc(`screens/${screenId}`).set({ id: screenId, orgId, locationId: 'browserLocation', name: 'Counter Screen', isActive: true, orientation: 'landscape', livePlaylist: [{ slideId }], rotationSettings: { algorithm: 'loop', transition: 'none', rotationMs: 100000 }, createdAt: Timestamp.now() });
+await db.doc(`slides/${slideId}`).set({ id: slideId, orgId, name: 'Feedback', dimensions: { width: 1280, height: 720 }, orientation: 'landscape', backgroundColor: '#111827', createdAt: Timestamp.now(), updatedAt: Timestamp.now(), elements: [{ id: 'feedbackQR', type: 'qr_code', visible: true, opacity: 1, zIndex: 1, rotation: 0, locked: false, position: { x: 100, y: 100 }, size: { width: 200, height: 200 }, properties: {} }] });
+const survey = await engine.createCampaign(owner, { orgId, requestId: 'browser-survey', campaign: { name: 'Guest feedback test', kind: 'survey', questions: [{ id: 'nps', label: 'How likely are you to recommend us?', type: 'nps', required: true }, { id: 'csat', label: 'How satisfied were you?', type: 'csat', required: true }], thankYouMessage: 'Your response helps us improve.' } });
+await engine.bindCampaign(owner, { orgId, campaignId: survey.campaignId, slideId, tileId: 'feedbackQR' });
+await db.doc(`measurement_devices/${hash(owner, screenId)}`).set({ uid: owner, screenId, orgId, revoked: false });
+const session = await engine.openSession(owner, screenId, 'live');
+const version = (await db.doc(`slides/${slideId}`).get()).data().updatedAt.toMillis();
+const manifest = await engine.manifest(owner, { sessionId: session.sessionId, slideVersions: { [slideId]: version } });
+assert.equal(manifest.placements.length, 1);
+const placement = manifest.placements[0];
+const redirect = `${ORIGIN}/r/${placement.placementId}`;
+const beforeHead = (await db.collection('measurement_events').where('orgId', '==', orgId).get()).size;
+const head = await fetch(redirect, { method: 'HEAD', redirect: 'manual' });
+assert.equal(head.status, 302);
+assert.equal((await db.collection('measurement_events').where('orgId', '==', orgId).get()).size, beforeHead);
+const legacy = await fetch(`${ORIGIN}/r?url=https://evil.example`, { redirect: 'manual' });
+assert.equal(legacy.status, 410);
+const visit = await fetch(`${redirect}?url=https://evil.example&oid=victim`, { redirect: 'manual', headers: { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' } });
+assert.equal(visit.status, 302);
+assert.match(visit.headers.get('cache-control') || '', /no-store/);
+const guestUrl = visit.headers.get('location');
+assert.ok(guestUrl.startsWith(`${ORIGIN}/engage/`)); assert.ok(!guestUrl.includes('evil.example'));
+checked('server redirect ignores forged destination/tenant parameters, rejects legacy links, and excludes HEAD');
+
+const browser = await chromium.launch({ headless: true });
+const errors = [];
+const guestContext = await browser.newContext({ viewport: { width: 390, height: 844 }, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1', permissions: ['clipboard-read', 'clipboard-write'] });
+const external = [];
+await guestContext.route('**/*', route => {
+  const url = new URL(route.request().url());
+  if (!['127.0.0.1','localhost'].includes(url.hostname) && ['http:', 'https:'].includes(url.protocol)) { external.push(url.host); return route.abort(); }
+  return route.continue();
+});
+const guestPage = await guestContext.newPage(); guestPage.on('pageerror', error => errors.push(error.message));
+try {
+  await guestPage.goto(guestUrl);
+  await expect(guestPage.getByRole('heading', { name: 'Guest feedback test', exact: true })).toBeVisible();
+  await expect(guestPage.getByRole('button', { name: 'Submit feedback' })).toBeVisible();
+  assert.equal(new URL(guestPage.url()).hash, '');
+  await guestPage.getByRole('radio', { name: '0 — How likely are you to recommend us?', exact: true }).check();
+  await guestPage.getByRole('radio', { name: '5 — How satisfied were you?', exact: true }).check();
+  await guestPage.screenshot({ path: 'tests/measurement/results/mobile-survey.png', fullPage: true });
+  await guestPage.getByRole('button', { name: 'Submit feedback' }).click();
+  await expect(guestPage.getByRole('heading', { name: 'Thank you', exact: true })).toBeVisible();
+  await guestPage.reload();
+  await expect(guestPage.getByRole('heading', { name: 'Thank you', exact: true })).toBeVisible();
+  const responses = await db.collection('measurement_responses').where('orgId', '==', orgId).get();
+  assert.equal(responses.size, 1); assert.equal(responses.docs[0].data().answers.nps, 0);
+  assert.equal(responses.docs[0].data().scores.npsDetractors, 1);
+  assert.equal(external.some(host => /google-analytics|googletagmanager/.test(host)), false);
+  checked('mobile survey submits NPS zero through real Functions, survives reload, and stores one response without GA requests');
+
+  const offer = await engine.createCampaign(owner, { orgId, requestId: 'browser-offer', campaign: { name: 'Lunch offer test', kind: 'offer', destinationUrl: 'https://restaurant.example/menu', offerCode: 'LUNCH10', ctaLabel: 'View menu' } });
+  await engine.bindCampaign(owner, { orgId, campaignId: offer.campaignId, slideId, tileId: 'feedbackQR' });
+  const newVersion = (await db.doc(`slides/${slideId}`).get()).data().updatedAt.toMillis();
+  const offerManifest = await engine.manifest(owner, { sessionId: session.sessionId, slideVersions: { [slideId]: newVersion } });
+  const offerPlacement = offerManifest.placements[0].placementId;
+  const offerUrl = await engine.scan(await engine.placement(offerPlacement));
+  await guestPage.goto(offerUrl); await expect(guestPage.getByRole('button', { name: 'Reveal offer code' })).toBeVisible();
+  await guestPage.getByRole('button', { name: 'Reveal offer code' }).click();
+  await expect(guestPage.getByText('LUNCH10', { exact: true })).toBeVisible();
+  await guestPage.getByRole('button', { name: 'Copy code' }).click();
+  await guestPage.screenshot({ path: 'tests/measurement/results/mobile-offer.png', fullPage: true });
+  checked('mobile first-party offer reveal and clipboard action work');
+
+  // Test an actual production-built PlayerScreen. Authorization uses the existing owner test account only in this demo emulator.
+  const adminContext = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+  const page = await adminContext.newPage(); page.on('pageerror', error => errors.push(error.message));
+  await page.goto(`${ORIGIN}/login?redirect=/admin/analytics`);
+  await page.getByLabel('Email', { exact: true }).fill('measurement@example.test');
+  await page.getByLabel('Password', { exact: true }).fill('Emulator-only-Password-123');
+  await page.getByRole('button', { name: 'Sign In', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Engagement overview' })).toBeVisible({ timeout: 30000 });
+  await page.goto(`${ORIGIN}/player/${screenId}`);
+  await page.waitForSelector('[data-measurement-placement]', { timeout: 30000 });
+  await page.waitForTimeout(6000);
+  const readBuckets = () => page.evaluate(async () => {
+    const db = await new Promise((resolve, reject) => { const req = indexedDB.open('accel-measurement-v1', 1); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); });
+    const rows = await new Promise((resolve, reject) => { const req = db.transaction('buckets', 'readonly').objectStore('buckets').getAll(); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); });
+    db.close(); return rows;
+  });
+  let buckets = await readBuckets(); assert.ok(buckets.some(b => b.visibleMs >= 1000 && b.plays >= 1));
+  await adminContext.setOffline(true); const beforeOffline = buckets.reduce((sum, b) => sum + b.visibleMs, 0);
+  await page.waitForTimeout(5000); buckets = await readBuckets();
+  assert.ok(buckets.reduce((sum, b) => sum + b.visibleMs, 0) > beforeOffline);
+  await adminContext.setOffline(false);
+  await expect.poll(async () => (await db.collection('measurement_buckets').where('orgId', '==', orgId).get()).size, { timeout: 45000 }).toBeGreaterThan(0);
+  await page.screenshot({ path: 'tests/measurement/results/player-proof-of-play.png' });
+  checked('actual player records qualifying QR rendering and replays IndexedDB telemetry after offline recovery');
+
+  // Hide the only QR tile: no new proof should accumulate while it is not rendered.
+  const slide = (await db.doc(`slides/${slideId}`).get()).data();
+  await db.doc(`slides/${slideId}`).update({ elements: slide.elements.map(t => ({ ...t, visible: false })), updatedAt: Timestamp.now() });
+  await page.waitForTimeout(2000); const hiddenBefore = (await readBuckets()).reduce((sum, b) => sum + b.visibleMs, 0);
+  await page.waitForTimeout(2000); const hiddenAfter = (await readBuckets()).reduce((sum, b) => sum + b.visibleMs, 0);
+  assert.equal(hiddenAfter, hiddenBefore);
+  checked('hidden QR tiles stop playback measurement without stopping the player');
+
+  const events = await db.collection('measurement_events').where('orgId', '==', orgId).get();
+  for (const event of events.docs) await engine.project(event.id);
+  await page.goto(`${ORIGIN}/admin/analytics`);
+  await expect(page.getByRole('heading', { name: 'Engagement overview', exact: true })).toBeVisible();
+  await expect(page.getByText('Guest feedback test', { exact: true }).first()).toBeVisible();
+  await page.screenshot({ path: 'tests/measurement/results/overview.png', fullPage: true });
+  await page.getByRole('link', { name: 'Feedback', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Guest feedback', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'NPS response distribution', exact: true })).toBeVisible();
+  await page.screenshot({ path: 'tests/measurement/results/feedback.png', fullPage: true });
+  await page.getByRole('link', { name: 'Locations & screens', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Locations & screens', exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'Setup', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Create a measured campaign', exact: true })).toBeVisible();
+  await page.screenshot({ path: 'tests/measurement/results/setup.png', fullPage: true });
+  checked('production-built aggregate dashboard, feedback, location comparison and campaign setup routes render');
+  assert.deepEqual(errors, [], `Browser runtime errors: ${errors.join('; ')}`);
+  checked('all tested pages have no uncaught JavaScript runtime errors');
+  await adminContext.close();
+} catch (error) {
+  await guestPage.screenshot({ path: 'tests/measurement/results/failure.png', fullPage: true }).catch(() => {});
+  await writeFile('tests/measurement/results/failure.json', JSON.stringify({ message: String(error), browserErrors: errors, results }, null, 2));
+  throw error;
+} finally {
+  await writeFile('tests/measurement/results/summary.json', JSON.stringify({ project: PROJECT, source: 'real production build + local Auth/Firestore/Functions/Hosting emulators', results, browserErrors: errors }, null, 2));
+  await browser.close(); await db.terminate();
+}
