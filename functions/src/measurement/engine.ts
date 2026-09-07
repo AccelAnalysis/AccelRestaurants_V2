@@ -8,7 +8,9 @@ type Placement = Attribution & {
 };
 type Access = { admin: boolean; locations: string[] | null };
 const sessionKey = (uid: string, screenId: string) => hash(uid, screenId);
-const asMillis = (value: unknown): number => value instanceof Timestamp ? value.toMillis() : 0;
+// Match the browser SDK's fractional milliseconds: Admin Timestamp.toMillis() floors them.
+// Server-generated update timestamps can contain microseconds; truncation would reject real revisions.
+const asMillis = (value: unknown): number => value instanceof Timestamp ? value.seconds * 1000 + value.nanoseconds / 1e6 : 0;
 
 /** All authorization and writes live here, not in clients or Firestore rules. */
 export class MeasurementEngine {
