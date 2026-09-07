@@ -29,7 +29,9 @@ jobs:
             functions/package-lock.json
 
       - name: Apply fixes
-        run: python3 scripts/complete_pr1.py
+        run: |
+          python3 scripts/complete_pr1.py
+          python3 scripts/complete_pr1_followup.py
 
       - name: Validate frontend
         run: |
@@ -45,7 +47,7 @@ jobs:
 
       - name: Commit validated fixes
         run: |
-          rm .github/workflows/complete-pr1.yml scripts/complete_pr1.py
+          rm .github/workflows/complete-pr1.yml scripts/complete_pr1.py scripts/complete_pr1_followup.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
