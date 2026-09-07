@@ -9,12 +9,18 @@ async function accessible(page) {
 test.beforeEach(async ({ page }) => {
   await page.route('**/*', route => ['127.0.0.1', 'localhost'].includes(new URL(route.request().url()).hostname) ? route.continue() : route.abort('blockedbyclient'));
 });
-test('marketing uses real sample designs and preserves the chosen design', async ({ page }, info) => {
+test('marketing keeps one clear hero action, a video slot and only featured designs', async ({ page }, info) => {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto('/marketing');
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Guest feedback');
-  await expect(page.getByText('Sample menu design.', { exact: false })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Use .* design/ })).toHaveCount(6);
+  await expect(page.getByText('Product demonstration video', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Email for signup')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Use .* design/ })).toHaveCount(3);
+  await expect(page.getByRole('link', { name: 'View all designs' })).toBeVisible();
+  await expect(page.locator('section').first().getByRole('button', { name: 'Start designing', exact: true })).toHaveCount(1);
+  await expect(page.getByRole('navigation', { name: 'Product' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Resources' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Legal' })).toBeVisible();
   await accessible(page);
   await page.screenshot({ path: info.outputPath('marketing.png'), fullPage: true });
   await page.getByRole('button', { name: 'Use Grill House design' }).click();
@@ -115,6 +121,18 @@ test('website content edits keep failed drafts and save structured fields', asyn
   expect(writes).toHaveLength(1); expect(Object.keys(writes[0])).toEqual(['marketing']);
   expect(writes[0].marketing.benefits[0].title).toBe('A menu that feels like your restaurant');
   await accessible(page);
+});
+test('website settings can upload or link the homepage video without autoplay', async ({ page }) => {
+  await page.goto('/brand');
+  await page.getByLabel('Upload video').setInputFiles({ name: 'product-demo.mp4', mimeType: 'video/mp4', buffer: Buffer.from('demo') });
+  await expect(page.getByRole('status')).toContainText('Video uploaded');
+  await expect(page.getByLabel('Video address')).toHaveValue('https://example.invalid/file.png');
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  const writes = await page.evaluate(() => window.__hig.configWrites);
+  expect(writes.at(-1).landingPageVideoUrl).toBe('https://example.invalid/file.png');
+  const preview = page.getByLabel('Homepage video preview');
+  await expect(preview).toHaveCount(1);
+  expect(await preview.evaluate(node => node.autoplay)).toBe(false);
 });
 test('restaurant settings show no sample payment method or inert destructive action', async ({ page }) => {
   await page.goto('/restaurant-settings');
