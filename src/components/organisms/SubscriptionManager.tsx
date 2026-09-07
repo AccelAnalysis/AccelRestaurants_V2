@@ -1,3 +1,4 @@
+import { CinematicPlanBenefits } from '../cinematic/CinematicPlanBenefits';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuthStore } from '../../store/useAuthStore';
 import { BillingService } from '../../services/billingService';
@@ -60,6 +61,7 @@ export const SubscriptionManager = () => {
         return <article key={plan.id} className="bg-surface border border-surface-highlight rounded-lg p-6 flex flex-col">
           <h2 className="text-xl font-semibold">{plan.name}{current && <span className="block text-sm text-text-secondary mt-1">Current plan</span>}</h2>
           <p className="text-2xl font-bold mt-4">{plan.name === 'Franchise' ? 'Custom pricing' : priceLabel(plan)}{plan.name !== 'Franchise' && <span className="text-sm font-normal"> / {plan.interval}</span>}</p>
+          <CinematicPlanBenefits plan={plan.name} />
           <ul className="my-6 space-y-3 flex-1">{plan.features.map((feature, i) => <li key={i} className="flex gap-2 text-text-secondary"><Check size={18} aria-hidden="true" className="shrink-0" />{feature}</li>)}</ul>
           {plan.name === 'Franchise' ? <a className="ui-button ui-button-secondary" href="mailto:sales@accelrestaurants.com?subject=Franchise%20Inquiry">Contact sales</a> : <button type="button" className="ui-button ui-button-primary" disabled={current || processing || !organization} onClick={() => { setError(null); setSelected(plan); }}>{current ? 'Current plan' : `Review ${plan.name} plan`}</button>}
         </article>;

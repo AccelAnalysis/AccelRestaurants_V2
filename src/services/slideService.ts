@@ -201,6 +201,9 @@ export const SlideService = {
       if (originalSlide.particleConfig) {
         duplicatedSlideData.particleConfig = { ...originalSlide.particleConfig };
       }
+      if (originalSlide.restaurantTemplate) {
+        duplicatedSlideData.restaurantTemplate = { ...originalSlide.restaurantTemplate };
+      }
       if (originalSlide.duration) {
         duplicatedSlideData.duration = originalSlide.duration;
       }

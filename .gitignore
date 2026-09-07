@@ -59,3 +59,7 @@ credentials.json
 # Isolated browser verification artifacts
 tests/hig/results/
 tests/hig/report/
+
+# Cinematic verification output (never production data)
+tests/cinematic/results/
+tests/cinematic/report/

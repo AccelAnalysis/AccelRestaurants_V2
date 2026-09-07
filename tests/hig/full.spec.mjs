@@ -97,7 +97,7 @@ test('onboarding account labels, mobile progress and validation',async({page})=>
 test('onboarding Free plan reaches content; template Cancel is neutral; finish failure retains choices',async({page},info)=>{
  await page.goto('/onboarding');await expect(page.getByText('Step 3 of 4')).toBeVisible();await audit(page);await fits(page);
  await page.getByRole('button',{name:'Start for Free'}).click();await expect(page.getByText('Step 4 of 4')).toBeVisible();
- await page.getByRole('button',{name:/Use a Template/}).click();await expect(page.getByRole('dialog',{name:'Choose a slide template'})).toBeVisible();await page.getByRole('button',{name:'Cancel',exact:true}).click();
+ await page.getByRole('button',{name:/Use a Template/}).click();await expect(page.getByRole('dialog',{name:'Your restaurant, screen-ready'})).toBeVisible();await page.getByRole('button',{name:'Save for later',exact:true}).click();
  await expect(page.getByText('Step 4 of 4')).toBeVisible();await page.evaluate(()=>window.__hig.failDatabase=true);await page.getByRole('button',{name:/Start from Scratch/}).click();
  await expect(page.getByRole('alert')).toContainText('Your choices are still here');await expect(page.getByText('Step 4 of 4')).toBeVisible();await audit(page);await page.screenshot({path:info.outputPath('onboarding.png'),fullPage:true});
 });

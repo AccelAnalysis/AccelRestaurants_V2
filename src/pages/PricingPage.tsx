@@ -1,3 +1,4 @@
+import { CinematicPlanBenefits } from '../components/cinematic/CinematicPlanBenefits';
 import React, { useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Check, X, ChevronDown, ChevronUp } from 'lucide-react';
@@ -190,6 +191,7 @@ export const PricingPage = () => {
                     {planName !== 'Franchise' && <span className="text-text-muted">/mo</span>}
                   </div>
                   <p className="text-sm text-text-muted mt-2 min-h-[40px]">{config.description}</p>
+                  <CinematicPlanBenefits plan={planName} />
                 </div>
 
                 {/* Dynamic Cost Breakdown if relevant */}

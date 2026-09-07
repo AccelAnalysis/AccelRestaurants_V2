@@ -1,3 +1,4 @@
+import { preflightCinematicImport } from './cinematic/importPolicy';
 import * as functions from 'firebase-functions/v1';
 // Force redeploy
 import { onCall, CallableContext } from 'firebase-functions/v1/https';
@@ -1534,7 +1535,7 @@ export const importTemplate = onCall(async (data: { templateId: string; targetOr
   const orgDoc = await db.doc(`organizations/${targetOrgId}`).get();
   
   const isOwner = orgDoc.exists && orgDoc.data()?.ownerId === context.auth.uid;
-  const isMember = memberDoc.exists;
+  const isMember = memberDoc.exists && memberDoc.data()?.status === 'active';
 
   if (!isOwner && !isMember) {
     throw new functions.https.HttpsError('permission-denied', 'You must be a member of the target organization.');
@@ -1547,6 +1548,8 @@ export const importTemplate = onCall(async (data: { templateId: string; targetOr
   }
 
   const template = templateDoc.data()!;
+  // Validate the complete nested import before copying assets or writing content.
+  const nestedTemplates = await preflightCinematicImport(db, template, context.auth.uid, targetOrgId, orgDoc.data()?.plan);
   
   // Prepare for asset copying
   const bucket = admin.storage().bucket();
@@ -1595,9 +1598,8 @@ export const importTemplate = onCall(async (data: { templateId: string; targetOr
       const slideTemplateId = typeof entry === 'string' ? entry : entry.slideId;
       if (!slideTemplateId) continue;
 
-      const slideTmplDoc = await db.doc(`templates/${slideTemplateId}`).get();
-      if (slideTmplDoc.exists) {
-        const sTmpl = slideTmplDoc.data()!;
+      const sTmpl = nestedTemplates.get(slideTemplateId);
+      if (sTmpl) {
         const newSlideId = db.collection('slides').doc().id;
         const sTargetPrefix = `${targetOrgId}/slides/${newSlideId}`;
         const sContent = await processAssets(sTmpl.content, bucket, `templates/slides/${slideTemplateId}`, sTargetPrefix);
@@ -2441,3 +2443,6 @@ export const stopLocationAudio = onCall(async (data, context) => {
   await db.doc(`location_audio_sync/${locationId}`).set({ isPlaying: false, updatedAt: admin.firestore.Timestamp.now() }, { merge: true });
   await db.doc(`organizations/${orgId}/locations/${locationId}`).set({ audioConfig: { isPlaying: false } }, { merge: true });
 });
+
+// Cinematic productization: isolated from measurement, no billing mutations.
+export { createRestaurantStarter } from './cinematic/starter';

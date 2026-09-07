@@ -171,7 +171,7 @@ precision mediump float;
 
 in float v_alpha;
 uniform vec4 u_color;
-uniform int u_effectType; // 0: circle, 1: heart, 2: star, 3: leaf
+uniform int u_effectType; // 0: circle, 1: heart, 2: star, 3: leaf, 4: rain streak
 uniform float u_rotation; // Rotation angle in radians
 
 out vec4 outColor;
@@ -236,6 +236,9 @@ void main() {
   else if (u_effectType == 3) { // Leaf
      dist = leafSDF(p);
   }
+  else if (u_effectType == 4) { // A tapered streak, not a snow dot
+      dist = max(abs(p.x) - 0.075, abs(p.y) - 0.88);
+  }
   else { // Circle (Default)
       dist = circleSDF(p, 0.5);
   }
@@ -244,6 +247,7 @@ void main() {
 
   if (alpha < 0.01) discard;
   
-  outColor = vec4(u_color.rgb, u_color.a * v_alpha * alpha);
+  float opacity = u_color.a * v_alpha * alpha;
+  outColor = vec4(u_color.rgb * opacity, opacity);
 }
 `;

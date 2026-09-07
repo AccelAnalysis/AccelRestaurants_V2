@@ -7,7 +7,7 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { BillingService } from '../services/billingService';
 import { PLAN_CONFIGS } from '../lib/plans';
 import type { PlanType, PlanLimits } from '../lib/plans';
-import { TemplateSelectorModal } from '../components/organisms/TemplateSelectorModal';
+import { RestaurantStarterWizard } from '../components/cinematic/RestaurantStarterWizard';
 import { InlineFeedback } from '../components/atoms/InlineFeedback';
 import { 
   CheckCircle2, 
@@ -159,17 +159,19 @@ export const OnboardingPage = () => {
 
   const headingRef = useRef<HTMLDivElement>(null);
   const initializedAccount = useRef<string | null>(null);
+  const completingSetup = useRef(false);
   // Initialize a returning account once. A profile refresh must not undo progress.
   useEffect(() => {
     if (!user) { initializedAccount.current = null; setStep(1); return; }
-    if (organization?.isSetupComplete) { navigate('/admin'); return; }
+    if (organization?.isSetupComplete && !completingSetup.current) { navigate('/admin'); return; }
     if (!organization || initializedAccount.current === user.uid) return;
     initializedAccount.current = user.uid;
     setOrgData({ name: organization.name || '', industry: organization.industry || 'Restaurant', timezone: organization.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone });
     if (organization.address) setOrgAddress({ street: '', city: '', state: '', zipCode: '', country: '', ...organization.address });
-    setStep(organization.industry ? 3 : 2);
+    // The return URL chooses a UI step only. Billing access comes from the trusted organization.
+    setStep(organization.industry ? (new URLSearchParams(location.search).get('content') === '1' ? 4 : 3) : 2);
     setLoading(false);
-  }, [user, organization, navigate]);
+  }, [user, organization, navigate, location.search]);
   useEffect(() => { headingRef.current?.focus(); }, [step]);
 
   // Handlers
@@ -259,10 +261,7 @@ export const OnboardingPage = () => {
 
         // If Free plan, don't finish yet, go to Step 4
         if (selectedPlan === 'Free') {
-            await updateDoc(orgRef, {
-                plan: 'Free',
-                screenCount: 0,
-            });
+            // Backend provisioning already supplies Free. Never self-write plan/usage fields.
             setStep(4); // Move to content step
             setLoading(false);
             return;
@@ -296,7 +295,7 @@ export const OnboardingPage = () => {
 
         const checkoutUrl = await BillingService.createCheckoutSession(
             priceId,
-            `${window.location.origin}/admin?onboarding_success=true`,
+            `${window.location.origin}/onboarding?content=1`,
             `${window.location.origin}/onboarding?canceled=true`,
             addOns
         );
@@ -312,13 +311,17 @@ export const OnboardingPage = () => {
   };
 
   const finishOnboarding = async (destination = '/admin') => {
-    if (loading || !organization?.id) return;
+    if (loading || !organization?.id) return false;
+    completingSetup.current = true;
     setLoading(true); setError(null);
     try {
       await updateDoc(doc(db, 'organizations', organization.id), { isSetupComplete: true });
       navigate(destination);
+      return true;
     } catch {
+      completingSetup.current = false;
       setError('Could not finish setup. Your choices are still here. Try again.');
+      return false;
     } finally { setLoading(false); }
   };
   const handleContentSetup = async (option: 'template' | 'scratch' | 'designer') => {
@@ -349,7 +352,15 @@ export const OnboardingPage = () => {
             <InlineFeedback message={error} tone="error" />
             <InlineFeedback message={loading ? 'Saving your choices…' : null} />
             {new URLSearchParams(location.search).has('canceled') && <InlineFeedback message="Checkout was cancelled. You can choose a plan again." />}
-            {showTemplateSelector && <TemplateSelectorModal type="slide" onClose={() => setShowTemplateSelector(false)} onCreateBlank={() => { setShowTemplateSelector(false); void finishOnboarding(); }} onImport={id => { setShowTemplateSelector(false); void finishOnboarding(`/admin/slides/${id}`); }} />}
+            {showTemplateSelector && organization && user && <RestaurantStarterWizard
+              key={`${organization.id}:${user.uid}`} orgId={organization.id} userId={user.uid}
+              plan={organization.plan} brandName={organization.name} firstScreen
+              onClose={() => setShowTemplateSelector(false)}
+              onComplete={async result => {
+                const finished = await finishOnboarding(result.screenId ? `/admin/screens/${result.screenId}` : `/admin/slides/${result.slideId}`);
+                if (!finished) throw new Error('Your design was created, but the setup profile could not be updated. Open the existing design below; do not create another.');
+                setShowTemplateSelector(false);
+              }} />}
             {step === 1 && (
                 <div className="glass-panel p-4 sm:p-8 border-surface-highlight shadow-xl animate-in fade-in slide-in-from-bottom-4">
                     <h2 className="text-2xl font-bold mb-6">Create your account</h2>

@@ -20,7 +20,9 @@ uniform float uDensity;
 uniform float uWarp;
 uniform float uSpeed;
 uniform int   uSteps;
-uniform vec3  uColor; // Added for customization
+uniform vec3 uColor;
+uniform float uOpacity;
+uniform vec2 uEmitter;
 
 float hash31(vec3 p) {
   p = fract(p * 0.1031);
@@ -76,7 +78,7 @@ vec3 domainWarp(vec3 p, float t, float warpAmount) {
 // FULL-WIDTH smoke: no "core" (no radial multiplier)
 float densityField(vec3 p, float t, float speed, float warpAmount) {
   float rise = t * (0.45 + 0.9 * speed);
-  vec3 q = p;
+  vec3 q = p - vec3((uEmitter.x - 0.5) * 4.0, (0.5 - uEmitter.y) * 2.0, 0.0);
 
   // Upward motion
   q.y -= rise;
@@ -179,6 +181,6 @@ void main() {
   }
 
   a = clamp(a, 0.0, 0.88);
-  outColor = vec4(col, a);
+  outColor = vec4(col * uOpacity, a * uOpacity);
 }
 `;
