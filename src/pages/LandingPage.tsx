@@ -1,52 +1,102 @@
-import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { Play } from 'lucide-react';
 import { SiteLayout } from '../components/journey/SiteLayout';
 import { RestaurantSlidePreview } from '../components/cinematic/RestaurantSlidePreview';
 import { RESTAURANT_TEMPLATES, buildRestaurantSlide, defaultStarter } from '../../functions/src/cinematic/templates';
 import { useConfigStore } from '../store/useConfigStore';
 import { safeWebLink, saveJourneyIntent } from '../lib/customerJourney';
 import type { Slide } from '../types/schema';
-const features = [
-  { title: 'Make your menu stand out', body: 'Start with an editable restaurant design. Add your menu, prices and a background that suits your space.' },
-  { title: 'Learn from guest responses', body: 'Connect a QR code to an offer or feedback form. Compare scans, responses and guest ratings in one place.' },
-  { title: 'Update without the extra trip', body: 'Manage content for your restaurant screens from your browser, with one place for your menus and promotions.' },
+
+const fallbackBenefits = [
+  { title: 'Designed for restaurants', body: 'Start with an editable menu or promotion and make it fit your food, brand and space.' },
+  { title: 'Update from anywhere', body: 'Change menus and promotions from your browser instead of making another trip to the screen.' },
+  { title: 'Learn what guests notice', body: 'Add a QR offer or feedback prompt, then review scans, responses and ratings in one place.' },
 ];
+
+const featuredTemplateIds = new Set(['coffee-house', 'grill-house', 'fresh-counter']);
+
 export const LandingPage = () => {
   const navigate = useNavigate();
   const { generalConfig: config } = useConfigStore();
-  const [email, setEmail] = useState('');
-  const [videoFailed, setVideoFailed] = useState(false);
   const enabled = config.featureFlags?.publicSignupEnabled !== false;
+  const video = safeWebLink(config.landingPageVideoUrl);
+  const featuredTemplates = RESTAURANT_TEMPLATES.filter(template => featuredTemplateIds.has(template.id));
+  const copy = config.marketing;
+
   const start = (templateId?: string) => {
     saveJourneyIntent({ templateId });
-    navigate(templateId ? `/onboarding?design=${encodeURIComponent(templateId)}` : '/onboarding', { state: { email, templateId } });
+    navigate(templateId ? `/onboarding?design=${encodeURIComponent(templateId)}` : '/onboarding', { state: { templateId } });
   };
-  const video = safeWebLink(config.landingPageVideoUrl);
-  const copy = config.marketing;
+
   return <SiteLayout>
-    <section className="max-w-7xl mx-auto px-4 sm:px-6 py-12 sm:py-20 grid lg:grid-cols-2 gap-10 items-center">
-      <div><p className="text-text-secondary mb-4">Digital menus and guest feedback for restaurants</p>
-        <h1 className="text-4xl sm:text-5xl font-bold tracking-tight leading-tight">{config.landingPageTitle || 'Beautiful restaurant screens. Guest feedback you can use.'}</h1>
-        <p className="text-lg sm:text-xl text-text-secondary mt-6">{config.landingPageDescription || 'Create menus and promotions that fit your restaurant. Add atmosphere effects, keep screens up to date, and learn what guests respond to with QR offers and feedback.'}</p>
-        {enabled && <form className="mt-8 flex flex-wrap gap-3 items-end" onSubmit={e => { e.preventDefault(); start(); }}><label className="flex-1 min-w-0">Email <span className="text-text-secondary">(optional)</span><input type="email" autoComplete="email" aria-label="Email for signup" value={email} onChange={e => setEmail(e.target.value)} className="block w-full min-h-11 mt-2 px-4 py-3 rounded-lg border border-surface-highlight bg-surface" /></label><button className="ui-button ui-button-primary" type="submit">Start free</button></form>}
-        <div className="flex flex-wrap gap-3 mt-4"><a href="#templates" className="ui-button ui-button-secondary">Explore restaurant designs</a>{config.featureFlags?.showPricingPage !== false && <Link to="/pricing" className="ui-button ui-button-secondary">Compare plans</Link>}</div>
-        <p className="text-sm text-text-secondary mt-5">Create a design before choosing a paid plan. Free includes a five-minute screen preview.</p>
+    <section className="max-w-7xl mx-auto px-4 sm:px-6 py-12 sm:py-20 grid lg:grid-cols-2 gap-10 lg:gap-14 items-center">
+      <div className="max-w-2xl">
+        <p className="text-sm sm:text-base text-text-secondary mb-4">Restaurant screens and guest feedback</p>
+        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.05]">{config.landingPageTitle || 'Beautiful restaurant screens. Guest feedback built in.'}</h1>
+        <p className="text-lg sm:text-xl text-text-secondary mt-6 leading-relaxed">{config.landingPageDescription || 'Create polished menus and promotions, keep them current from your browser, and see what guests respond to with QR offers and feedback.'}</p>
+        <div className="flex flex-wrap items-center gap-4 mt-8">
+          {enabled && <button type="button" className="ui-button ui-button-primary" onClick={() => start()}>Start designing</button>}
+          {config.featureFlags?.showPricingPage !== false && <Link to="/pricing" className="min-h-11 inline-flex items-center font-semibold text-primary hover:underline">View plans</Link>}
+        </div>
+        <p className="text-sm text-text-secondary mt-4">Create your design before choosing a paid plan.</p>
       </div>
-      <figure className="min-w-0">{video && !videoFailed ? <video key={video} src={video} controls muted playsInline preload="metadata" onError={() => setVideoFailed(true)} aria-label="AccelRestaurants demonstration" className="w-full aspect-video rounded-xl bg-surface" /> : <RestaurantSlidePreview slide={buildRestaurantSlide(defaultStarter('coffee-house'), 'public-preview', 'coffee-preview') as unknown as Slide} />}
-        <figcaption className="text-sm text-text-secondary mt-3">{video && !videoFailed ? 'Product demonstration. Use the playback controls to watch or pause.' : 'Sample menu design. Change the names and prices to match your restaurant.'}</figcaption>
+
+      <figure className="min-w-0">
+        {video ? <video key={video} src={video} controls playsInline preload="metadata" aria-label="AccelRestaurants product demonstration" className="w-full aspect-video rounded-2xl border border-surface-highlight bg-black object-cover" /> : <div className="aspect-video rounded-2xl border border-surface-highlight bg-surface overflow-hidden flex items-center justify-center p-8 text-center" aria-label="Product demonstration video placeholder">
+          <div className="max-w-sm">
+            <div className="w-14 h-14 rounded-full border border-surface-highlight bg-background mx-auto flex items-center justify-center" aria-hidden="true"><Play className="w-6 h-6 ml-1" /></div>
+            <p className="text-xl font-semibold mt-5">See AccelRestaurants in action</p>
+            <p className="text-text-secondary mt-2">A short product walkthrough will appear here.</p>
+          </div>
+        </div>}
+        <figcaption className="text-sm text-text-secondary mt-3">{video ? 'Product demonstration. Playback starts only when you choose to play it.' : 'Product demonstration video'}</figcaption>
       </figure>
     </section>
-    <section id="features" className="border-y border-surface-highlight bg-surface px-4 sm:px-6 py-12"><div className="max-w-7xl mx-auto"><h2 className="text-3xl font-semibold mb-8">More than a menu on a TV</h2><div className="grid md:grid-cols-3 gap-8">{features.map((item, i) => <article key={item.title}><h3 className="text-xl font-semibold mb-3">{copy?.benefits?.[i]?.title || item.title}</h3><p className="text-text-secondary leading-relaxed">{copy?.benefits?.[i]?.body || item.body}</p></article>)}</div></div></section>
-    <section id="templates" className="max-w-7xl mx-auto px-4 sm:px-6 py-12"><h2 className="text-3xl font-semibold">Find your restaurant’s look</h2><p className="text-text-secondary mt-3 mb-8">Every example is an editable design, not a finished customer menu. Growth and higher plans include all designs and atmosphere effects.</p><div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">{RESTAURANT_TEMPLATES.map(t => <article key={t.id} className="rounded-xl border border-surface-highlight overflow-hidden bg-surface"><RestaurantSlidePreview slide={buildRestaurantSlide(defaultStarter(t.id), 'public-preview', t.id) as unknown as Slide} /><div className="p-5"><h3 className="text-xl font-semibold">{t.name}</h3><p className="text-text-secondary mt-2">{t.category}{t.signature ? ' · Growth and above' : ' · Included with Free'}</p>{enabled && <button type="button" className="ui-button ui-button-secondary mt-4" onClick={() => start(t.id)} aria-label={`Use ${t.name} design`}>Use this design</button>}</div></article>)}</div></section>
-    <section className="max-w-7xl mx-auto px-4 sm:px-6 py-12"><h2 className="text-3xl font-semibold mb-8">From your menu to your screen</h2><ol className="grid sm:grid-cols-3 gap-8">{[
-      ['Choose a design', 'Pick a restaurant layout, then replace the sample items and prices.'],
-      ['Connect your screen', 'Follow screen setup and connect a compatible browser-based player. Check that your menu is showing.'],
-      ['Hear from guests', 'Add a QR offer or feedback form, then review the responses in your dashboard.'],
-    ].map(([title, body], i) => <li key={title}><p className="text-text-secondary mb-2">Step {i + 1}</p><h3 className="text-xl font-semibold">{title}</h3><p className="text-text-secondary mt-3">{body}</p></li>)}</ol></section>
-    <section className="max-w-4xl mx-auto px-4 sm:px-6 py-12"><h2 className="text-3xl font-semibold">See what guests respond to</h2><p className="text-lg text-text-secondary mt-4">{copy?.measurementDescription || 'Track interest in an offer, ask about a visit, or collect a quick rating. QR scans, completed forms and guest ratings help you decide what to try next.'}</p><p className="text-sm text-text-secondary mt-4">Scans and offer interactions are not confirmed purchases. Feedback reflects the guests who choose to respond.</p><h2 className="text-2xl font-semibold mt-10 mb-4">Before you get started</h2>{(copy?.faqs?.length ? copy.faqs : [
-      { question: 'Do I need to change my point-of-sale system?', answer: 'No. Create and manage restaurant screens alongside your existing point-of-sale system.' },
-      { question: 'What do I need for my screen?', answer: 'You need a display, a compatible device with a modern web browser, and an internet connection for setup and updates. Test your device with the free preview before committing.' },
-      { question: 'What does Free include?', answer: 'Create an editable restaurant design and try a five-minute screen preview. Choose a paid plan for ongoing playback.' },
-    ]).map(item => <details key={item.question} className="border-b border-surface-highlight py-3"><summary className="min-h-11 py-3 cursor-pointer font-semibold">{item.question}</summary><p className="text-text-secondary py-3 leading-relaxed">{item.answer}</p></details>)}</section>
+
+    <section id="features" className="border-y border-surface-highlight bg-surface px-4 sm:px-6 py-12 sm:py-14">
+      <div className="max-w-7xl mx-auto grid md:grid-cols-3 gap-8 lg:gap-12">
+        {fallbackBenefits.map((item, index) => <article key={item.title}>
+          <h2 className="text-xl font-semibold">{copy?.benefits?.[index]?.title || item.title}</h2>
+          <p className="text-text-secondary mt-3 leading-relaxed">{copy?.benefits?.[index]?.body || item.body}</p>
+        </article>)}
+      </div>
+    </section>
+
+    <section id="templates" className="max-w-7xl mx-auto px-4 sm:px-6 py-12 sm:py-16">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8">
+        <div>
+          <h2 className="text-3xl font-semibold">Start with a restaurant design</h2>
+          <p className="text-text-secondary mt-3">A few starting points. Every design is editable.</p>
+        </div>
+        <Link to="/designs" className="min-h-11 inline-flex items-center font-semibold text-primary hover:underline">View all designs</Link>
+      </div>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        {featuredTemplates.map(template => <article key={template.id} className="rounded-xl border border-surface-highlight overflow-hidden bg-surface">
+          <RestaurantSlidePreview slide={buildRestaurantSlide(defaultStarter(template.id), 'public-preview', template.id) as unknown as Slide} />
+          <div className="p-5">
+            <h3 className="text-xl font-semibold">{template.name}</h3>
+            <p className="text-text-secondary mt-2">{template.category}</p>
+            {enabled && <button type="button" className="ui-button ui-button-secondary mt-4" onClick={() => start(template.id)} aria-label={`Use ${template.name} design`}>Use this design</button>}
+          </div>
+        </article>)}
+      </div>
+    </section>
+
+    <section id="measurement" className="border-y border-surface-highlight bg-surface px-4 sm:px-6 py-12 sm:py-14">
+      <div className="max-w-4xl mx-auto">
+        <h2 className="text-3xl font-semibold">See what guests respond to</h2>
+        <p className="text-lg text-text-secondary mt-4 leading-relaxed">{copy?.measurementDescription || 'Connect a QR code to an offer or a quick feedback prompt. See scans, completed responses and ratings together so you have a clearer signal about what to try next.'}</p>
+        <p className="text-sm text-text-secondary mt-4">Scans and offer interactions are not confirmed purchases. Feedback reflects the guests who choose to respond.</p>
+      </div>
+    </section>
+
+    <section className="max-w-4xl mx-auto px-4 sm:px-6 py-12 sm:py-16 text-center">
+      <h2 className="text-3xl font-semibold">Ready to make your first screen?</h2>
+      <p className="text-text-secondary mt-3">Choose a design, add your menu, then connect a screen when you are ready.</p>
+      <div className="mt-6 flex justify-center gap-4 flex-wrap">
+        {enabled && <button type="button" className="ui-button ui-button-primary" onClick={() => start()}>Start designing</button>}
+        <Link to="/designs" className="min-h-11 inline-flex items-center font-semibold text-primary hover:underline">Browse designs</Link>
+      </div>
+    </section>
   </SiteLayout>;
 };
