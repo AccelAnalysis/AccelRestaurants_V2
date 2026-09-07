@@ -125,7 +125,7 @@ test('website content edits keep failed drafts and save structured fields', asyn
 test('website settings can upload or link the homepage video without autoplay', async ({ page }) => {
   await page.goto('/brand');
   await page.getByLabel('Upload video').setInputFiles({ name: 'product-demo.mp4', mimeType: 'video/mp4', buffer: Buffer.from('demo') });
-  await expect(page.getByRole('status')).toContainText('Video uploaded');
+  await expect(page.getByRole('status').filter({ hasText: 'Video uploaded' })).toContainText('Video uploaded');
   await expect(page.getByLabel('Video address')).toHaveValue('https://example.invalid/file.png');
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   const writes = await page.evaluate(() => window.__hig.configWrites);
