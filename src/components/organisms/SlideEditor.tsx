@@ -33,6 +33,7 @@ import type {
   AnimatedTextProperties,
   ImageTileProperties,
   VideoTileProperties,
+  AudioTileProperties,
   SlideshowTileProperties,
   ChartProperties,
   PieChartProperties,
@@ -2157,6 +2158,12 @@ export const SlideEditor = ({
                                   Reverse
                                 </label>
                               </div>
+
+                              {(selectedTile.type === 'video' || selectedTile.type === 'background_video' || selectedTile.type === 'audio') && (() => {
+                                const media = selectedTile.properties as VideoTileProperties & AudioTileProperties;
+                                const days = media.scheduleDays || [0,1,2,3,4,5,6];
+                                return <div className="mt-4 pt-4 border-t border-surface-highlight space-y-3"><label className="text-xs font-bold text-text-muted uppercase tracking-wider">Audio coordination & schedule</label><div className="grid grid-cols-2 gap-2"><label className="text-xs text-text-muted">Start Time (s)<input type="number" min="0" value={media.startTime ?? 0} onChange={e => updateSelectedTileProperty('startTime', Number(e.target.value))} className="mt-1 w-full bg-background border border-surface-highlight rounded p-2 text-text" /></label><label className="text-xs text-text-muted">Volume (0–100)<input type="number" min="0" max="100" value={media.volume ?? 100} onChange={e => updateSelectedTileProperty('volume', Number(e.target.value))} className="mt-1 w-full bg-background border border-surface-highlight rounded p-2 text-text" /></label><label className="text-xs text-text-muted">Priority<input type="number" min="0" value={media.priority ?? (selectedTile.type === 'audio' ? 60 : 50)} onChange={e => updateSelectedTileProperty('priority', Number(e.target.value))} className="mt-1 w-full bg-background border border-surface-highlight rounded p-2 text-text" /></label><label className="flex items-end gap-2 pb-2 text-sm text-text"><input type="checkbox" checked={media.duckBackground ?? true} onChange={e => updateSelectedTileProperty('duckBackground', e.target.checked)} /> Duck background</label><label className="flex items-center gap-2 text-sm text-text"><input type="checkbox" checked={media.oneShot ?? false} onChange={e => updateSelectedTileProperty('oneShot', e.target.checked)} /> One-shot playback</label><label className="flex items-center gap-2 text-sm text-text"><input type="checkbox" checked={media.scheduleEnabled ?? false} onChange={e => updateSelectedTileProperty('scheduleEnabled', e.target.checked)} /> Scheduled playback</label></div>{media.scheduleEnabled && <div className="grid grid-cols-2 gap-2"><input type="time" value={media.scheduleStart || '00:00'} onChange={e => updateSelectedTileProperty('scheduleStart', e.target.value)} className="bg-background border border-surface-highlight rounded p-2 text-text" /><input type="time" value={media.scheduleEnd || '23:59'} onChange={e => updateSelectedTileProperty('scheduleEnd', e.target.value)} className="bg-background border border-surface-highlight rounded p-2 text-text" /><input className="col-span-2 bg-background border border-surface-highlight rounded p-2 text-text text-xs" value={days.join(',')} onChange={e => updateSelectedTileProperty('scheduleDays', e.target.value.split(',').map(Number).filter(day => day >= 0 && day <= 6))} aria-label="Schedule days (0 Sunday through 6 Saturday)" /></div>}{selectedTile.type === 'audio' && <><label className="block text-xs text-text-muted">Track name<input value={String(media.trackName || 'Audio')} onChange={e => updateSelectedTileProperty('trackName', e.target.value)} className="mt-1 w-full bg-background border border-surface-highlight rounded p-2 text-text" /></label><label className="flex items-center gap-2 text-sm text-text"><input type="checkbox" checked={media.showIndicator ?? true} onChange={e => updateSelectedTileProperty('showIndicator', e.target.checked)} /> Show Audio Indicator on display</label></>}</div>;
+                              })()}
                             </div>
                           )}
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { StorageService, type StorageFile } from '../../services/storageService';
 import { useAuthStore } from '../../store/useAuthStore';
-import { Upload, Image as ImageIcon, Link as LinkIcon, Trash2, FileIcon } from 'lucide-react';
+import { Upload, Image as ImageIcon, Link as LinkIcon, Trash2, FileIcon, Volume2 } from 'lucide-react';
 import { STORAGE_PATHS } from '../../lib/constants';
 
 interface MediaAssetsViewProps {
@@ -43,8 +43,8 @@ export const MediaAssetsView = ({ onSelect, onClose }: MediaAssetsViewProps = {}
     if (!file) return;
 
     // Basic validation
-    if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
-      setError('Only image and video files are supported');
+    if (!file.type.startsWith('image/') && !file.type.startsWith('video/') && !file.type.startsWith('audio/')) {
+      setError('Only image, video, and audio files are supported');
       return;
     }
 
@@ -118,7 +118,7 @@ export const MediaAssetsView = ({ onSelect, onClose }: MediaAssetsViewProps = {}
               </button>
             )}
           </div>
-          <p className="text-text-muted text-sm">Manage images and videos for your slides and menus</p>
+          <p className="text-text-muted text-sm">Manage images, videos, and audio for slides, menus, and venue atmosphere</p>
         </div>
         
         <div className="flex items-center gap-4">
@@ -127,7 +127,7 @@ export const MediaAssetsView = ({ onSelect, onClose }: MediaAssetsViewProps = {}
             ref={fileInputRef}
             onChange={handleUpload}
             className="hidden"
-            accept="image/*,video/*"
+            accept="image/*,video/*,audio/*"
           />
           <button 
             onClick={() => fileInputRef.current?.click()}
@@ -171,7 +171,7 @@ export const MediaAssetsView = ({ onSelect, onClose }: MediaAssetsViewProps = {}
           </div>
           <h3 className="text-lg font-semibold text-text mb-2">No media assets found</h3>
           <p className="text-text-muted mb-6 max-w-md">
-            Upload images or videos to use them in your digital signage slides and restaurant menus.
+            Upload images, videos, or audio to use them in digital signage slides, restaurant menus, and the cinematic atmosphere layer.
           </p>
           <button 
             onClick={() => fileInputRef.current?.click()}
@@ -192,10 +192,15 @@ export const MediaAssetsView = ({ onSelect, onClose }: MediaAssetsViewProps = {}
                   <img src={file.url} alt={file.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
                 ) : file.contentType?.startsWith('video/') ? (
                   <video src={file.url} className="w-full h-full object-cover" />
+                ) : file.contentType?.startsWith('audio/') ? (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-text-muted gap-3 bg-black/20 p-4">
+                    <Volume2 size={36} />
+                    <audio src={file.url} controls className="w-full" onClick={event => event.stopPropagation()} />
+                  </div>
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center text-text-muted gap-2">
                     <FileIcon size={32} />
-                    <span className="text-xs">Unsupported</span>
+                    <span className="text-xs">File</span>
                   </div>
                 )}
                 

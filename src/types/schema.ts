@@ -167,13 +167,56 @@ export interface Organization {
   updatedAt: Timestamp;
 }
 
-// --- Audio Schedule for Location ---
-export interface AudioSchedule {
-  id: string;
-  startTime: string; // HH:mm format
-  endTime?: string;  // Optional end time
-  daysOfWeek: number[]; // 0-6 (Sunday-Saturday)
+// --- Audio / media scheduling and coordination ---
+export type AudioCoordinationMode = 'mix' | 'priority' | 'exclusive';
+
+export interface MediaSchedule {
   enabled: boolean;
+  startTime: string; // HH:mm in the location/player timezone
+  endTime?: string;
+  daysOfWeek: number[]; // 0-6 (Sunday-Saturday)
+}
+
+export interface AudioSchedule extends MediaSchedule {
+  id: string;
+}
+
+export interface GlobalMediaTrack {
+  id: string;
+  name: string;
+  url: string; // Firebase Storage download URL
+  storagePath?: string;
+  mediaType: 'audio' | 'video-audio';
+  volume: number; // 0-100
+  startTimeSeconds: number;
+  priority: number;
+  schedule?: MediaSchedule;
+}
+
+export interface ScreenAudioConfig {
+  enabled: boolean;
+  applicationVolume: number; // persisted screen multiplier; device volume is separate
+  masterVolume: number;
+  backgroundMusicUrl?: string;
+  playlist: GlobalMediaTrack[];
+  allowVideoAudio: boolean;
+  coordinationMode: AudioCoordinationMode;
+  duckingEnabled: boolean;
+  duckLevel: number;
+  fadeBetweenTracksMs: number;
+  schedule?: MediaSchedule;
+  quietHours?: MediaSchedule;
+}
+
+export interface LocationAudioConfig {
+  mediaUrl?: string; // Firebase Storage download URL
+  storagePath?: string;
+  assetId?: string; // legacy compatibility only
+  isPlaying: boolean;
+  volume: number;
+  loop: boolean;
+  excludedScreenIds: string[];
+  schedule?: AudioSchedule[];
 }
 
 // --- Sub-collection: locations/{locationId} ---
@@ -190,14 +233,7 @@ export interface Location {
     country: string;
   };
   timezone: string;
-  audioConfig?: {
-    assetId?: string;
-    isPlaying: boolean;
-    volume: number;
-    loop: boolean;
-    excludedScreenIds: string[];
-    schedule?: AudioSchedule[];
-  };
+  audioConfig?: LocationAudioConfig;
   createdAt: Timestamp;
 }
 
@@ -206,7 +242,9 @@ export interface LocationAudioSync {
   id: string;
   orgId: string;
   locationId: string;
-  assetId: string;
+  mediaUrl: string;
+  storagePath?: string;
+  assetId?: string; // legacy compatibility only
   syncToken: string;
   scheduledStartTime: Timestamp;
   isPlaying: boolean;
@@ -258,6 +296,7 @@ export interface AppScreen {
     rotationMs: number;
   };
   screenAdjustments?: ScreenAdjustments;
+  audioConfig?: ScreenAudioConfig;
   isActive: boolean;
   lastHeartbeatAt?: Timestamp;
   createdAt: Timestamp;
@@ -452,7 +491,21 @@ export interface ImageTileProperties {
   };
 }
 
-export interface VideoTileProperties {
+export interface MediaAudioProperties {
+  startTime?: number;
+  volume?: number; // 0-100
+  priority?: number;
+  duckBackground?: boolean;
+  oneShot?: boolean;
+  fadeInMs?: number;
+  fadeOutMs?: number;
+  scheduleEnabled?: boolean;
+  scheduleStart?: string;
+  scheduleEnd?: string;
+  scheduleDays?: number[];
+}
+
+export interface VideoTileProperties extends MediaAudioProperties {
   url?: string;
   videoId?: string;
   autoplay?: boolean;
@@ -461,6 +514,15 @@ export interface VideoTileProperties {
   controls?: boolean;
   bounce?: boolean;
   reverse?: boolean;
+}
+
+export interface AudioTileProperties extends MediaAudioProperties {
+  url?: string;
+  trackName?: string;
+  autoplay?: boolean;
+  loop?: boolean;
+  controls?: boolean;
+  showIndicator?: boolean;
 }
 
 export interface WebcamTileProperties {

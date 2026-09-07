@@ -313,6 +313,17 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
+
+    // Realtime venue audio sync. Players may fetch a known location document;
+    // writes remain scoped to organization membership/admin roles.
+    match /location_audio_sync/{locationId} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if request.auth != null && isOrgMember(request.resource.data.orgId);
+      allow update: if request.auth != null && isOrgMember(resource.data.orgId);
+      allow delete: if request.auth != null && isOrgAdmin(resource.data.orgId);
+    }
+
     // Screen Sessions Collection
     match /screen_sessions/{sessionId} {
       // Allow root session doc access to authenticated users

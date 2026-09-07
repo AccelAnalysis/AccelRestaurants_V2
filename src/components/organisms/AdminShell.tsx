@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { Menu, Monitor, MapPin, LayoutDashboard, FileText, Presentation, Image, Palette, TrendingUp, Settings, HelpCircle } from 'lucide-react';
 import { AccessibleDialog } from '../atoms/AccessibleDialog';
+import { ApplicationVolumeControl } from '../atoms/ApplicationVolumeControl';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 
 const groups = [
@@ -50,7 +51,7 @@ export const AdminShell = ({ children, account, banner }: { children: ReactNode;
     {banner}
     <header className="sticky top-0 z-40 min-h-16 bg-surface border-b border-surface-highlight flex items-center gap-3 px-4 py-2" style={{ paddingTop: 'max(.5rem, env(safe-area-inset-top))' }}>
       {!desktop && <button type="button" className="ui-button ui-button-secondary" aria-label="Open navigation" aria-expanded={navigationOpen} aria-haspopup="dialog" onClick={() => setNavigationOpen(true)}><Menu size={22} aria-hidden="true" /></button>}
-      <img src={logo} alt="" className="h-7 w-auto" /><span className="text-base sm:text-lg font-semibold text-primary">AccelRestaurants</span>
+      <img src={logo} alt="" className="h-7 w-auto" /><span className="text-base sm:text-lg font-semibold text-primary">AccelRestaurants</span><ApplicationVolumeControl />
     </header>
     <div className="flex min-w-0">
       {desktop && <aside className="w-60 shrink-0 p-4 border-r border-surface-highlight space-y-6">{navigation}{account}</aside>}

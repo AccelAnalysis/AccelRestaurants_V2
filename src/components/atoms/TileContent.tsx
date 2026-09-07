@@ -13,7 +13,8 @@ import {
   Calendar,
   Rss,
   MessageSquare,
-  MapPin
+  MapPin,
+  Volume2
 } from 'lucide-react';
 import type { 
   TileInstance, 
@@ -33,6 +34,8 @@ import type {
   TextShadowTileProperties, 
   ImageTileProperties, 
   VideoTileProperties, 
+  AudioTileProperties,
+  MediaSchedule,
   ChartProperties, 
   TableTileProperties, 
   KPICardProperties, 
@@ -62,6 +65,7 @@ import { FormService } from '../../services/formService';
 import { CalendarService, type CalendarEvent } from '../../services/calendarService';
 import { StorageService } from '../../services/storageService';
 import { useTileInteractions } from '../../hooks/useTileInteractions';
+import { audioExperienceCoordinator, isScheduleActive } from '../../lib/audioExperience';
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
@@ -1231,132 +1235,137 @@ const TimelineTile = ({ properties }: { properties: TimelineProperties }) => {
   );
 };
 
-const VideoTile = ({ properties }: { properties: VideoTileProperties }) => {
+const VideoTile = ({ properties, isEditor }: { properties: VideoTileProperties; isEditor: boolean }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const sourceId = useId();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const directionRef = useRef<'forward' | 'backward'>('forward');
   const isPlayingRef = useRef<boolean>(!!properties.autoplay);
+  const [scheduleTick, setScheduleTick] = useState(0);
+
+  const mediaSchedule: MediaSchedule = {
+    enabled: !!properties.scheduleEnabled,
+    startTime: properties.scheduleStart || '00:00',
+    endTime: properties.scheduleEnd || '23:59',
+    daysOfWeek: properties.scheduleDays || [0,1,2,3,4,5,6],
+  };
+  const scheduleActive = isScheduleActive(mediaSchedule, new Date());
+  void scheduleTick;
+
+  useEffect(() => {
+    const timer = setInterval(() => setScheduleTick(value => value + 1), 30000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+    const wantsPlayback = !isEditor && !!properties.autoplay && scheduleActive;
+    return audioExperienceCoordinator.registerSource({
+      id: `video:${sourceId}`,
+      kind: 'video',
+      priority: properties.priority ?? 50,
+      volume: properties.volume ?? 100,
+      duckBackground: properties.duckBackground ?? true,
+      wantsPlayback: wantsPlayback && !properties.muted,
+      applyGain: gain => { video.volume = Math.max(0, Math.min(1, gain)); },
+      applyAllowed: allowed => { video.muted = isEditor || !!properties.muted || !allowed; },
+    });
+  }, [sourceId, isEditor, properties.autoplay, properties.muted, properties.priority, properties.volume, properties.duckBackground, scheduleActive]);
 
-    // Update isPlaying ref when property changes
-    isPlayingRef.current = !!properties.autoplay;
-
-    // Reset state on url change
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    isPlayingRef.current = !isEditor && !!properties.autoplay && scheduleActive;
     directionRef.current = properties.reverse ? 'backward' : 'forward';
-    
-    // Listeners to track user interaction
+    const startAt = Math.max(0, properties.startTime ?? 0);
+    const seekToStart = () => { if (Number.isFinite(video.duration) && video.duration > 0) video.currentTime = Math.min(startAt, Math.max(0, video.duration - 0.05)); else video.currentTime = startAt; };
     const onPlay = () => { isPlayingRef.current = true; };
     const onPause = () => { isPlayingRef.current = false; };
-
     video.addEventListener('play', onPlay);
     video.addEventListener('pause', onPause);
 
     const handlePlayback = () => {
-      if (!video) return;
-
-      // Clear existing interval
       if (intervalRef.current) clearInterval(intervalRef.current);
-
-      // Normal playback
+      seekToStart();
       if (!properties.bounce && !properties.reverse) {
         video.playbackRate = 1;
-        if (properties.autoplay) {
-            video.play().catch(() => {});
-        } else {
-            video.pause();
-        }
+        if (!isEditor && properties.autoplay && scheduleActive) video.play().catch(() => undefined);
+        else video.pause();
         return;
       }
-
-      // Custom playback loop (Reverse / Bounce)
-      // Ensure native playback is paused so we don't fight it
-      video.pause(); 
-      
-      // If we are "playing" (autoplay is true), we need to trick the state? 
-      // Actually if we just rely on interval updating currentTime, the video will render frames.
-      // But controls will show "Play" icon (meaning it's paused).
-      // This is a known limitation of custom JS playback without MSE. 
-      // Users might be confused but the effect will work.
-
-      const step = 0.05; // 50ms step
-      const intervalTime = 50;
-
+      video.pause();
+      const step = 0.05;
       intervalRef.current = setInterval(() => {
-        // If intended to be paused, do nothing
-        if (!isPlayingRef.current) return;
-
+        if (!isPlayingRef.current || !scheduleActive) return;
         let nextTime = video.currentTime;
-        
         if (directionRef.current === 'forward') {
           nextTime += step;
           if (nextTime >= video.duration) {
-            if (properties.bounce) {
-              nextTime = video.duration;
-              directionRef.current = 'backward';
-            } else if (properties.loop) {
-              nextTime = 0;
-            } else {
-              nextTime = video.duration;
-              // Stop
-              isPlayingRef.current = false;
-            }
+            if (properties.bounce) { nextTime = video.duration; directionRef.current = 'backward'; }
+            else if (properties.loop && !properties.oneShot) nextTime = startAt;
+            else { nextTime = video.duration; isPlayingRef.current = false; }
           }
-        } else { // backward
+        } else {
           nextTime -= step;
-          if (nextTime <= 0) {
-            if (properties.bounce) {
-              nextTime = 0;
-              directionRef.current = 'forward';
-            } else if (properties.loop) {
-              nextTime = video.duration;
-            } else {
-              nextTime = 0;
-              // Stop
-              isPlayingRef.current = false;
-            }
+          if (nextTime <= startAt) {
+            if (properties.bounce) { nextTime = startAt; directionRef.current = 'forward'; }
+            else if (properties.loop && !properties.oneShot) nextTime = video.duration;
+            else { nextTime = startAt; isPlayingRef.current = false; }
           }
         }
-
-        video.currentTime = nextTime;
-      }, intervalTime);
+        video.currentTime = Math.max(0, nextTime);
+      }, 50);
     };
-
     video.addEventListener('loadedmetadata', handlePlayback);
-    // If metadata already loaded, trigger manually
-    if (video.readyState >= 1) {
-        handlePlayback();
-    }
-
+    if (video.readyState >= 1) handlePlayback();
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
       video.removeEventListener('loadedmetadata', handlePlayback);
       video.removeEventListener('play', onPlay);
       video.removeEventListener('pause', onPause);
     };
-  }, [properties.url, properties.bounce, properties.reverse, properties.autoplay, properties.loop]);
+  }, [properties.url, properties.bounce, properties.reverse, properties.autoplay, properties.loop, properties.oneShot, properties.startTime, isEditor, scheduleActive]);
 
-  return (
-    <div className="w-full h-full bg-black overflow-hidden">
-      {properties.url ? (
-        <video 
-          ref={videoRef}
-          src={String(properties.url)} 
-          className="w-full h-full object-cover" 
-          muted={!!properties.muted} 
-          controls={!!properties.controls}
-          // We handle loop/autoplay manually for bounce/reverse
-          loop={properties.loop && !properties.bounce && !properties.reverse} 
-          autoPlay={false} // Always false here, we manage it in effect
-          playsInline
-        />
-      ) : (
-        <div className="w-full h-full flex items-center justify-center text-text-muted"><Video size={24} /></div>
-      )}
-    </div>
-  );
+  return <div className="w-full h-full bg-black overflow-hidden">{properties.url ? <video ref={videoRef} src={String(properties.url)} className="w-full h-full object-cover" muted={true} controls={!!properties.controls && !isEditor} loop={!!properties.loop && !properties.oneShot && !properties.bounce && !properties.reverse} autoPlay={false} playsInline /> : <div className="w-full h-full flex items-center justify-center text-text-muted"><Video size={24} /></div>}</div>;
+};
+
+const AudioIndicatorTile = ({ properties, isEditor }: { properties: AudioTileProperties; isEditor: boolean }) => {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const sourceId = useId();
+  const [scheduleTick, setScheduleTick] = useState(0);
+  const [status, setStatus] = useState<'idle' | 'playing' | 'blocked'>('idle');
+  const schedule: MediaSchedule = { enabled: !!properties.scheduleEnabled, startTime: properties.scheduleStart || '00:00', endTime: properties.scheduleEnd || '23:59', daysOfWeek: properties.scheduleDays || [0,1,2,3,4,5,6] };
+  const scheduleActive = isScheduleActive(schedule, new Date());
+  void scheduleTick;
+
+  useEffect(() => { const timer = setInterval(() => setScheduleTick(value => value + 1), 30000); return () => clearInterval(timer); }, []);
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const wantsPlayback = !isEditor && !!properties.autoplay && scheduleActive;
+    return audioExperienceCoordinator.registerSource({
+      id: `audio:${sourceId}`,
+      kind: 'audio',
+      priority: properties.priority ?? 60,
+      volume: properties.volume ?? 100,
+      duckBackground: properties.duckBackground ?? true,
+      wantsPlayback,
+      applyGain: gain => { audio.volume = Math.max(0, Math.min(1, gain)); },
+      applyAllowed: allowed => { audio.muted = !allowed; },
+    });
+  }, [sourceId, isEditor, properties.autoplay, properties.priority, properties.volume, properties.duckBackground, scheduleActive]);
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.loop = !!properties.loop && !properties.oneShot;
+    const seek = () => { const start = Math.max(0, properties.startTime ?? 0); if (Number.isFinite(audio.duration) && audio.duration > 0) audio.currentTime = Math.min(start, Math.max(0, audio.duration - 0.05)); else audio.currentTime = start; };
+    if (audio.readyState >= 1) seek(); else audio.addEventListener('loadedmetadata', seek, { once: true });
+    if (!isEditor && properties.autoplay && scheduleActive) audio.play().then(() => setStatus('playing')).catch(() => setStatus('blocked'));
+    else { audio.pause(); }
+  }, [properties.url, properties.startTime, properties.loop, properties.oneShot, properties.autoplay, isEditor, scheduleActive]);
+
+  return <div className="w-full h-full flex flex-col items-center justify-center p-3 bg-surface gap-2"><audio ref={audioRef} src={String(properties.url || '')} controls={!!properties.controls} onPlay={() => setStatus('playing')} onPause={() => setStatus('idle')} onEnded={() => setStatus('idle')} className={properties.controls ? 'w-full' : 'hidden'} /><div className={properties.showIndicator === false ? 'hidden' : 'flex flex-col items-center gap-1 text-center'}><Volume2 size={28} className="text-primary" /><strong className="text-xs text-text">{properties.trackName || 'Audio'}</strong><span className="text-[10px] text-text-muted">{isEditor ? 'Slide-bound audio' : status === 'blocked' ? 'Audio blocked — interact with player to enable' : status === 'playing' ? 'Playing' : scheduleActive ? 'Ready' : 'Outside schedule'}</span></div></div>;
 };
 
 const CalendarTile = ({ properties }: { properties: SpecialTileProperties }) => {
@@ -1757,7 +1766,7 @@ const TileContentInner = ({ tile, isEditor = false, screenId, orgId }: TileConte
     );
   }
   if (tile.type === 'video' || tile.type === 'background_video') {
-    return <VideoTile properties={properties as VideoTileProperties} />;
+    return <VideoTile properties={properties as VideoTileProperties} isEditor={isEditor} />;
   }
   if (tile.type === 'gif') {
     const p = properties as ImageTileProperties;
@@ -1769,8 +1778,7 @@ const TileContentInner = ({ tile, isEditor = false, screenId, orgId }: TileConte
   }
   if (tile.type === 'lottie') return <div className="w-full h-full flex items-center justify-center text-text-muted"><Sparkles size={32} className="animate-pulse" /></div>;
   if (tile.type === 'audio') {
-    const p = properties as VideoTileProperties; // Reusing Video properties for Audio as they share url/controls
-    return <div className="w-full h-full flex items-center justify-center p-4 bg-surface"><audio src={String(p.url)} controls={!!p.controls || true} /></div>;
+    return <AudioIndicatorTile properties={properties as AudioTileProperties} isEditor={isEditor} />;
   }
   if (tile.type === 'slideshow') {
     const p = properties as SlideshowTileProperties;

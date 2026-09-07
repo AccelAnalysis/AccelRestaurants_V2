@@ -7,14 +7,14 @@ import { SlideService } from '../services/slideService';
 import { OrganizationService } from '../services/organizationService';
 import { MenuService } from '../services/menuService';
 import { LocationService } from '../services/locationService';
-import { AudioService } from '../services/audioService';
 import { campaignService, type TriggerEvent } from '../services/campaignService';
 import { isMenuActive } from '../utils/dayparting';
 import { normalizePlaylist } from '../utils/playlist';
 import { AtmosphereCanvas } from '../components/atoms/AtmosphereCanvas';
 import { TileContent } from '../components/atoms/TileContent';
+import { GlobalMediaPlane } from '../components/atoms/GlobalMediaPlane';
 import { QrCode, Clock } from 'lucide-react';
-import type { AppScreen, Slide, Organization, Location, Menu, InteractiveTileProperties, PlaylistEntry, ScreenAdjustments, LocationAudioSync } from '../types/schema';
+import type { AppScreen, Slide, Organization, Location, Menu, InteractiveTileProperties, PlaylistEntry, ScreenAdjustments } from '../types/schema';
 import { DEPLOYMENT_DURATION_LIMIT_MS } from '../lib/plans';
 import { useConfigStore } from '../store/useConfigStore';
 
@@ -99,10 +99,6 @@ export const PlayerScreen = () => {
   const rotationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const durationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const promoTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  
-  // Audio state
-  const [audioSync, setAudioSync] = useState<LocationAudioSync | null>(null);
   const lastProcessedScreenRef = useRef<string>('');
 
   // Initialize Configs
@@ -285,86 +281,6 @@ export const PlayerScreen = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Subscribe to location audio sync and manage playback
-  useEffect(() => {
-    if (!location?.id || !screen?.id) return;
-
-    const unsubscribe = AudioService.subscribeToLocationAudio(location.id, (sync) => {
-      setAudioSync(sync);
-    });
-
-    return () => {
-      unsubscribe();
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-    };
-  }, [location?.id, screen?.id]);
-
-  // Handle audio playback based on sync state
-  useEffect(() => {
-    if (!audioSync || !screen) return;
-
-    // Check if this screen is excluded from audio
-    const isExcluded = audioSync.excludedScreenIds.includes(screen.id);
-    if (isExcluded) {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-      return;
-    }
-
-    // Handle audio playback
-    if (audioSync.isPlaying && audioSync.assetId) {
-      // Create or update audio element
-      if (!audioRef.current) {
-        audioRef.current = new Audio();
-        audioRef.current.loop = audioSync.loop;
-        audioRef.current.volume = audioSync.volume / 100;
-      }
-
-      // Load audio if not already loaded or if asset changed
-      const audioUrl = `https://firebasestorage.googleapis.com/v0/b/${audioSync.assetId}`;
-      if (audioRef.current.src !== audioUrl) {
-        audioRef.current.src = audioUrl;
-        
-        // Calculate delay for synchronized start
-        const now = Date.now();
-        const scheduledStart = audioSync.scheduledStartTime.toMillis();
-        const delay = Math.max(0, scheduledStart - now);
-
-        if (delay > 0) {
-          setTimeout(() => {
-            audioRef.current?.play().catch(err => {
-              console.error('Failed to play audio:', err);
-            });
-          }, delay);
-        } else {
-          audioRef.current.play().catch(err => {
-            console.error('Failed to play audio:', err);
-          });
-        }
-      }
-
-      // Update volume if changed
-      if (audioRef.current.volume !== audioSync.volume / 100) {
-        audioRef.current.volume = audioSync.volume / 100;
-      }
-
-      // Update loop if changed
-      if (audioRef.current.loop !== audioSync.loop) {
-        audioRef.current.loop = audioSync.loop;
-      }
-    } else {
-      // Stop audio
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-    }
-  }, [audioSync, screen]);
 
   // Filter slides based on active menus (Dayparting Logic)
   // Also maintain matching playlist entries
@@ -797,6 +713,7 @@ export const PlayerScreen = () => {
       className="relative overflow-hidden bg-black"
       style={containerStyle}
     >
+      <GlobalMediaPlane screen={screen} location={location} />
       {activeSlides.map((slide, index) => {
         // Only render if in renderedIndices (current or transitioning)
         if (!renderedIndices.includes(index)) return null;

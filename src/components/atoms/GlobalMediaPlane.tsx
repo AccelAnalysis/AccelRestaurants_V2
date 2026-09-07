@@ -64,7 +64,6 @@ const PersistentMediaSource = ({
     media.preload = 'auto';
     media.src = url;
     media.loop = loop;
-    media.playsInline = true;
 
     const applyGain = (gain: number) => {
       lastGainRef.current = gain;
@@ -166,7 +165,7 @@ const buildScreenTracks = (screen: AppScreen): GlobalMediaTrack[] => {
 };
 
 export const GlobalMediaPlane = ({ screen, location }: GlobalMediaPlaneProps) => {
-  const config = normalizeScreenAudioConfig(screen.audioConfig);
+  const config = useMemo(() => normalizeScreenAudioConfig(screen.audioConfig), [screen.audioConfig]);
   const [clock, setClock] = useState(() => new Date());
   const [locationSync, setLocationSync] = useState<LocationAudioSync | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -177,7 +176,7 @@ export const GlobalMediaPlane = ({ screen, location }: GlobalMediaPlaneProps) =>
   useEffect(() => {
     audioExperienceCoordinator.setConfig(config);
     return () => audioExperienceCoordinator.setConfig(undefined);
-  }, [screen.id, screen.audioConfig]);
+  }, [config]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -188,10 +187,7 @@ export const GlobalMediaPlane = ({ screen, location }: GlobalMediaPlaneProps) =>
   }, []);
 
   useEffect(() => {
-    if (!location?.id) {
-      setLocationSync(null);
-      return;
-    }
+    if (!location?.id) return;
     return AudioService.subscribeToLocationAudio(location.id, setLocationSync);
   }, [location?.id]);
 
@@ -201,9 +197,12 @@ export const GlobalMediaPlane = ({ screen, location }: GlobalMediaPlaneProps) =>
   );
 
   useEffect(() => {
-    if (currentIndex >= tracks.length) setCurrentIndex(0);
-    setNextIndex(null);
-    setCrossfadeProgress(0);
+    const reset = window.setTimeout(() => {
+      if (currentIndex >= tracks.length) setCurrentIndex(0);
+      setNextIndex(null);
+      setCrossfadeProgress(0);
+    }, 0);
+    return () => window.clearTimeout(reset);
   }, [tracks.length, currentIndex]);
 
   useEffect(() => () => {

@@ -1,3 +1,5 @@
+> **Architecture authority:** AccelRestaurants V2 is Firebase-native. Audio state is stored in Firestore, media lives in Firebase Storage, synchronized commands use Firebase Functions/Firestore, and the player is served through Firebase Hosting. Supabase is not part of this application architecture.
+
 # Location-Based Audio Management
 
 ## Overview

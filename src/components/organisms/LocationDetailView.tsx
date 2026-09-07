@@ -4,6 +4,8 @@ import { useAuthStore } from '../../store/useAuthStore';
 import { LocationService } from '../../services/locationService';
 import { ScreenService } from '../../services/screenService';
 import { AudioService } from '../../services/audioService';
+import { StorageService, type StorageFile } from '../../services/storageService';
+import { STORAGE_PATHS } from '../../lib/constants';
 import { AudioScheduleModal } from './AudioScheduleModal';
 import { useLocationPermissions } from '../../hooks/useLocationPermissions';
 import type { Location, AppScreen, AudioSchedule } from '../../types/schema';
@@ -49,7 +51,8 @@ export const LocationDetailView = () => {
   });
 
   // Audio tab state
-  const [audioAssetId, setAudioAssetId] = useState<string>('');
+  const [audioMediaUrl, setAudioMediaUrl] = useState<string>('');
+  const [mediaFiles, setMediaFiles] = useState<StorageFile[]>([]);
   const [audioVolume, setAudioVolume] = useState(50);
   const [audioLoop, setAudioLoop] = useState(false);
   const [audioPlaying, setAudioPlaying] = useState(false);
@@ -68,10 +71,12 @@ export const LocationDetailView = () => {
     
     try {
       setLoading(true);
-      const [locationData, screensData] = await Promise.all([
+      const [locationData, screensData, filesData] = await Promise.all([
         LocationService.getLocation(organization.id, locationId),
-        ScreenService.getScreens(organization.id)
+        ScreenService.getScreens(organization.id),
+        StorageService.listFiles(STORAGE_PATHS.ORGANIZATION_ASSETS(organization.id))
       ]);
+      setMediaFiles(filesData.filter(file => file.contentType?.startsWith('audio/') || file.contentType?.startsWith('video/')));
 
       if (locationData) {
         setLocation(locationData);
@@ -83,7 +88,7 @@ export const LocationDetailView = () => {
         
         // Load audio config
         if (locationData.audioConfig) {
-          setAudioAssetId(locationData.audioConfig.assetId || '');
+          setAudioMediaUrl(locationData.audioConfig.mediaUrl || (locationData.audioConfig.assetId?.startsWith('http') ? locationData.audioConfig.assetId : '') || '');
           setAudioVolume(locationData.audioConfig.volume || 50);
           setAudioLoop(locationData.audioConfig.loop || false);
           setAudioPlaying(locationData.audioConfig.isPlaying || false);
@@ -127,23 +132,27 @@ export const LocationDetailView = () => {
   };
 
   const handleToggleAudio = async () => {
-    if (!locationId) return;
+    if (!organization?.id || !locationId) return;
     
     try {
       if (audioPlaying) {
-        await AudioService.stopLocationAudio(locationId);
+        await AudioService.stopLocationAudio(organization.id, locationId);
         setAudioPlaying(false);
       } else {
-        if (!audioAssetId) {
+        if (!audioMediaUrl) {
           alert('Please select an audio file first');
           return;
         }
+        const selectedFile = mediaFiles.find(file => file.url === audioMediaUrl);
         await AudioService.startLocationAudio(
+          organization.id,
           locationId,
-          audioAssetId,
+          audioMediaUrl,
           audioVolume,
           audioLoop,
-          excludedScreenIds
+          excludedScreenIds,
+          undefined,
+          selectedFile?.fullPath
         );
         setAudioPlaying(true);
       }
@@ -154,7 +163,7 @@ export const LocationDetailView = () => {
   };
 
   const handleToggleScreenExclusion = async (screenId: string) => {
-    if (!locationId) return;
+    if (!organization?.id || !locationId) return;
     
     const newExcludedIds = excludedScreenIds.includes(screenId)
       ? excludedScreenIds.filter(id => id !== screenId)
@@ -163,7 +172,7 @@ export const LocationDetailView = () => {
     setExcludedScreenIds(newExcludedIds);
     
     try {
-      await AudioService.updateAudioExclusions(locationId, newExcludedIds);
+      await AudioService.updateAudioExclusions(organization.id, locationId, newExcludedIds);
     } catch (error) {
       console.error('Error updating exclusions:', error);
       // Revert on error
@@ -515,12 +524,12 @@ export const LocationDetailView = () => {
               <div>
                 <label className="text-sm font-medium text-text-muted mb-2 block">Audio File</label>
                 <select
-                  value={audioAssetId}
-                  onChange={(e) => setAudioAssetId(e.target.value)}
+                  value={audioMediaUrl}
+                  onChange={(e) => setAudioMediaUrl(e.target.value)}
                   className="w-full bg-background border border-surface-highlight rounded px-3 py-2 text-text focus:border-primary focus:outline-none"
                 >
-                  <option value="">Select an audio file...</option>
-                  {/* TODO: Load audio assets from Asset collection */}
+                  <option value="">Select an audio or video-audio file...</option>
+                  {mediaFiles.map(file => <option key={file.fullPath} value={file.url}>{file.name}</option>)}
                 </select>
                 <p className="text-xs text-text-muted mt-1">Upload audio files in the Media Assets section</p>
               </div>

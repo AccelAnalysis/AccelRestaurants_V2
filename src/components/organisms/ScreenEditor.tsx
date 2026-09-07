@@ -10,7 +10,8 @@ import { TemplateService } from '../../services/templateService';
 import { LocationService } from '../../services/locationService';
 import { useAuthStore } from '../../store/useAuthStore';
 import { Save, ArrowLeft, Plus, X, GripVertical, Play, RotateCw, RotateCcw, Settings, ArrowUp, ArrowDown } from 'lucide-react';
-import type { AppScreen, Slide, Location, PlaylistEntry, ScreenAdjustments } from '../../types/schema';
+import type { AppScreen, Slide, Location, PlaylistEntry, ScreenAdjustments, ScreenAudioConfig, GlobalMediaTrack } from '../../types/schema';
+import { coordinationModeLabel, normalizeScreenAudioConfig } from '../../lib/audioExperience';
 import { Timestamp } from 'firebase/firestore';
 import { normalizePlaylist } from '../../utils/playlist';
 
@@ -295,6 +296,7 @@ export const ScreenEditor = ({
   const [transition, setTransition] = useState<'fade' | 'slide' | 'none'>('fade');
   const [playlist, setPlaylist] = useState<PlaylistItemData[]>([]);
   const [screenAdjustments, setScreenAdjustments] = useState<ScreenAdjustments>({ scale: 1.0, offsetX: 0, offsetY: 0 });
+  const [audioConfig, setAudioConfig] = useState<ScreenAudioConfig>(() => normalizeScreenAudioConfig());
   
   // Slide navigation confirmation modal
   const [confirmNavigateSlideId, setConfirmNavigateSlideId] = useState<string | null>(null);
@@ -349,6 +351,7 @@ export const ScreenEditor = ({
             setRotationMs(initialData.rotationSettings.rotationMs);
             setTransition(initialData.rotationSettings.transition);
             if (initialData.screenAdjustments) setScreenAdjustments(initialData.screenAdjustments);
+            setAudioConfig(normalizeScreenAudioConfig(initialData.audioConfig));
             
             // Map playlist entries back to the slide objects (which are templates now)
             const entries = normalizePlaylist(initialData.livePlaylist || []);
@@ -377,6 +380,7 @@ export const ScreenEditor = ({
               setRotationMs(screen.rotationSettings.rotationMs);
               setTransition(screen.rotationSettings.transition);
               if (screen.screenAdjustments) setScreenAdjustments(screen.screenAdjustments);
+              setAudioConfig(normalizeScreenAudioConfig(screen.audioConfig));
               
               const entries = normalizePlaylist(screen.livePlaylist || []);
               const currentPlaylist: PlaylistItemData[] = [];
@@ -432,7 +436,8 @@ export const ScreenEditor = ({
           transition,
           rotationMs
         },
-        screenAdjustments
+        screenAdjustments,
+        audioConfig
       };
 
       if (isTemplateMode && onSave) {
@@ -493,6 +498,26 @@ export const ScreenEditor = ({
       return updated;
     });
   };
+
+
+  const addAudioTrack = () => setAudioConfig(prev => ({
+    ...prev,
+    playlist: [...prev.playlist, {
+      id: crypto.randomUUID(), name: 'New Track', url: '', mediaType: 'audio',
+      volume: 100, startTimeSeconds: 0, priority: 10,
+      schedule: { enabled: false, startTime: '00:00', endTime: '23:59', daysOfWeek: [0,1,2,3,4,5,6] }
+    }]
+  }));
+
+  const updateAudioTrack = (index: number, updates: Partial<GlobalMediaTrack>) => setAudioConfig(prev => ({
+    ...prev,
+    playlist: prev.playlist.map((track, trackIndex) => trackIndex === index ? { ...track, ...updates } : track)
+  }));
+
+  const removeAudioTrack = (index: number) => setAudioConfig(prev => ({
+    ...prev,
+    playlist: prev.playlist.filter((_, trackIndex) => trackIndex !== index)
+  }));
 
   if (loading) return <div role="status" className="text-text p-8">Loading editor...</div>;
 
@@ -679,6 +704,38 @@ export const ScreenEditor = ({
                     <option value="none">None (Instant)</option>
                   </select>
                 </div>
+              </div>
+            </section>
+
+
+            {/* Audio / Global Media Plane */}
+            <section className="space-y-4">
+              <div>
+                <h3 className="text-lg font-semibold text-text border-b border-surface-highlight pb-2">Audio & Global Media Plane</h3>
+                <p className="text-xs text-text-muted mt-2">Persistent background media stays mounted while slides rotate. Slide audio and video sound remain slide-bound foreground sources.</p>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-text"><input type="checkbox" checked={audioConfig.enabled} onChange={e => setAudioConfig(prev => ({ ...prev, enabled: e.target.checked }))} /> Audio enabled</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <label className="space-y-1 text-sm text-text-secondary">Screen master volume: {audioConfig.masterVolume}%<input type="range" min="0" max="100" value={audioConfig.masterVolume} onChange={e => setAudioConfig(prev => ({ ...prev, masterVolume: Number(e.target.value) }))} className="w-full accent-primary" /></label>
+                <label className="space-y-1 text-sm text-text-secondary">Persisted app multiplier: {audioConfig.applicationVolume}%<input type="range" min="0" max="100" value={audioConfig.applicationVolume} onChange={e => setAudioConfig(prev => ({ ...prev, applicationVolume: Number(e.target.value) }))} className="w-full accent-primary" /></label>
+              </div>
+              <label className="block text-sm text-text-secondary">Background music URL (Firebase Storage)<input value={audioConfig.backgroundMusicUrl || ''} onChange={e => setAudioConfig(prev => ({ ...prev, backgroundMusicUrl: e.target.value }))} className="mt-1 w-full bg-background border border-surface-highlight rounded p-2 text-text" placeholder="https://firebasestorage.googleapis.com/..." /></label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <label className="text-sm text-text-secondary">Coordination mode<select value={audioConfig.coordinationMode} onChange={e => setAudioConfig(prev => ({ ...prev, coordinationMode: e.target.value as ScreenAudioConfig['coordinationMode'] }))} className="mt-1 w-full bg-background border border-surface-highlight rounded p-2 text-text"><option value="mix">Mixer — simultaneous audio</option><option value="priority">Priority + ducking</option><option value="exclusive">Only one source at a time</option></select><span className="block text-[10px] text-text-muted mt-1">{coordinationModeLabel(audioConfig.coordinationMode)}</span></label>
+                <label className="text-sm text-text-secondary">Fade between tracks (ms)<input type="number" min="0" value={audioConfig.fadeBetweenTracksMs} onChange={e => setAudioConfig(prev => ({ ...prev, fadeBetweenTracksMs: Number(e.target.value) }))} className="mt-1 w-full bg-background border border-surface-highlight rounded p-2 text-text" /></label>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <label className="flex items-center gap-2 text-sm text-text"><input type="checkbox" checked={audioConfig.allowVideoAudio} onChange={e => setAudioConfig(prev => ({ ...prev, allowVideoAudio: e.target.checked }))} /> Allow video audio</label>
+                <label className="flex items-center gap-2 text-sm text-text"><input type="checkbox" checked={audioConfig.duckingEnabled} onChange={e => setAudioConfig(prev => ({ ...prev, duckingEnabled: e.target.checked }))} /> Duck background under foreground audio</label>
+              </div>
+              {audioConfig.duckingEnabled && <label className="block text-sm text-text-secondary">Ducked background level: {audioConfig.duckLevel}%<input type="range" min="0" max="100" value={audioConfig.duckLevel} onChange={e => setAudioConfig(prev => ({ ...prev, duckLevel: Number(e.target.value) }))} className="w-full accent-primary" /></label>}
+              {(['schedule','quietHours'] as const).map(key => {
+                const schedule = audioConfig[key] || { enabled:false, startTime:'00:00', endTime:'23:59', daysOfWeek:[0,1,2,3,4,5,6] };
+                return <div key={key} className="p-3 border border-surface-highlight rounded space-y-2"><label className="flex items-center gap-2 text-sm text-text"><input type="checkbox" checked={schedule.enabled} onChange={e => setAudioConfig(prev => ({ ...prev, [key]: { ...schedule, enabled: e.target.checked } }))} /> {key === 'schedule' ? 'Screen audio schedule' : 'Quiet hours (scheduler override)'}</label><div className="grid grid-cols-2 gap-2"><input type="time" value={schedule.startTime} onChange={e => setAudioConfig(prev => ({ ...prev, [key]: { ...schedule, startTime: e.target.value } }))} className="bg-background border border-surface-highlight rounded p-2 text-text" /><input type="time" value={schedule.endTime || '23:59'} onChange={e => setAudioConfig(prev => ({ ...prev, [key]: { ...schedule, endTime: e.target.value } }))} className="bg-background border border-surface-highlight rounded p-2 text-text" /></div><input value={schedule.daysOfWeek.join(',')} onChange={e => setAudioConfig(prev => ({ ...prev, [key]: { ...schedule, daysOfWeek: e.target.value.split(',').map(Number).filter(day => day >= 0 && day <= 6) } }))} className="w-full bg-background border border-surface-highlight rounded p-2 text-text text-sm" aria-label={`${key} days of week`} /><p className="text-[10px] text-text-muted">Days use 0–6 = Sunday–Saturday. Overnight windows are supported.</p></div>;
+              })}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between"><div><h4 className="font-semibold text-text">Global playlist</h4><p className="text-xs text-text-muted">Audio or video files used as audio-only atmosphere tracks.</p></div><button type="button" onClick={addAudioTrack} className="ui-button ui-button-secondary">+ Track</button></div>
+                {audioConfig.playlist.map((track,index) => <div key={track.id} className="p-3 border border-surface-highlight rounded space-y-2"><div className="grid grid-cols-[120px_1fr_auto] gap-2"><select value={track.mediaType} onChange={e => updateAudioTrack(index,{mediaType:e.target.value as GlobalMediaTrack['mediaType']})} className="bg-background border border-surface-highlight rounded p-2 text-text"><option value="audio">Audio</option><option value="video-audio">Video audio</option></select><input value={track.name} onChange={e => updateAudioTrack(index,{name:e.target.value})} className="bg-background border border-surface-highlight rounded p-2 text-text" placeholder="Track name" /><button type="button" onClick={() => removeAudioTrack(index)} className="ui-button ui-button-secondary">Remove</button></div><input value={track.url} onChange={e => updateAudioTrack(index,{url:e.target.value})} className="w-full bg-background border border-surface-highlight rounded p-2 text-text" placeholder="Firebase Storage download URL" /><div className="grid grid-cols-3 gap-2"><label className="text-xs text-text-muted">Volume<input type="number" min="0" max="100" value={track.volume} onChange={e => updateAudioTrack(index,{volume:Number(e.target.value)})} className="mt-1 w-full bg-background border border-surface-highlight rounded p-2 text-text" /></label><label className="text-xs text-text-muted">Start Time (s)<input type="number" min="0" value={track.startTimeSeconds} onChange={e => updateAudioTrack(index,{startTimeSeconds:Number(e.target.value)})} className="mt-1 w-full bg-background border border-surface-highlight rounded p-2 text-text" /></label><label className="text-xs text-text-muted">Priority<input type="number" min="0" value={track.priority} onChange={e => updateAudioTrack(index,{priority:Number(e.target.value)})} className="mt-1 w-full bg-background border border-surface-highlight rounded p-2 text-text" /></label></div></div>)}
               </div>
             </section>
 

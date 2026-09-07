@@ -2209,152 +2209,60 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
   }
 }
 
+
+const assertOrgAudioAccess = async (uid: string, orgId: string) => {
+  const orgRef = admin.firestore().doc(`organizations/${orgId}`);
+  const orgSnap = await orgRef.get();
+  if (!orgSnap.exists) throw new functions.https.HttpsError('not-found', 'Organization not found');
+  const org = orgSnap.data() || {};
+  if (org.ownerId === uid || (Array.isArray(org.members) && org.members.includes(uid))) return;
+  const memberSnap = await orgRef.collection('members').doc(uid).get();
+  if (!memberSnap.exists) throw new functions.https.HttpsError('permission-denied', 'User is not a member of this organization');
+};
+
 /**
  * Start synchronized audio playback across all screens in a location
  */
 export const startLocationAudio = onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
-  }
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
+  const { orgId, locationId, mediaUrl, storagePath, volume = 50, loop = false, excludedScreenIds = [], scheduledStartTime } = data || {};
+  if (!orgId || !locationId || !mediaUrl) throw new functions.https.HttpsError('invalid-argument', 'orgId, locationId, and mediaUrl are required');
+  await assertOrgAudioAccess(context.auth.uid, orgId);
 
-  const { locationId, assetId, volume, loop, excludedScreenIds, scheduledStartTime } = data;
+  const db = admin.firestore();
+  const locationRef = db.doc(`organizations/${orgId}/locations/${locationId}`);
+  const locationSnap = await locationRef.get();
+  if (!locationSnap.exists) throw new functions.https.HttpsError('not-found', 'Location not found');
 
-  if (!locationId || !assetId) {
-    throw new functions.https.HttpsError('invalid-argument', 'locationId and assetId are required');
-  }
-
-  try {
-    // Get location to verify it exists and get orgId
-    const locationRef = db.doc(`organizations/${context.auth.uid}/locations/${locationId}`);
-    const locationSnap = await locationRef.get();
-
-    if (!locationSnap.exists) {
-      throw new functions.https.HttpsError('not-found', 'Location not found');
-    }
-
-    const locationData = locationSnap.data();
-    const orgId = locationData?.orgId;
-
-    if (!orgId) {
-      throw new functions.https.HttpsError('failed-precondition', 'Location missing orgId');
-    }
-
-    // Verify user has permission (orgAdmin or locationAdmin)
-    const memberRef = db.doc(`organizations/${orgId}/members/${context.auth.uid}`);
-    const memberSnap = await memberRef.get();
-
-    if (!memberSnap.exists) {
-      throw new functions.https.HttpsError('permission-denied', 'User is not a member of this organization');
-    }
-
-    const memberData = memberSnap.data();
-    const role = memberData?.role;
-
-    if (role !== 'orgAdmin' && role !== 'locationAdmin') {
-      throw new functions.https.HttpsError('permission-denied', 'Insufficient permissions to control audio');
-    }
-
-    // Generate sync token and scheduled start time
-    const syncToken = crypto.randomUUID();
-    const startTime = scheduledStartTime 
-      ? admin.firestore.Timestamp.fromMillis(scheduledStartTime)
-      : admin.firestore.Timestamp.now();
-
-    // Create/update location_audio_sync document
-    const syncRef = db.doc(`location_audio_sync/${locationId}`);
-    await syncRef.set({
-      id: locationId,
-      orgId,
-      locationId,
-      assetId,
-      syncToken,
-      scheduledStartTime: startTime,
-      isPlaying: true,
-      volume: volume || 50,
-      loop: loop || false,
-      excludedScreenIds: excludedScreenIds || [],
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
-
-    // Update location's audioConfig
-    await locationRef.update({
-      'audioConfig.assetId': assetId,
-      'audioConfig.isPlaying': true,
-      'audioConfig.volume': volume || 50,
-      'audioConfig.loop': loop || false,
-      'audioConfig.excludedScreenIds': excludedScreenIds || []
-    });
-
-    functions.logger.info(`Started audio for location ${locationId}`);
-    return { success: true, syncToken };
-  } catch (error) {
-    functions.logger.error('Error starting location audio:', error);
-    throw new functions.https.HttpsError('internal', 'Failed to start audio playback');
-  }
+  const now = admin.firestore.Timestamp.now();
+  const scheduled = scheduledStartTime
+    ? admin.firestore.Timestamp.fromMillis(Number(scheduledStartTime))
+    : admin.firestore.Timestamp.fromMillis(Date.now() + 750);
+  const syncRef = db.doc(`location_audio_sync/${locationId}`);
+  const syncToken = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  await syncRef.set({
+    id: locationId, orgId, locationId, mediaUrl, storagePath: storagePath || null,
+    syncToken, scheduledStartTime: scheduled, isPlaying: true,
+    volume: Math.max(0, Math.min(100, Number(volume))), loop: Boolean(loop),
+    excludedScreenIds: Array.isArray(excludedScreenIds) ? excludedScreenIds : [],
+    createdAt: now, updatedAt: now,
+  }, { merge: true });
+  await locationRef.set({ audioConfig: {
+    mediaUrl, storagePath: storagePath || null, isPlaying: true,
+    volume: Math.max(0, Math.min(100, Number(volume))), loop: Boolean(loop),
+    excludedScreenIds: Array.isArray(excludedScreenIds) ? excludedScreenIds : [],
+  }}, { merge: true });
 });
 
 /**
  * Stop audio playback across all screens in a location
  */
 export const stopLocationAudio = onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
-  }
-
-  const { locationId } = data;
-
-  if (!locationId) {
-    throw new functions.https.HttpsError('invalid-argument', 'locationId is required');
-  }
-
-  try {
-    // Get location to verify permissions
-    const locationRef = db.doc(`organizations/${context.auth.uid}/locations/${locationId}`);
-    const locationSnap = await locationRef.get();
-
-    if (!locationSnap.exists) {
-      throw new functions.https.HttpsError('not-found', 'Location not found');
-    }
-
-    const locationData = locationSnap.data();
-    const orgId = locationData?.orgId;
-
-    if (!orgId) {
-      throw new functions.https.HttpsError('failed-precondition', 'Location missing orgId');
-    }
-
-    // Verify user has permission
-    const memberRef = db.doc(`organizations/${orgId}/members/${context.auth.uid}`);
-    const memberSnap = await memberRef.get();
-
-    if (!memberSnap.exists) {
-      throw new functions.https.HttpsError('permission-denied', 'User is not a member of this organization');
-    }
-
-    const memberData = memberSnap.data();
-    const role = memberData?.role;
-
-    if (role !== 'orgAdmin' && role !== 'locationAdmin') {
-      throw new functions.https.HttpsError('permission-denied', 'Insufficient permissions to control audio');
-    }
-
-    // Update location_audio_sync document
-    const syncRef = db.doc(`location_audio_sync/${locationId}`);
-    await syncRef.update({
-      isPlaying: false,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
-
-    // Update location's audioConfig
-    await locationRef.update({
-      'audioConfig.isPlaying': false
-    });
-
-    functions.logger.info(`Stopped audio for location ${locationId}`);
-    return { success: true };
-  } catch (error) {
-    functions.logger.error('Error stopping location audio:', error);
-    throw new functions.https.HttpsError('internal', 'Failed to stop audio playback');
-  }
+  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
+  const { orgId, locationId } = data || {};
+  if (!orgId || !locationId) throw new functions.https.HttpsError('invalid-argument', 'orgId and locationId are required');
+  await assertOrgAudioAccess(context.auth.uid, orgId);
+  const db = admin.firestore();
+  await db.doc(`location_audio_sync/${locationId}`).set({ isPlaying: false, updatedAt: admin.firestore.Timestamp.now() }, { merge: true });
+  await db.doc(`organizations/${orgId}/locations/${locationId}`).set({ audioConfig: { isPlaying: false } }, { merge: true });
 });

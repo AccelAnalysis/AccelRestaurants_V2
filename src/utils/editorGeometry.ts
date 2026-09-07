@@ -25,7 +25,20 @@ export function moveTileWithKey(tile: TileInstance, key: string, step: number, c
 export function getDefaultTileProperties(type: TileInstance['type']): Record<string, unknown> {
   switch (type) {
     case 'text': return { content: 'New Text' };
-    case 'image': case 'video': return { url: '' };
+    case 'image': return { url: '' };
+    case 'video':
+    case 'background_video': return {
+      url: '', autoplay: true, loop: true, muted: true, controls: false,
+      startTime: 0, volume: 100, priority: 50, duckBackground: true,
+      oneShot: false, fadeInMs: 250, fadeOutMs: 250,
+      scheduleEnabled: false, scheduleStart: '00:00', scheduleEnd: '23:59', scheduleDays: [0,1,2,3,4,5,6]
+    };
+    case 'audio': return {
+      url: '', trackName: 'Audio', autoplay: true, loop: false, controls: true, showIndicator: true,
+      startTime: 0, volume: 100, priority: 60, duckBackground: true,
+      oneShot: false, fadeInMs: 250, fadeOutMs: 250,
+      scheduleEnabled: false, scheduleStart: '00:00', scheduleEnd: '23:59', scheduleDays: [0,1,2,3,4,5,6]
+    };
     case 'clock': return { format: '12h', showSeconds: true };
     case 'weather': return { location: 'New York', units: 'imperial' };
     case 'container': return { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#374151' };
