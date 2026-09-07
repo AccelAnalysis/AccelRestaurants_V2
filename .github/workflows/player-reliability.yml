@@ -3,13 +3,7 @@ on:
   push:
     branches: [feat/player-operational-trustworthiness]
   pull_request:
-    paths:
-      - 'src/lib/player/**'
-      - 'src/components/player/**'
-      - 'src/pages/PlayerScreen.tsx'
-      - 'functions/src/player/**'
-      - 'tests/player/**'
-      - '.github/workflows/player-reliability.yml'
+    paths: ['src/lib/player/**', 'src/components/player/**', 'src/pages/PlayerScreen.tsx', 'functions/src/player/**', 'tests/player/**', '.github/workflows/player-reliability.yml']
 permissions:
   contents: read
 concurrency:
@@ -35,13 +29,12 @@ jobs:
       - name: Reliability regression tests
         run: |
           if test -f scripts/test-player.mjs; then node scripts/test-player.mjs; fi
-      - name: Development workspace (temporary, no credentials)
+      - name: Development toolchain (temporary; no credentials)
         if: always() && github.event_name == 'push'
-        run: |
-          git ls-files -z | tar --null -T - --exclude='assets' --exclude='public' -czf /tmp/player-source.tgz
+        run: tar --exclude='*/.cache' -czf /tmp/player-toolchain.tgz node_modules functions/node_modules
       - uses: actions/upload-artifact@v4
         if: always() && github.event_name == 'push'
         with:
-          name: player-source
-          path: /tmp/player-source.tgz
+          name: player-toolchain
+          path: /tmp/player-toolchain.tgz
           retention-days: 1
