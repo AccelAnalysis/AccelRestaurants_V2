@@ -547,7 +547,7 @@ const EventCountdownTile = ({ properties }: { properties: SpecialTileProperties 
 
 import { QRCodeSVG } from 'qrcode.react';
 
-const QRCodeTile = ({ properties, tileId, screenId, orgId }: { properties: InteractiveTileProperties, tileId?: string, screenId?: string, orgId?: string }) => {
+const QRCodeTile = ({ properties }: { properties: InteractiveTileProperties, tileId?: string, screenId?: string, orgId?: string }) => {
   const [generatedContent, setGeneratedContent] = useState<string | null>(null);
   const content = String(properties.content || 'https://accel.com');
   const bgColor = String(properties.backgroundColor || '#ffffff');
@@ -591,12 +591,7 @@ const QRCodeTile = ({ properties, tileId, screenId, orgId }: { properties: Inter
   }, [properties.qrSource, properties.calendarUrl]);
 
   // Construct URL
-  let qrValue = generatedContent || content;
-  if (properties.trackScan && tileId && !generatedContent) { // Don't track generated dynamic links yet unless we wrap them
-    const baseUrl = window.location.origin;
-    const encodedUrl = encodeURIComponent(qrValue);
-    qrValue = `${baseUrl}/r?url=${encodedUrl}&tid=${tileId}${screenId ? `&sid=${screenId}` : ''}${orgId ? `&oid=${orgId}` : ''}`;
-  }
+  const qrValue = generatedContent || content; // Measured player QR URLs come from immutable server placements.
 
   return (
     <div className="w-full h-full p-2 flex flex-col items-center justify-center rounded-lg shadow-inner" style={{ backgroundColor: bgColor }}>

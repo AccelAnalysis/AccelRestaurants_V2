@@ -91,7 +91,7 @@ export const AdminDashboard = () => {
           <Route path="/locations/:locationId" element={<LocationsPage />} />
           
           <Route path="/master-dashboard" element={<MasterDashboard />} />
-          <Route path="/analytics" element={<div className="p-4 sm:p-8"><QRAnalyticsView /></div>} />
+          <Route path="/analytics/*" element={<QRAnalyticsView />} />
           
           <Route path="/designers" element={<div className="p-4 sm:p-8"><DesignerMarketplace /></div>} />
           <Route path="/designers/jobs/:jobId" element={<div className="p-4 sm:p-8"><JobDetailView /></div>} />

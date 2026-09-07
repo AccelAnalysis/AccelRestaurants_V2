@@ -6,9 +6,13 @@
     "outDir": "lib",
     "sourceMap": true,
     "strict": true,
-    "target": "es2017",
+    "target": "es2022",
     "skipLibCheck": true,
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "lib": [
+      "es2022",
+      "dom"
+    ]
   },
   "compileOnSave": true,
   "include": [

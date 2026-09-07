@@ -314,24 +314,28 @@ service cloud.firestore {
       }
     }
 
-    // Daily Metrics Collection
-    match /daily_metrics/{metricId} {
-      allow read: if request.auth != null && isOrgMember(resource.data.orgId);
-      allow write: if request.auth != null && isOrgMember(request.resource.data.orgId);
-    }
+    // Legacy analytics are retained for offline export only, never trusted or writable by clients.
+    match /daily_metrics/{metricId} { allow read, write: if false; }
+    match /qr_scans/{scanId} { allow read, write: if false; }
 
-    // QR Scans Collection
-    match /qr_scans/{scanId} {
-      // Allow any org member to read scans for their org
-      allow read: if request.auth != null && (
-        resource.data.orgId == null || // Legacy support (or maybe restrict this?)
-        isOrgMember(resource.data.orgId) ||
-        isSuperAdmin()
-      );
-      // Allow public creation (anyone scanning a QR code)
-      allow create: if true; 
-      // No updates or deletes allowed
-    }
+    // First-party measurement: all operations go through server-authenticated, location-scoped APIs.
+    match /measurement_campaigns/{document=**} { allow read, write: if false; }
+    match /measurement_surveys/{document=**} { allow read, write: if false; }
+    match /measurement_screen_devices/{document=**} { allow read, write: if false; }
+    match /measurement_devices/{document=**} { allow read, write: if false; }
+    match /measurement_sessions/{document=**} { allow read, write: if false; }
+    match /measurement_pairings/{document=**} { allow read, write: if false; }
+    match /measurement_pairing_requests/{document=**} { allow read, write: if false; }
+    match /measurement_placement_keys/{document=**} { allow read, write: if false; }
+    match /campaign_placements/{document=**} { allow read, write: if false; }
+    match /measurement_usage/{document=**} { allow read, write: if false; }
+    match /measurement_salts/{document=**} { allow read, write: if false; }
+    match /measurement_buckets/{document=**} { allow read, write: if false; }
+    match /measurement_events/{document=**} { allow read, write: if false; }
+    match /measurement_guests/{document=**} { allow read, write: if false; }
+    match /measurement_responses/{document=**} { allow read, write: if false; }
+    match /measurement_receipts/{document=**} { allow read, write: if false; }
+    match /measurement_daily/{document=**} { allow read, write: if false; }
 
     // Polls Collection
     match /polls/{pollId} {

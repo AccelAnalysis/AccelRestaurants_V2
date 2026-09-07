@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { httpsCallable } from 'firebase/functions';
-import { auth, functions } from '../lib/firebase';
+import { auth, functions, db } from '../lib/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { usePlayerMeasurement, type MeasurementRuntime } from '../hooks/usePlayerMeasurement';
+import { MeasuredQR } from '../components/atoms/MeasuredQR';
 import { signInAnonymously } from 'firebase/auth';
 import { ScreenService } from '../services/screenService';
 import { SlideService } from '../services/slideService';
@@ -22,7 +25,7 @@ import { useConfigStore } from '../store/useConfigStore';
 
 
 // Helper component for rendering a single slide
-const SlideRenderer = ({ slide, isActive, screenId, orgId, adjustments }: { slide: Slide; isActive: boolean; screenId?: string; orgId?: string; adjustments?: ScreenAdjustments }) => {
+const SlideRenderer = ({ slide, isActive, screenId, orgId, adjustments, measurement, measurementActive }: { slide: Slide; isActive: boolean; screenId?: string; orgId?: string; adjustments?: ScreenAdjustments; measurement?: MeasurementRuntime; measurementActive?: boolean }) => {
   const scale = adjustments?.scale ?? 1.0;
   const offsetX = adjustments?.offsetX ?? 0;
   const offsetY = adjustments?.offsetY ?? 0;
@@ -57,7 +60,7 @@ const SlideRenderer = ({ slide, isActive, screenId, orgId, adjustments }: { slid
             position: 'relative'
           } : undefined}
         >
-          {slide.elements.map(tile => (
+          {slide.elements.filter(tile => tile.visible !== false).map(tile => (
             <div
               key={tile.id}
               style={{
@@ -66,10 +69,13 @@ const SlideRenderer = ({ slide, isActive, screenId, orgId, adjustments }: { slid
                 top: tile.position.y,
                 width: tile.size.width,
                 height: tile.size.height,
-                zIndex: tile.zIndex
+                zIndex: tile.zIndex,
+                opacity: tile.opacity ?? 1
               }}
             >
-              <TileContent tile={tile} screenId={screenId} orgId={orgId} />
+              {tile.type === 'qr_code' && ((tile.properties as InteractiveTileProperties).measurementCampaignId || ((tile.properties as InteractiveTileProperties).trackScan && (tile.properties as InteractiveTileProperties).qrSource !== 'calendar_event')) ? (
+                <MeasuredQR tile={tile} measurement={measurement} placement={measurement?.placements[slide.id + ':' + tile.id]} active={!!measurementActive} />
+              ) : <TileContent tile={tile} screenId={screenId} orgId={orgId} />}
             </div>
           ))}
         </div>
@@ -111,6 +117,10 @@ export const PlayerScreen = () => {
     let cancelled = false;
     const authenticatePlayer = async () => {
       try {
+        // Persistence hydrates asynchronously. Never replace an existing authorized
+        // identity just because currentUser is temporarily null during startup.
+        await auth.authStateReady();
+        if (cancelled) return;
         if (!auth.currentUser) {
           await signInAnonymously(auth);
         }
@@ -367,6 +377,20 @@ export const PlayerScreen = () => {
       activePlaylistEntries: filtered.map(f => f.entry)
     };
   }, [allSlides, playlistEntries, menus, currentTime, organization?.timezone, location]);
+
+  const hasMeasuredTiles = allSlides.some(slide => slide.elements.some(tile => tile.type === 'qr_code' && ((tile.properties as InteractiveTileProperties).trackScan || (tile.properties as InteractiveTileProperties).measurementCampaignId)));
+  const measurement = usePlayerMeasurement(screenId, playerAuthReady && hasMeasuredTiles, allSlides, screen?.locationId || '');
+
+  // Refresh actual slide revisions without requiring an unrelated screen save.
+  const liveSlideIds = JSON.stringify(normalizePlaylist(screen?.livePlaylist || []).map(entry => entry.slideId));
+  useEffect(() => {
+    const unsubscribes = (JSON.parse(liveSlideIds) as string[]).map(slideId => onSnapshot(doc(db, 'slides', slideId), snapshot => {
+      if (!snapshot.exists()) return;
+      const next = { ...snapshot.data(), id: snapshot.id } as Slide;
+      setAllSlides(current => current.map(slide => slide.id === next.id ? next : slide));
+    }, () => { /* Keep last known content; telemetry remains visibly delayed. */ }));
+    return () => unsubscribes.forEach(unsubscribe => unsubscribe());
+  }, [liveSlideIds]);
 
   // Check Deployment Duration Limit
   useEffect(() => {
@@ -745,6 +769,7 @@ export const PlayerScreen = () => {
       style={containerStyle}
     >
       <GlobalMediaPlane screen={screen} location={location} />
+      {hasMeasuredTiles && measurement.message && <div role="status" className="absolute bottom-2 left-2 z-[200] max-w-md rounded-lg bg-black/85 text-white p-2 text-xs pointer-events-none">{measurement.message}{measurement.pairingCode && <strong className="block text-lg tracking-widest mt-1">{measurement.pairingCode}</strong>}</div>}
       {activeSlides.map((slide, index) => {
         // Only render if in renderedIndices (current or transitioning)
         if (!renderedIndices.includes(index)) return null;
@@ -783,7 +808,9 @@ export const PlayerScreen = () => {
           >
             <SlideRenderer
               slide={slide}
-              isActive={true}
+              isActive={isCurrent}
+              measurement={measurement}
+              measurementActive={isCurrent && !showPromoOverlay && !activeTrigger && !isTimeLimitReached}
               screenId={screenId}
               orgId={screen?.orgId}
               adjustments={playlistEntries[index]?.screenAdjustments ?? screen?.screenAdjustments}
