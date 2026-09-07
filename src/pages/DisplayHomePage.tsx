@@ -87,8 +87,6 @@ export const DisplayHomePage = () => {
     };
   }, [navigate]);
 
-  const expiresInMinutes = expiresAt ? Math.max(1, Math.ceil((expiresAt - Date.now()) / 60_000)) : null;
-
   return (
     <div className="min-h-screen bg-black text-white flex items-center justify-center p-6">
       <main className="w-full max-w-2xl text-center">
@@ -115,7 +113,7 @@ export const DisplayHomePage = () => {
               <div className="text-left sm:text-center">
                 <div className="text-sm uppercase tracking-[0.2em] text-white/45 font-semibold">Activation code</div>
                 <div className="mt-2 font-mono text-6xl sm:text-7xl font-bold tracking-[0.12em] text-primary">{code}</div>
-                {expiresInMinutes && <div className="mt-3 text-sm text-white/45">Refreshes automatically after about {expiresInMinutes} min.</div>}
+                {expiresAt > 0 && <div className="mt-3 text-sm text-white/45">The code refreshes automatically if it expires.</div>}
               </div>
             </div>
 
