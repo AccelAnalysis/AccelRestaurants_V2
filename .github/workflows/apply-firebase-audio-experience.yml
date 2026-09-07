@@ -1,0 +1,53 @@
+name: Apply Firebase audio correction
+
+on:
+  push:
+    branches:
+      - recovery/local-v2
+    paths:
+      - .github/patches/apply_firebase_audio_experience.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply-validate-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply Firebase audio integration
+        run: python .github/patches/apply_firebase_audio_experience.py
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Frontend lint
+        run: npm run lint
+
+      - name: Frontend production build
+        run: npm run build
+
+      - name: Install Functions dependencies
+        run: npm ci
+        working-directory: functions
+
+      - name: Functions build
+        run: npm run build
+        working-directory: functions
+
+      - name: Functions tests
+        run: npm test -- --runInBand
+        working-directory: functions
+
+      - name: Commit validated Firebase audio integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/patches/apply_firebase_audio_experience.py .github/workflows/apply-firebase-audio-experience.yml
+          git add -A
+          git commit -m "feat: implement Firebase cinematic audio experience"
+          git push origin HEAD:recovery/local-v2
