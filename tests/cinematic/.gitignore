@@ -1,0 +1,3 @@
+# Generated from the canonical root rules before each emulator test run.
+/firestore.rules
+/*debug.log

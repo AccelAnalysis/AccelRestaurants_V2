@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "playwright test --config=playwright.config.mjs",
+    "pretest:rules": "node -e \"require('node:fs').copyFileSync('../../firestore.rules', 'firestore.rules')\"",
     "test:rules": "firebase emulators:exec --only firestore --project demo-cinematic --config firebase.json 'node --test rules.test.mjs'"
   },
   "devDependencies": {
