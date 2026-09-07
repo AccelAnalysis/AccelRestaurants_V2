@@ -28,9 +28,9 @@ if (firebaseProjectId && firebaseProjectId !== viteProjectId) {
   process.exit(1);
 }
 
-if (target === 'staging' && viteProjectId === productionProjectId) {
+if (target === 'staging' && viteProjectId !== productionProjectId) {
   console.error(
-    `Refusing staging/PR preview configuration that points at production Firebase project ${productionProjectId}.`,
+    `Refusing PR preview because VITE_FIREBASE_PROJECT_ID is not ${productionProjectId}.`,
   );
   process.exit(1);
 }
