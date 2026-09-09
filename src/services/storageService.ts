@@ -1,10 +1,10 @@
-import { 
-  ref, 
-  uploadBytesResumable, 
-  getDownloadURL, 
+import {
+  ref,
+  uploadBytesResumable,
+  getDownloadURL,
   listAll,
   deleteObject,
-  getMetadata
+  getMetadata,
 } from 'firebase/storage';
 import { storage } from '../lib/firebase';
 
@@ -18,57 +18,39 @@ export interface StorageFile {
 }
 
 export const StorageService = {
-  /**
-   * Upload a file to Firebase Storage
-   * @param file The file to upload
-   * @param path The path where the file should be stored (e.g., 'orgId/menus/')
-   * @returns Promise resolving to the download URL
-   */
-  uploadFile: async (file: File, path: string): Promise<string> => {
-    try {
-      const storageRef = ref(storage, `${path}${Date.now()}_${file.name}`);
-      const uploadTask = await uploadBytesResumable(storageRef, file);
-      return await getDownloadURL(uploadTask.ref);
-    } catch (error) {
+  uploadFile: (file: File, path: string, onProgress?: (percent: number) => void): Promise<string> => new Promise((resolve, reject) => {
+    const storageRef = ref(storage, `${path}${Date.now()}_${file.name}`);
+    const uploadTask = uploadBytesResumable(storageRef, file);
+    uploadTask.on('state_changed', snapshot => {
+      if (snapshot.totalBytes > 0) onProgress?.(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100));
+    }, error => {
       console.error('Storage upload failed:', error);
-      throw new Error('Failed to upload file.');
-    }
-  },
+      reject(new Error('Failed to upload file.'));
+    }, async () => {
+      try {
+        resolve(await getDownloadURL(uploadTask.snapshot.ref));
+      } catch (error) {
+        console.error('Storage download URL failed:', error);
+        reject(new Error('Failed to finish file upload.'));
+      }
+    });
+  }),
 
-  /**
-   * List all files in a specific directory
-   * @param path The directory path to list
-   * @returns Promise resolving to an array of StorageFile objects
-   */
   listFiles: async (path: string): Promise<StorageFile[]> => {
     try {
       const listRef = ref(storage, path);
       const res = await listAll(listRef);
-      
-      const filesPromises = res.items.map(async (itemRef) => {
+      const filesPromises = res.items.map(async itemRef => {
         try {
           const url = await getDownloadURL(itemRef);
           const metadata = await getMetadata(itemRef);
-          return {
-            name: itemRef.name,
-            url,
-            fullPath: itemRef.fullPath,
-            size: metadata.size,
-            contentType: metadata.contentType,
-            timeCreated: metadata.timeCreated
-          };
+          return { name: itemRef.name, url, fullPath: itemRef.fullPath, size: metadata.size, contentType: metadata.contentType, timeCreated: metadata.timeCreated };
         } catch (error: unknown) {
-          // Skip files that no longer exist (404 errors from stale references)
-          if (error && typeof error === 'object' && 'code' in error && error.code === 'storage/object-not-found') {
-            console.warn(`Skipping missing file: ${itemRef.fullPath}`);
-            return null;
-          }
+          if (error && typeof error === 'object' && 'code' in error && error.code === 'storage/object-not-found') return null;
           throw error;
         }
       });
-
       const results = await Promise.all(filesPromises);
-      // Filter out null entries (missing files)
       return results.filter((file): file is StorageFile => file !== null);
     } catch (error) {
       console.error('Storage list failed:', error);
@@ -76,22 +58,13 @@ export const StorageService = {
     }
   },
 
-  /**
-   * Delete a file from storage
-   * @param fullPath The full path of the file to delete
-   */
   deleteFile: async (fullPath: string): Promise<void> => {
     try {
-      const fileRef = ref(storage, fullPath);
-      await deleteObject(fileRef);
+      await deleteObject(ref(storage, fullPath));
     } catch (error: unknown) {
-      // If file doesn't exist, treat as success (already deleted)
-      if (error && typeof error === 'object' && 'code' in error && error.code === 'storage/object-not-found') {
-        console.warn(`File already deleted: ${fullPath}`);
-        return;
-      }
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'storage/object-not-found') return;
       console.error('Storage delete failed:', error);
       throw new Error('Failed to delete file.');
     }
-  }
+  },
 };

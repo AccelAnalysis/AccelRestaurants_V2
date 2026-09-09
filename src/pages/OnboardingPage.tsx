@@ -1,829 +1,138 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { useAuthStore } from '../store/useAuthStore';
-import { auth, db } from '../lib/firebase';
+import type { FormEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { doc, updateDoc } from 'firebase/firestore';
-import { BillingService } from '../services/billingService';
-import { PLAN_CONFIGS } from '../lib/plans';
-import type { PlanType, PlanLimits } from '../lib/plans';
+import { auth } from '../lib/firebase';
+import { saveSetupChanges } from '../services/onboardingService';
+import { useAuthStore } from '../store/useAuthStore';
+import { useConfigStore } from '../store/useConfigStore';
 import { RestaurantStarterWizard } from '../components/cinematic/RestaurantStarterWizard';
+import { AccessibleDialog } from '../components/atoms/AccessibleDialog';
 import { InlineFeedback } from '../components/atoms/InlineFeedback';
-import { 
-  CheckCircle2, 
-  ArrowRight, 
-  Loader2,
-  Check,
-  X
-} from 'lucide-react';
-import logo from '../assets/logo.png';
-
+import { PlansPanel } from '../components/journey/PlansPanel';
+import { BillingService } from '../services/billingService';
+import { RESTAURANT_TEMPLATES } from '../../functions/src/cinematic/templates';
+import { claimJourneyIntent, clearJourneyIntent, customerError, readJourneyIntent, sanitizeIntent, saveJourneyIntent, safeWebLink, safeWorkspaceDestination } from '../lib/customerJourney';
+import type { PlanName } from '../../functions/src/journey/catalog';
+import type { Organization } from '../types/schema';
+const fieldClass = 'block w-full mt-2 rounded-lg border border-surface-highlight bg-background min-h-11 px-3 py-3';
 export const OnboardingPage = () => {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const { user, organization, setOrganization } = useAuthStore();
-  
-  // State from navigation (e.g. started from landing page)
-  const [initialEmail, setInitialEmail] = useState<string>('');
-  const [initialPlan, setInitialPlan] = useState<PlanType | null>(null);
-  
-  useEffect(() => {
-    if (location.state?.email) setInitialEmail(location.state.email);
-    if (location.state?.plan) setInitialPlan(location.state.plan);
-  }, [location.state]);
-
-  // Step management
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
-  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate(), location = useLocation();
+  const { user, userProfile, organization } = useAuthStore();
+  const { generalConfig } = useConfigStore();
+  const params = new URLSearchParams(location.search);
+  const returnTo = safeWorkspaceDestination(params.get('redirect'));
+  const [intent, setIntent] = useState(() => {
+    const state = location.state || {};
+    return { ...readJourneyIntent(), ...sanitizeIntent({ ...state, templateId: state.templateId || state.selectedTemplate?.id || params.get('design') }) };
+  });
+  const [step, setStep] = useState(1), [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Step 1: User Signup State
-  const [signupData, setSignupData] = useState({
-    fullName: '',
-    email: '',
-    password: ''
-  });
-
+  const [showPlans, setShowPlans] = useState(false), [showDesigns, setShowDesigns] = useState(false);
+  const [name, setName] = useState(''), [email, setEmail] = useState(typeof location.state?.email === 'string' ? location.state.email : '');
+  const [password, setPassword] = useState(''), [terms, setTerms] = useState(false);
+  const [restaurant, setRestaurant] = useState('');
+  const [industry, setIndustry] = useState<NonNullable<Organization['industry']>>('Restaurant');
+  const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York');
+  const initialized = useRef<string | null>(null), submitting = useRef(false), finishing = useRef(false);
+  const heading = useRef<HTMLHeadingElement>(null), checkoutRequest = useRef(crypto.randomUUID());
+  const scope = user && organization ? `${user.uid}:${organization.id}` : 'visitor';
+  useEffect(() => { heading.current?.focus(); }, [step]);
   useEffect(() => {
-    if (initialEmail) setSignupData(prev => ({ ...prev, email: initialEmail }));
-  }, [initialEmail]);
-
-  // Step 1: Legal
-  const [agreedToTerms, setAgreedToTerms] = useState(false);
-
-  // Step 2: Org Details State
-  const [orgData, setOrgData] = useState({
-    name: '',
-    industry: 'Restaurant',
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-  });
-  
-  const [orgAddress, setOrgAddress] = useState({
-    street: '',
-    city: '',
-    state: '',
-    zipCode: '',
-    country: ''
-  });
-
-  // Step 3: Plan Selection State
-  const [billingAddress, setBillingAddress] = useState({
-    street: '',
-    city: '',
-    state: '',
-    zipCode: '',
-    country: ''
-  });
-  const [billingSameAsOrg, setBillingSameAsOrg] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState<PlanType>('Free');
-  const [screens, setScreens] = useState(1);
-  const [seats, setSeats] = useState(1);
-  const [showTemplateSelector, setShowTemplateSelector] = useState(false);
-
-  // Calculate costs dynamically
-  const calculateCost = useCallback((planName: PlanType, config: PlanLimits) => {
-    if (planName === 'Franchise') return { total: 0, breakdown: [], invalid: null };
-    
-    let total = config.price;
-    const breakdown = [{ label: `Base Plan (${planName})`, price: config.price }];
-
-    // Add-ons
-    if (config.addOns) {
-      // Screens
-      const includedScreens = config.screens === -1 ? 9999 : config.screens;
-      const extraScreens = Math.max(0, screens - includedScreens);
-      
-      if (extraScreens > 0 && config.addOns.screen) {
-        // Check hard cap
-        if (config.maxScreens && screens > config.maxScreens) {
-          return { total: -1, breakdown: [], invalid: 'Too many screens for this plan' };
-        }
-        const screenCost = extraScreens * config.addOns.screen;
-        total += screenCost;
-        breakdown.push({ label: `${extraScreens} Extra Screen${extraScreens > 1 ? 's' : ''}`, price: screenCost });
-      } else if (config.maxScreens && screens > config.maxScreens) {
-         return { total: -1, breakdown: [], invalid: 'Too many screens for this plan' };
-      }
-
-      // Seats
-      const includedSeats = config.seats === -1 ? 9999 : config.seats;
-      const extraSeats = Math.max(0, seats - includedSeats);
-      
-      if (extraSeats > 0 && config.addOns.seat) {
-        if (config.maxSeats && seats > config.maxSeats) {
-             return { total: -1, breakdown: [], invalid: 'Too many seats for this plan' };
-        }
-        const seatCost = extraSeats * config.addOns.seat;
-        total += seatCost;
-        breakdown.push({ label: `${extraSeats} Extra Seat${extraSeats > 1 ? 's' : ''}`, price: seatCost });
-      }
-    } else {
-        // Free plan logic - strictly limited
-        if ((config.screens !== -1 && screens > config.screens) || (config.seats !== -1 && seats > config.seats)) {
-             return { total: -1, breakdown: [], invalid: 'Exceeds plan limits' };
-        }
-    }
-
-    return { total, breakdown, invalid: null };
-  }, [screens, seats]);
-
-  const recommendedPlan = useMemo(() => {
-    if (screens > 25) return 'Franchise';
-    if (screens > 7 || seats > 2) return 'Enterprise';
-    
-    const growthCost = calculateCost('Growth', PLAN_CONFIGS['Growth']).total;
-    const enterpriseCost = calculateCost('Enterprise', PLAN_CONFIGS['Enterprise']).total;
-    
-    if (growthCost > -1 && enterpriseCost > -1 && enterpriseCost < growthCost) return 'Enterprise';
-    if (screens > 1 || seats > 1) return 'Growth';
-    
-    const basicCost = calculateCost('Basic', PLAN_CONFIGS['Basic']).total;
-    if (basicCost > -1 && growthCost > -1 && growthCost < basicCost) return 'Growth';
-    
-    if (screens > 1 || seats > 1) return 'Basic';
-
-    return 'Free';
-  }, [screens, seats, calculateCost]);
-
-  useEffect(() => {
-    if (initialPlan) setSelectedPlan(initialPlan);
-    if (location.state?.screens) setScreens(location.state.screens);
-    if (location.state?.seats) setSeats(location.state.seats);
-  }, [initialPlan, location.state]);
-
-  useEffect(() => {
-    if (billingSameAsOrg) {
-        setBillingAddress(orgAddress);
-    }
-  }, [billingSameAsOrg, orgAddress]);
-
-  const headingRef = useRef<HTMLDivElement>(null);
-  const initializedAccount = useRef<string | null>(null);
-  const completingSetup = useRef(false);
-  // Initialize a returning account once. A profile refresh must not undo progress.
-  useEffect(() => {
-    if (!user) { initializedAccount.current = null; setStep(1); return; }
-    if (organization?.isSetupComplete && !completingSetup.current) { navigate('/admin'); return; }
-    if (!organization || initializedAccount.current === user.uid) return;
-    initializedAccount.current = user.uid;
-    setOrgData({ name: organization.name || '', industry: organization.industry || 'Restaurant', timezone: organization.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone });
-    if (organization.address) setOrgAddress({ street: '', city: '', state: '', zipCode: '', country: '', ...organization.address });
-    // The return URL chooses a UI step only. Billing access comes from the trusted organization.
-    setStep(organization.industry ? (new URLSearchParams(location.search).get('content') === '1' ? 4 : 3) : 2);
-    setLoading(false);
-  }, [user, organization, navigate, location.search]);
-  useEffect(() => { headingRef.current?.focus(); }, [step]);
-
-  // Handlers
-  const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (loading) return;
-    if (!agreedToTerms) {
-        setError('You must agree to the Terms of Service and Privacy Policy.');
-        return;
-    }
-    setLoading(true);
-    setError(null);
+    if (!user || !organization) return;
+    const key = `${user.uid}:${organization.id}`;
+    if (initialized.current === key) return;
+    const firstAccount = initialized.current === null;
+    initialized.current = key;
+    const saved = claimJourneyIntent(key);
+    setIntent(current => saveJourneyIntent(firstAccount ? { ...saved, ...current } : saved, key));
+    setRestaurant(organization.name || ''); setIndustry(organization.industry || 'Restaurant');
+    setTimezone(organization.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York');
+    const query = new URLSearchParams(location.search);
+    const destination = safeWorkspaceDestination(query.get('redirect'));
+    if (destination && (organization.industry || organization.isSetupComplete)) { navigate(destination, { replace: true }); return; }
+    const requested = query.has('design') || query.has('content') || query.has('canceled') || saved.templateId || intent.templateId || intent.plan;
+    if (userProfile?.platformRole === 'designer') { navigate('/designer', { replace: true }); return; }
+    if (userProfile?.platformRole === 'admin' && organization.isSetupComplete && !requested) { navigate('/super-admin', { replace: true }); return; }
+    if (organization.isSetupComplete && !requested && !finishing.current) { navigate('/admin', { replace: true }); return; }
+    setStep(organization.industry ? 3 : 2); setBusy(false);
+  }, [user, organization, userProfile, location.search, navigate, intent.templateId, intent.plan]);
+  const signup = async (event: FormEvent) => {
+    event.preventDefault();
+    if (submitting.current || generalConfig.featureFlags?.publicSignupEnabled === false) return;
+    if (!terms) { setError('Please agree to the terms and privacy policy to create your account.'); return; }
+    submitting.current = true; setBusy(true); setError(null); saveJourneyIntent(intent);
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, signupData.email, signupData.password);
-      await updateProfile(userCredential.user, { displayName: signupData.fullName });
-      // Auth listener will kick in and create default org if needed
-      // We wait for the effect to move us to Step 2
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to create account';
-      setError(message);
-      setLoading(false);
-    }
+      const result = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      await updateProfile(result.user, { displayName: name.trim() }); setPassword('');
+    } catch (e) { setError(customerError(e, 'We could not create your account. Check your details and try again.')); }
+    finally { submitting.current = false; setBusy(false); }
   };
-
-  const handleOrgSetup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (loading) return;
-    setLoading(true);
-    setError(null);
-    
+  const saveRestaurant = async (event: FormEvent) => {
+    event.preventDefault(); if (!organization || !user || submitting.current) return;
+    if (!restaurant.trim()) { setError('Enter your restaurant name.'); return; }
+    try { new Intl.DateTimeFormat('en-US', { timeZone: timezone }); } catch { setError('Choose a valid time zone.'); return; }
+    submitting.current = true; setBusy(true); setError(null);
     try {
-      if (!user) throw new Error('No authenticated user');
-      
-      const orgId = organization?.id;
-      if (!orgId) {
-         // Should have been created by auth listener, but if not:
-         throw new Error('Organization not initialized. Please refresh.');
-      }
-
-      const industryType = orgData.industry as 'Restaurant' | 'Bar' | 'Cafe' | 'Food Truck' | 'Other';
-
-      const orgRef = doc(db, 'organizations', orgId);
-      await updateDoc(orgRef, {
-        name: orgData.name,
-        industry: industryType,
-        timezone: orgData.timezone,
-        address: orgAddress,
-        // We don't mark isSetupComplete yet until plan is chosen
-      });
-
-      // Update local store optimization
-      if (organization) {
-        setOrganization({
-            ...organization,
-            name: orgData.name,
-            industry: industryType,
-            timezone: orgData.timezone,
-            address: orgAddress
-        });
-      }
-
-      setStep(3);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to save organization details';
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
+      if (!await saveSetupChanges(organization.id, user.uid, { name: restaurant.trim(), industry, timezone })) return;
+      if (returnTo) navigate(returnTo, { replace: true }); else setStep(3);
+    } catch (e) { setError(customerError(e, 'We could not save your restaurant details. Your changes are still here. Try again.')); }
+    finally { submitting.current = false; setBusy(false); }
   };
-
-  const handlePlanSelection = async () => {
-    if (loading) return;
-    if (selectedPlan === 'Franchise') { navigate('/#contact'); return; }
-    const selection = calculateCost(selectedPlan, PLAN_CONFIGS[selectedPlan]);
-    if (selection.invalid) { setError(selection.invalid + '. Choose a suitable plan or reduce the quantities.'); return; }
-    setLoading(true);
-    setError(null);
-
+  const choosePlan = async (plan: PlanName, screens: number, seats: number) => {
+    if (submitting.current || !organization) return;
+    const next = saveJourneyIntent({ ...intent, plan, screens, seats }, scope); setIntent(next);
+    if (plan === 'Free') { setShowPlans(false); return; }
+    submitting.current = true; setBusy(true); setError(null);
     try {
-        if (!organization?.id) throw new Error('Organization not found');
-
-        // Save billing address first
-        const orgRef = doc(db, 'organizations', organization.id);
-        await updateDoc(orgRef, {
-            billingAddress: billingAddress
-        });
-
-        // If Free plan, don't finish yet, go to Step 4
-        if (selectedPlan === 'Free') {
-            // Backend provisioning already supplies Free. Never self-write plan/usage fields.
-            setStep(4); // Move to content step
-            setLoading(false);
-            return;
-        }
-
-        // Paid plan logic
-        // 1. Calculate costs to verify
-        // 2. Create Stripe Checkout Session
-        const config = PLAN_CONFIGS[selectedPlan];
-        const priceId = config.stripePriceId;
-        
-        if (!priceId) {
-            throw new Error('Price ID not found for selected plan');
-        }
-        
-        // Calculate Add-ons
-        const extraScreens = Math.max(0, screens - (config.screens === -1 ? 9999 : config.screens));
-        const extraSeats = Math.max(0, seats - (config.seats === -1 ? 9999 : config.seats));
-
-        const addOns: { screen?: number; seat?: number; screenPriceId?: string; seatPriceId?: string } = {};
-        
-        if (extraScreens > 0 && config.addOns?.screenPriceId) {
-            addOns.screen = extraScreens;
-            addOns.screenPriceId = config.addOns.screenPriceId;
-        }
-        
-        if (extraSeats > 0 && config.addOns?.seatPriceId) {
-            addOns.seat = extraSeats;
-            addOns.seatPriceId = config.addOns.seatPriceId;
-        }
-
-        const checkoutUrl = await BillingService.createCheckoutSession(
-            priceId,
-            `${window.location.origin}/onboarding?content=1`,
-            `${window.location.origin}/onboarding?canceled=true`,
-            addOns
-        );
-
-        // Redirect to Stripe
-        window.location.href = checkoutUrl;
-
-    } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to process plan selection';
-        setError(message);
-        setLoading(false);
-    }
+      if (organization.subscriptionId) window.location.assign(await BillingService.createPortalSession(`${window.location.origin}/onboarding?content=1`));
+      else window.location.assign(await BillingService.createPlanCheckout(organization.id, plan, screens, seats, 'setup', checkoutRequest.current));
+    } catch (e) { setError(customerError(e, 'Payment options could not be opened. No payment was confirmed here. Try again or continue with your current plan.')); }
+    finally { submitting.current = false; setBusy(false); }
   };
-
-  const finishOnboarding = async (destination = '/admin') => {
-    if (loading || !organization?.id) return false;
-    completingSetup.current = true;
-    setLoading(true); setError(null);
+  const finish = async (destination: string) => {
+    if (!organization || !user || submitting.current) return;
+    submitting.current = true; finishing.current = true; setBusy(true); setError(null);
     try {
-      await updateDoc(doc(db, 'organizations', organization.id), { isSetupComplete: true });
+      // Profile completion is not a claim that a physical screen is playing.
+      if (!await saveSetupChanges(organization.id, user.uid, { isSetupComplete: true })) return;
+      clearJourneyIntent(scope);
       navigate(destination);
-      return true;
-    } catch {
-      completingSetup.current = false;
-      setError('Could not finish setup. Your choices are still here. Try again.');
-      return false;
-    } finally { setLoading(false); }
+    } catch (e) { finishing.current = false; setError(customerError(e, 'Your choices are saved, but we could not finish this step. Try again.')); throw e; }
+    finally { submitting.current = false; setBusy(false); }
   };
-  const handleContentSetup = async (option: 'template' | 'scratch' | 'designer') => {
-    if (loading) return;
-    if (option === 'template') { setShowTemplateSelector(true); return; }
-    await finishOnboarding(option === 'designer' ? '/admin/designers' : '/admin');
-  };
-
-  // Render Steps
-  return (
-    <div className="min-h-screen bg-transparent text-text flex flex-col bg-speed-pattern">
-      {/* Simple Header */}
-      <header className="glass border-b-0 flex flex-wrap gap-4 items-center p-4 sm:px-8">
-        <div className="flex items-center gap-2">
-          <img src={logo} alt="AccelRestaurants" className="h-6 w-auto object-contain" />
-          <span className="text-xl font-bold text-primary">AccelRestaurants</span>
-        </div>
-        <nav aria-label="Setup progress" className="text-sm w-full md:w-auto md:ml-auto">
-          <p className="mb-2">Step {step} of 4</p>
-          <ol className="flex flex-wrap gap-x-4 gap-y-2">
-            {['Account','Organization','Plan','Content'].map((label, index) => <li key={label} aria-current={step === index + 1 ? 'step' : undefined} className={step === index + 1 ? 'font-bold text-primary' : 'text-text-secondary'}>{index + 1}. {label}</li>)}
-          </ol>
-        </nav>
-      </header>
-
-      <main className="flex-1 flex items-center justify-center p-4">
-        <div ref={headingRef} tabIndex={-1} aria-label={`Setup step ${step}`} className={`w-full transition-all duration-300 ${step >= 3 ? 'max-w-7xl' : 'max-w-2xl'}`}>
-            <InlineFeedback message={error} tone="error" />
-            <InlineFeedback message={loading ? 'Saving your choices…' : null} />
-            {new URLSearchParams(location.search).has('canceled') && <InlineFeedback message="Checkout was cancelled. You can choose a plan again." />}
-            {showTemplateSelector && organization && user && <RestaurantStarterWizard
-              key={`${organization.id}:${user.uid}`} orgId={organization.id} userId={user.uid}
-              plan={organization.plan} brandName={organization.name} firstScreen
-              onClose={() => setShowTemplateSelector(false)}
-              onComplete={async result => {
-                const finished = await finishOnboarding(result.screenId ? `/admin/screens/${result.screenId}` : `/admin/slides/${result.slideId}`);
-                if (!finished) throw new Error('Your design was created, but the setup profile could not be updated. Open the existing design below; do not create another.');
-                setShowTemplateSelector(false);
-              }} />}
-            {step === 1 && (
-                <div className="glass-panel p-4 sm:p-8 border-surface-highlight shadow-xl animate-in fade-in slide-in-from-bottom-4">
-                    <h2 className="text-2xl font-bold mb-6">Create your account</h2>
-                    <form onSubmit={handleSignup} className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-bold text-text-muted mb-1">Full Name</label>
-                            <input autoComplete="name" aria-label={"Full Name"}
-                                type="text"
-                                required 
-                                className="w-full bg-surface/50 border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
-                                value={signupData.fullName}
-                                onChange={e => setSignupData({...signupData, fullName: e.target.value})}
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-bold text-text-muted mb-1">Email</label>
-                            <input autoComplete="email" aria-label={"Email"}
-                                type="email"
-                                required 
-                                className="w-full bg-surface/50 border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
-                                value={signupData.email}
-                                onChange={e => setSignupData({...signupData, email: e.target.value})}
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-bold text-text-muted mb-1">Password</label>
-                            <input autoComplete="new-password" aria-label={"Password"}
-                                type="password"
-                                required 
-                                minLength={6}
-                                className="w-full bg-surface/50 border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
-                                value={signupData.password}
-                                onChange={e => setSignupData({...signupData, password: e.target.value})}
-                            />
-                        </div>
-                        
-
-
-                        <div className="flex items-start gap-2">
-                            <input 
-                                type="checkbox"
-                                id="terms"
-                                checked={agreedToTerms}
-                                onChange={(e) => setAgreedToTerms(e.target.checked)}
-                                className="mt-1 accent-primary"
-                            />
-                            <label htmlFor="terms" className="text-sm text-text-muted">
-                                I agree to the <Link to="/terms" target="_blank" className="text-primary hover:underline">Terms of Service</Link> and <Link to="/privacy" target="_blank" className="text-primary hover:underline">Privacy Policy</Link>.
-                            </label>
-                        </div>
-
-                        <button 
-                            type="submit" 
-                            disabled={loading || !agreedToTerms}
-                            className="w-full bg-primary hover:bg-primary-hover text-white font-bold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
-                        >
-                            {loading ? <Loader2 className="animate-spin" /> : 'Create Account'} <ArrowRight size={20} />
-                        </button>
-                    </form>
-                    <div className="mt-4 text-center text-sm">
-                        Already have an account? <a href="/login" className="text-primary hover:underline">Log in</a>
-                    </div>
-                </div>
-            )}
-
-            {step === 2 && (
-                <div className="glass-panel p-4 sm:p-8 border-surface-highlight shadow-xl animate-in fade-in slide-in-from-bottom-4">
-                    <h2 className="text-2xl font-bold mb-6">Tell us about your business</h2>
-                    <form onSubmit={handleOrgSetup} className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-bold text-text-muted mb-1">Organization Name</label>
-                            <input aria-label={"Organization Name"}
-                                type="text"
-                                required 
-                                placeholder="e.g. Joe's Burgers"
-                                className="w-full bg-surface/50 border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
-                                value={orgData.name}
-                                onChange={e => setOrgData({...orgData, name: e.target.value})}
-                            />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-sm font-bold text-text-muted mb-1">Industry</label>
-                                <select aria-label={"Industry"}
-                                    className="w-full bg-surface/50 border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
-                                    value={orgData.industry}
-                                    onChange={e => setOrgData({...orgData, industry: e.target.value})}
-                                >
-                                    <option value="Restaurant">Restaurant</option>
-                                    <option value="Bar">Bar</option>
-                                    <option value="Cafe">Cafe</option>
-                                    <option value="Food Truck">Food Truck</option>
-                                    <option value="Other">Other</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-text-muted mb-1">Timezone</label>
-                                <input aria-label={"Timezone"}
-                                    type="text"
-                                    readOnly // Simplification for now, or use a select
-                                    className="w-full bg-background border border-surface-highlight rounded px-4 py-3 text-text-muted cursor-not-allowed"
-                                    value={orgData.timezone}
-                                />
-                            </div>
-                        </div>
-                        <div className="space-y-4 pt-4 border-t border-surface-highlight">
-                            <h3 className="font-bold text-lg">Organization Address</h3>
-                            <div>
-                                <label className="block text-sm font-bold text-text-muted mb-1">Street Address</label>
-                                <input aria-label={"Street Address"}
-                                    type="text"
-                                    required 
-                                    className="w-full bg-background border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
-                                    value={orgAddress.street}
-                                    onChange={e => setOrgAddress({...orgAddress, street: e.target.value})}
-                                />
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-bold text-text-muted mb-1">City</label>
-                                    <input aria-label={"City"}
-                                        type="text"
-                                        required 
-                                        className="w-full bg-background border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
-                                        value={orgAddress.city}
-                                        onChange={e => setOrgAddress({...orgAddress, city: e.target.value})}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-bold text-text-muted mb-1">State/Province</label>
-                                    <input aria-label={"State/Province"}
-                                        type="text"
-                                        required 
-                                        className="w-full bg-background border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
-                                        value={orgAddress.state}
-                                        onChange={e => setOrgAddress({...orgAddress, state: e.target.value})}
-                                    />
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-bold text-text-muted mb-1">Zip/Postal Code</label>
-                                    <input aria-label={"Zip/Postal Code"}
-                                        type="text"
-                                        required 
-                                        className="w-full bg-background border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
-                                        value={orgAddress.zipCode}
-                                        onChange={e => setOrgAddress({...orgAddress, zipCode: e.target.value})}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-bold text-text-muted mb-1">Country</label>
-                                    <input aria-label={"Country"}
-                                        type="text"
-                                        required 
-                                        className="w-full bg-background border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
-                                        value={orgAddress.country}
-                                        onChange={e => setOrgAddress({...orgAddress, country: e.target.value})}
-                                    />
-                                </div>
-                            </div>
-                        </div>
-
-
-
-                        <button 
-                            type="submit" 
-                            disabled={loading}
-                            className="w-full bg-primary hover:bg-primary-hover text-white font-bold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
-                        >
-                            {loading ? <Loader2 className="animate-spin" /> : 'Continue'} <ArrowRight size={20} />
-                        </button>
-                    </form>
-                </div>
-            )}
-
-            {step === 3 && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-                    <div className="text-center">
-                        <h2 className="text-3xl font-bold mb-2">Choose your plan</h2>
-                        <p className="text-text-muted">Start free or upgrade for more power. Change anytime.</p>
-                    </div>
-
-                    {/* Reusing logic from PricingPage but embedded here for flow control */}
-                    {/* We can just create a simplified view here or import components if we refactored PricingPage */}
-                    {/* For now, let's implement a concise selector */}
-                    
-                    <div className="bg-surface p-6 rounded-xl border border-surface-highlight mb-6">
-                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-                            <div>
-                                <label className="block font-bold mb-2">How many screens?</label>
-                                <div className="flex items-center gap-4">
-                                    <input aria-label={"Number of screens"}
-                                        type="range" min="1" max="50" 
-                                        value={screens} onChange={e => setScreens(parseInt(e.target.value))}
-                                        className="flex-1 accent-primary"
-                                    />
-                                    <span className="text-2xl font-bold text-primary w-12 text-center">{screens}</span>
-                                </div>
-                            </div>
-                            <div>
-                                <label className="block font-bold mb-2">How many team members?</label>
-                                <div className="flex items-center gap-4">
-                                    <input aria-label={"Number of team members"}
-                                        type="range" min="1" max="20" 
-                                        value={seats} onChange={e => setSeats(parseInt(e.target.value))}
-                                        className="flex-1 accent-primary"
-                                    />
-                                    <span className="text-2xl font-bold text-primary w-12 text-center">{seats}</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                            {(Object.keys(PLAN_CONFIGS) as PlanType[]).map((planName) => {
-                                const config = PLAN_CONFIGS[planName];
-                                const costData = calculateCost(planName, config);
-                                const isRecommended = recommendedPlan === planName;
-                                const isSelected = selectedPlan === planName;
-                                const isInvalid = Boolean(costData.invalid);
-
-                                return (
-                                    <div 
-                                        key={planName} 
-                                        className={`relative flex flex-col p-6 rounded-2xl border transition-all duration-300 ${
-                                            isRecommended 
-                                              ? 'border-primary bg-surface shadow-2xl scale-105 z-10' 
-                                              : isInvalid
-                                                ? 'border-surface-highlight bg-surface/30 opacity-50 cursor-not-allowed'
-                                                : isSelected
-                                                  ? 'border-primary bg-primary/10 cursor-pointer'
-                                                  : 'border-surface-highlight bg-surface hover:border-primary/50 cursor-pointer'
-                                        }`}
-                                    >
-                                        {isRecommended && (
-                                            <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-primary text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wide">
-                                                Best Value
-                                            </div>
-                                        )}
-                                        
-                                        <div className="mb-6">
-                                            <div className="flex justify-between items-start mb-2">
-                                                <h3 className="text-xl font-bold">{planName}</h3>
-                                                {isSelected && !isInvalid && <CheckCircle2 className="text-primary w-5 h-5" />}
-                                            </div>
-                                            <div className="flex items-baseline gap-1">
-                                                <span className="text-3xl font-bold">
-                                                    {planName === 'Franchise' ? 'Custom' : `$${costData.invalid ? config.price : costData.total}`}
-                                                </span>
-                                                {planName !== 'Franchise' && <span className="text-text-muted">/mo</span>}
-                                            </div>
-                                            <p className="text-sm text-text-muted mt-2 min-h-[40px]">{config.description}</p>
-                                        </div>
-
-                                        {/* Dynamic Cost Breakdown if relevant */}
-                                        {!isInvalid && costData.breakdown.length > 1 && (
-                                            <div className="mb-4 text-xs bg-background p-2 rounded border border-surface-highlight">
-                                                {costData.breakdown.map((item, i) => (
-                                                    <div key={i} className="flex justify-between mb-1 last:mb-0">
-                                                        <span className="text-text-muted">{item.label}</span>
-                                                        <span>+${item.price}</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-
-                                        <div className="flex-1 space-y-4 mb-8">
-                                            <FeatureItem check={true}>
-                                                <strong>{config.screens === -1 ? 'Unlimited' : config.screens}</strong> Screen{config.screens !== 1 ? 's' : ''} Included
-                                            </FeatureItem>
-                                            <FeatureItem check={true}>
-                                                <strong>{config.seats === -1 ? 'Unlimited' : config.seats}</strong> Seat{config.seats !== 1 ? 's' : ''} Included
-                                            </FeatureItem>
-                                            <FeatureItem check={true}>
-                                                {config.deploymentDurationLimit ? '5-min Deployment Limit' : 'Unlimited Deployment'}
-                                            </FeatureItem>
-                                            <FeatureItem check={true}>
-                                                {config.allowedTiles.length < 15 ? 'Basic Tiles Only' : config.allowedTiles.length < 35 ? 'Advanced Tiles' : 'All Tiles'}
-                                            </FeatureItem>
-                                            {/* Add-on info */}
-                                            {config.addOns && (
-                                                <div className="mt-4 pt-4 border-t border-surface-highlight">
-                                                    <p className="text-xs font-bold text-text-muted uppercase mb-2">Add-ons Available</p>
-                                                    {config.addOns.screen && (
-                                                        <FeatureItem check={true} small>+${config.addOns.screen}/mo per extra screen</FeatureItem>
-                                                    )}
-                                                    {config.addOns.seat && (
-                                                        <FeatureItem check={true} small>+${config.addOns.seat}/mo per extra seat</FeatureItem>
-                                                    )}
-                                                </div>
-                                            )}
-                                            {isInvalid && (
-                                                <div className="mt-4 p-2 bg-red-900/20 text-red-400 text-xs rounded border border-red-900/50">
-                                                    {costData.invalid}
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        <button 
-                                            onClick={() => {
-                                                if (!isInvalid) {
-                                                    setSelectedPlan(planName);
-                                                                                        }
-                                            }}
-                                            disabled={isInvalid || loading} aria-pressed={isSelected} aria-label={`Select ${planName} plan`}
-                                            className={`w-full py-3 rounded-lg font-bold transition-colors ${
-                                                isRecommended 
-                                                    ? 'bg-primary hover:bg-primary-hover text-white' 
-                                                    : isInvalid
-                                                        ? 'bg-surface-highlight cursor-not-allowed text-text-muted'
-                                                        : 'bg-surface-highlight hover:bg-surface-highlight/80 text-white'
-                                            }`}
-                                        >
-                                            {planName === 'Franchise' ? 'Contact Sales' : 'Select Plan'}
-                                        </button>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-
-                    {selectedPlan !== 'Free' && selectedPlan !== 'Franchise' && (
-                        <div className="bg-surface p-6 rounded-xl border border-surface-highlight mb-6 animate-in fade-in slide-in-from-bottom-4">
-                            <div className="flex justify-between items-center mb-4">
-                                <h3 className="font-bold text-lg">Billing Address</h3>
-                                <div className="flex items-center gap-2">
-                                    <input 
-                                        type="checkbox"
-                                        id="billingSameAsOrg"
-                                        checked={billingSameAsOrg}
-                                        onChange={(e) => setBillingSameAsOrg(e.target.checked)}
-                                        className="accent-primary"
-                                    />
-                                    <label htmlFor="billingSameAsOrg" className="text-sm text-text-muted">Same as Organization</label>
-                                </div>
-                            </div>
-
-                            {!billingSameAsOrg && (
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-bold text-text-muted mb-1">Street Address</label>
-                                        <input aria-label={"Street Address"}
-                                            type="text"
-                                            className="w-full bg-background border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
-                                            value={billingAddress.street}
-                                            onChange={e => setBillingAddress({...billingAddress, street: e.target.value})}
-                                        />
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-sm font-bold text-text-muted mb-1">City</label>
-                                            <input aria-label={"City"}
-                                                type="text"
-                                                className="w-full bg-background border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
-                                                value={billingAddress.city}
-                                                onChange={e => setBillingAddress({...billingAddress, city: e.target.value})}
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-bold text-text-muted mb-1">State/Province</label>
-                                            <input aria-label={"State/Province"}
-                                                type="text"
-                                                className="w-full bg-background border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
-                                                value={billingAddress.state}
-                                                onChange={e => setBillingAddress({...billingAddress, state: e.target.value})}
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-sm font-bold text-text-muted mb-1">Zip/Postal Code</label>
-                                            <input aria-label={"Zip/Postal Code"}
-                                                type="text"
-                                                className="w-full bg-background border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
-                                                value={billingAddress.zipCode}
-                                                onChange={e => setBillingAddress({...billingAddress, zipCode: e.target.value})}
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-bold text-text-muted mb-1">Country</label>
-                                            <input aria-label={"Country"}
-                                                type="text"
-                                                className="w-full bg-background border border-surface-highlight rounded px-4 py-3 focus:border-primary focus:outline-none"
-                                                value={billingAddress.country}
-                                                onChange={e => setBillingAddress({...billingAddress, country: e.target.value})}
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    <div className="flex flex-wrap justify-between gap-4">
-                         <button type="button" className="ui-button ui-button-secondary" disabled={loading} onClick={() => { setError(null); setStep(2); }}>Back to organization</button>
-                         <button 
-                            onClick={() => handlePlanSelection()}
-                            disabled={loading || Boolean(calculateCost(selectedPlan, PLAN_CONFIGS[selectedPlan]).invalid)}
-                            className="bg-primary hover:bg-primary-hover text-white font-bold py-3 px-8 rounded-lg transition-colors flex items-center justify-center gap-2"
-                        >
-                            {loading ? <Loader2 className="animate-spin" /> : (selectedPlan === 'Free' ? 'Start for Free' : selectedPlan === 'Franchise' ? 'Contact sales' : 'Continue to secure checkout')} <ArrowRight size={20} />
-                        </button>
-                    </div>
-
-                </div>
-            )}
-
-            {step === 4 && (
-                <div className="glass-panel p-4 sm:p-8 border-surface-highlight shadow-xl animate-in fade-in slide-in-from-bottom-4 max-w-4xl w-full">
-                    <div className="text-center mb-8">
-                        <h2 className="text-3xl font-bold mb-2">How do you want to start?</h2>
-                        <p className="text-text-muted">Choose how you want to create your first digital signage content.</p>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <button type="button" disabled={loading}
-                            onClick={() => handleContentSetup('template')}
-                            className="bg-surface border border-surface-highlight rounded-xl p-6 hover:border-primary/50 hover:bg-surface-highlight/10 transition-all cursor-pointer group text-center flex flex-col items-center"
-                        >
-                            <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-500"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><path d="M9 21V9"/></svg>
-                            </div>
-                            <h3 className="text-xl font-bold mb-2">Use a Template</h3>
-                            <p className="text-sm text-text-muted">Start with a professionally designed template and customize it.</p>
-                        </button>
-
-                        <button type="button" disabled={loading}
-                            onClick={() => handleContentSetup('scratch')}
-                            className="bg-surface border border-surface-highlight rounded-xl p-6 hover:border-primary/50 hover:bg-surface-highlight/10 transition-all cursor-pointer group text-center flex flex-col items-center"
-                        >
-                            <div className="w-16 h-16 bg-purple-500/10 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-purple-500"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
-                            </div>
-                            <h3 className="text-xl font-bold mb-2">Start from Scratch</h3>
-                            <p className="text-sm text-text-muted">Build your content from the ground up with our editor.</p>
-                        </button>
-
-                        <button type="button" disabled={loading}
-                            onClick={() => handleContentSetup('designer')}
-                            className="bg-surface border border-surface-highlight rounded-xl p-6 hover:border-primary/50 hover:bg-surface-highlight/10 transition-all cursor-pointer group text-center flex flex-col items-center"
-                        >
-                            <div className="w-16 h-16 bg-orange-500/10 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-orange-500"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M9 3v4"/><path d="M3 5h4"/><path d="M3 9h4"/></svg>
-                            </div>
-                            <h3 className="text-xl font-bold mb-2">Hire a Designer</h3>
-                            <p className="text-sm text-text-muted">Connect with a verified designer to create custom content.</p>
-                        </button>
-                    </div>
-                </div>
-            )}
-        </div>
-      </main>
-    </div>
-  );
+  const selectedDesign = RESTAURANT_TEMPLATES.find(t => t.id === intent.templateId);
+  const timezones = Array.from(new Set([timezone, 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Phoenix', 'Pacific/Honolulu', 'Europe/London', 'UTC']));
+  return <div className="min-h-screen bg-transparent bg-speed-pattern text-text">
+    <a className="skip-link" href="#setup-main">Skip to content</a>
+    <header className="border-b border-surface-highlight p-4 sm:px-8 flex flex-wrap justify-between gap-4"><Link to="/restaurants" className="font-semibold text-xl min-h-11 inline-flex items-center">AccelRestaurants</Link><nav aria-label="Setup progress"><p className="text-sm mb-2">Step {step} of 4</p><ol className="flex flex-wrap gap-4 text-sm">{['Account', 'Restaurant', 'Design', 'Connect'].map((label, i) => <li key={label} aria-current={step === i + 1 ? 'step' : undefined} className={step === i + 1 ? 'font-semibold' : 'text-text-secondary'}>{i + 1}. {label}</li>)}</ol></nav></header>
+    <main id="setup-main" className="max-w-3xl mx-auto p-4 sm:p-8 py-10">
+      <InlineFeedback message={error} tone="error" /><InlineFeedback message={busy ? 'Saving your choices…' : null} />
+      {params.has('canceled') && <InlineFeedback message="Checkout was canceled. Your design choices are still here. You can continue with your current plan." />}
+      {params.has('content') && <InlineFeedback message="Welcome back. Your available features update when your payment is confirmed. You can continue designing while this finishes." />}
+      {!user ? <section className="rounded-xl border border-surface-highlight bg-surface p-5 sm:p-8">
+        <h1 ref={heading} tabIndex={-1} className="text-3xl font-semibold">Create your account</h1><p className="text-text-secondary mt-3 mb-6">Start with a restaurant design. You do not need to choose a paid plan yet.</p>
+        {generalConfig.featureFlags?.publicSignupEnabled === false ? <><p>New registration is currently paused. Existing accounts and team invitations still work.</p><Link className="ui-button ui-button-primary mt-5" to="/login">Sign in</Link></> : <form onSubmit={signup} className="space-y-5" aria-busy={busy}>
+          <label className="block" htmlFor="setup-name">Full name<input id="setup-name" autoComplete="name" value={name} maxLength={100} required onChange={e => setName(e.target.value)} className={fieldClass} /></label>
+          <label className="block" htmlFor="setup-email">Email<input id="setup-email" type="email" autoComplete="email" value={email} required onChange={e => setEmail(e.target.value)} className={fieldClass} /></label>
+          <label className="block" htmlFor="setup-password">Password<input aria-label="Password" aria-describedby="setup-password-help" id="setup-password" type="password" autoComplete="new-password" minLength={8} value={password} required onChange={e => setPassword(e.target.value)} className={fieldClass} /><span id="setup-password-help" className="block text-sm text-text-secondary mt-2">Use at least eight characters.</span></label>
+          <label className="flex items-start gap-3 py-2"><input type="checkbox" checked={terms} required onChange={e => setTerms(e.target.checked)} className="mt-1" /><span>I agree to the <a className="underline" href={safeWebLink(generalConfig.termsOfServiceUrl) || '/terms'} target="_blank" rel="noreferrer">terms</a> and <a className="underline" href={safeWebLink(generalConfig.privacyPolicyUrl) || '/privacy'} target="_blank" rel="noreferrer">privacy policy</a>.</span></label>
+          <button type="submit" className="ui-button ui-button-primary" disabled={busy}>{busy ? 'Creating account…' : 'Create account'}</button>
+        </form>}
+        <p className="mt-5"><Link className="underline min-h-11 inline-flex items-center" to="/login">Already have an account? Sign in</Link></p>
+      </section> : !organization ? <section><h1 className="text-3xl font-semibold">Your account is ready</h1><p role="status" className="mt-4">Your restaurant workspace is being prepared. Your account does not need to be created again.</p><button type="button" className="ui-button ui-button-secondary mt-5" onClick={() => window.location.reload()}>Check again</button><Link to="/login" className="ui-button ui-button-secondary ml-3">Back to sign in</Link></section> : step === 2 ? <section className="rounded-xl border border-surface-highlight bg-surface p-5 sm:p-8"><h1 ref={heading} tabIndex={-1} className="text-3xl font-semibold">Tell us about your restaurant</h1><p className="text-text-secondary mt-3 mb-6">You can add addresses and invite your team later.</p><form onSubmit={saveRestaurant} className="space-y-5">
+        <label className="block" htmlFor="restaurant-name">Restaurant name<input id="restaurant-name" autoComplete="organization" required maxLength={100} value={restaurant} onChange={e => setRestaurant(e.target.value)} className={fieldClass} /></label>
+        <label className="block" htmlFor="restaurant-type">Restaurant type<select id="restaurant-type" value={industry} onChange={e => setIndustry(e.target.value as NonNullable<Organization['industry']>)} className={fieldClass}>{['Restaurant', 'Bar', 'Cafe', 'Food Truck', 'Other'].map(value => <option key={value}>{value}</option>)}</select></label>
+        <label className="block" htmlFor="restaurant-timezone">Time zone<select id="restaurant-timezone" value={timezone} onChange={e => setTimezone(e.target.value)} className={fieldClass}>{timezones.map(value => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}</select></label>
+        <button type="submit" disabled={busy} className="ui-button ui-button-primary">Continue to your design</button>
+      </form></section> : <section className="rounded-xl border border-surface-highlight bg-surface p-5 sm:p-8"><h1 ref={heading} tabIndex={-1} className="text-3xl font-semibold">Make your first menu board</h1><p className="text-text-secondary mt-4">{selectedDesign ? `${selectedDesign.name} is selected. Add your menu, then connect your screen.` : 'Choose a restaurant design, add your items and prices, then connect your screen.'}</p>{intent.templateId && !selectedDesign && intent.templateId !== '1' && <p role="status" className="mt-3">That design is no longer in this collection. Choose another design to continue.</p>}
+        <button type="button" className="ui-button ui-button-primary mt-6" onClick={() => setShowDesigns(true)} disabled={busy}>{selectedDesign ? `Customize ${selectedDesign.name}` : 'Choose a restaurant design'}</button>
+        <p className="text-text-secondary mt-5">Your current plan: {organization.plan}. {organization.plan === 'Free' ? 'Includes a five-minute screen preview.' : 'Your existing plan stays in place while you design.'}</p>
+        {intent.plan && intent.plan !== organization.plan && <p className="mt-4">You selected {intent.plan}{intent.screens ? ` for ${intent.screens} screens` : ''}{intent.seats ? ` and ${intent.seats} team members` : ''}. Compare plans below to review payment, or start with your current plan.</p>}
+        <div className="flex flex-wrap gap-3 mt-4"><button type="button" className="ui-button ui-button-secondary" onClick={() => setShowPlans(true)} disabled={busy}>Compare plans</button><button type="button" className="ui-button ui-button-secondary" onClick={() => { setError(null); setStep(2); }} disabled={busy}>Edit restaurant details</button><button type="button" className="ui-button ui-button-secondary" onClick={() => { void finish('/admin').catch(() => {}); }} disabled={busy}>Set up later</button></div>
+      </section>}
+    </main>
+    {showPlans && <AccessibleDialog title="Choose a plan" description="Compare your monthly total. Payment is only confirmed after you review it at checkout." wide busy={busy} onClose={() => setShowPlans(false)}><InlineFeedback tone="error" message={error} /><PlansPanel initialScreens={intent.screens} initialSeats={intent.seats} selectedPlan={intent.plan} busy={busy} onChoose={(plan, screens, seats) => { void choosePlan(plan, screens, seats); }} /></AccessibleDialog>}
+    {showDesigns && organization && user && <RestaurantStarterWizard key={`${scope}:${selectedDesign?.id || 'resume'}`} orgId={organization.id} userId={user.uid} plan={organization.plan} brandName={restaurant || organization.name} firstScreen initialTemplateId={selectedDesign?.id} onClose={() => setShowDesigns(false)} onComplete={async result => { await finish(result.screenId ? `/admin/screens/${result.screenId}?setup=1` : `/admin/slides/${result.slideId}`); setShowDesigns(false); }} />}
+  </div>;
 };
-
-const FeatureItem = ({ children, check, small = false }: { children: React.ReactNode, check?: boolean, small?: boolean }) => (
-  <div className={`flex items-start gap-3 ${small ? 'text-xs' : 'text-sm'}`}>
-    {check ? (
-      <Check className={`flex-shrink-0 text-success ${small ? 'w-4 h-4' : 'w-5 h-5'}`} />
-    ) : (
-      <X className={`flex-shrink-0 text-text-muted ${small ? 'w-4 h-4' : 'w-5 h-5'}`} />
-    )}
-    <span className="text-text-secondary leading-tight">{children}</span>
-  </div>
-);

@@ -120,8 +120,8 @@ test('playlist reorder preserves duration for repeated slide entries', async ({ 
 test('login labels and reset error recovery', async ({ page }, info) => {
   await page.goto('/login'); await page.getByLabel('Email', { exact: true }).fill('review@example.invalid');
   await expect(page.getByLabel('Password', { exact: true })).toHaveAttribute('autocomplete', 'current-password');
-  await page.getByRole('button', { name: 'Forgot Password?', exact: true }).click(); await page.getByRole('button', { name: 'Send Reset Link', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('could not complete'); await expect(page.getByRole('button', { name: 'Send Reset Link', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Forgot password?', exact: true }).click(); await page.getByRole('button', { name: 'Send reset link', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('could not complete'); await expect(page.getByRole('button', { name: 'Send reset link', exact: true })).toBeEnabled();
   await audit(page); await page.screenshot({ path: info.outputPath('login.png'), fullPage: true });
 });
 

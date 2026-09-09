@@ -1,5 +1,13 @@
+import { DashboardOverview } from '../../src/components/organisms/DashboardOverview';
+import { PlayerRegistrationService } from '../../src/services/playerRegistrationService';
+import { MenuService } from '../../src/services/menuService';
 /* Isolated fixtures exercise the real components; never imported by the production entry. */
 import React, { useState } from 'react';
+import { LandingPage } from '../../src/pages/LandingPage';
+import { FirstScreenGuide } from '../../src/components/journey/FirstScreenGuide';
+import { OrganizationView } from '../../src/components/organisms/settings/OrganizationView';
+import { OrganizationService } from '../../src/services/organizationService';
+import * as journeyHelpers from '../../src/lib/customerJourney';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
 import { DndProvider } from 'react-dnd';
@@ -60,12 +68,16 @@ Object.assign(fixture, { dbWrites: [], callables: [], checkoutCalls: [], portalC
 
 useAuthStore.setState({ loading: false, user: { uid: 'hig-user', email: 'review@example.invalid' }, userProfile: { uid: 'hig-user', email: 'review@example.invalid', orgId: 'hig-org', platformRole: 'user' }, organization: { id: 'hig-org', name: 'Test restaurant', plan: 'Free', ownerId: 'hig-user', members: ['hig-user'], isSetupComplete: true } });
 useConfigStore.setState({ loading: false, fetchConfigs: async () => {}, generalConfig: {}, planConfigs: { ...PLAN_CONFIGS, Free: { ...PLAN_CONFIGS.Free, screens: -1, allowedTiles: ALL_TILES } } });
-ScreenService.getScreens = async () => { if (fixture.failScreens) throw new Error('fixture network unavailable'); return [screen]; };
+fixture.readCounts = { screens: 0, slides: 0, registrations: 0 };
+ScreenService.getScreens = async () => { fixture.readCounts.screens++; if (fixture.failScreens) throw new Error('fixture network unavailable'); return [screen]; };
 ScreenService.getScreen = async () => screen;
 ScreenService.deleteScreen = async id => { fixture.deleted.push(id); };
 ScreenService.updateScreen = async (id, data) => { fixture.screenSaves.push({ id, data }); };
 ScreenService.createScreen = async data => { fixture.screenSaves.push({ data }); return 'new-screen'; };
-SlideService.getSlides = async () => [slide, secondSlide];
+SlideService.getSlides = async () => { fixture.readCounts.slides++; if (fixture.failSlides) throw new Error('fixture slide unavailable'); return fixture.noDesigns ? [] : [slide, secondSlide]; };
+MenuService.getMenus = async () => { if (fixture.failMenus) throw new Error('fixture menu unavailable'); return [{ id: 'menu-1' }]; };
+StorageService.listFiles = async () => { if (fixture.failMedia) throw new Error('fixture media unavailable'); return []; };
+PlayerRegistrationService.list = async () => { fixture.readCounts.registrations++; if (fixture.failRegistrations) throw new Error('fixture registration unavailable'); return { registrations: fixture.registered ? [{ screenId: 'screen-1', playerUid: 'fixture-display', assignedAt: Date.now() }] : [] }; };
 SlideService.getSlide = async () => ({ ...slide, elements: structuredClone(slide.elements) });
 SlideService.updateSlide = async (id, data) => {
   fixture.saves.push(structuredClone(data));
@@ -77,11 +89,22 @@ TemplateService.getTemplates = async () => { if (fixture.failTemplates) throw ne
 TemplateService.importTemplate = async () => { fixture.imports++; return { success: true, resourceId: 'imported' }; };
 
 const params = new URLSearchParams(location.search);
+fixture.failMedia = params.has('failMedia'); fixture.registered = params.has('registered');
 fixture.failPlans = params.has('failPlans'); fixture.failCallable = params.has('failCallable'); fixture.failNotifications = params.has('failNotifications'); fixture.failProfile = params.has('failProfile');
-const organization = { ...useAuthStore.getState().organization, industry: 'Restaurant', seats: 1, screenCount: 1, createdAt: stamp, subscriptionId: 'sub-test', subscriptionStatus: 'active' };
+const organization = { ...useAuthStore.getState().organization, stripeCustomerId: 'cus-test', industry: 'Restaurant', seats: 1, screenCount: 1, createdAt: stamp, subscriptionId: 'sub-test', subscriptionStatus: 'active' };
 useAuthStore.setState({ organization, userProfile: { ...useAuthStore.getState().userProfile, platformRole: 'admin' } });
 if (location.pathname === '/onboarding') useAuthStore.setState({ user: params.has('new') ? null : useAuthStore.getState().user, organization: { ...organization, industry: params.has('org') ? undefined : 'Restaurant', isSetupComplete: false } });
+if (location.pathname === '/onboarding') useAuthStore.setState({ userProfile: { ...useAuthStore.getState().userProfile, platformRole: 'user' } });
+if (params.has('newSubscription')) useAuthStore.setState({ organization: { ...organization, subscriptionId: undefined } });
 fixture.authenticate = () => useAuthStore.setState({ user: { uid: 'hig-user', email: 'review@example.invalid' }, organization: { ...organization, industry: undefined, isSetupComplete: false } });
+fixture.journeyHelpers = journeyHelpers;
+fixture.setConfig = value => useConfigStore.setState({ generalConfig: { ...useConfigStore.getState().generalConfig, ...value } });
+fixture.screen = screen;
+fixture.setOwnerProfile = value => useAuthStore.setState({ organization: { ...useAuthStore.getState().organization, ...value } });
+ConfigService.getPlanCatalogue = async () => { if (fixture.failPlans) throw new Error('fixture plan failure'); return { configs: fixture.planCatalogue || PLAN_CONFIGS, source: fixture.planSource || 'live', savedAt: Date.now() }; };
+ConfigService.getPlanConfigs = async () => (await ConfigService.getPlanCatalogue()).configs;
+BillingService.createPlanCheckout = async (...args) => { fixture.checkoutCalls.push(args); throw new Error('fixture checkout failure'); };
+OrganizationService.updateOrganization = async (...args) => { if (fixture.failSave) throw new Error('fixture save failure'); fixture.dbWrites.push(args); };
 fixture.colorMath = { deriveBrandColors, contrastRatio, normalizeHex };
 fixture.setBrand = value => useConfigStore.setState({ generalConfig: { ...useConfigStore.getState().generalConfig, primaryBrandColor: value } });
 const designer = { uid: 'hig-user', displayName: 'Jamie Designer', email: 'review@example.invalid', bio: 'Restaurant menu design', hourlyRate: 55, specialties: ['Menu Design'], status: 'active', rating: 4.8, jobsCompleted: 4, createdAt: stamp, portfolioUrl: 'https://example.invalid/portfolio' };
@@ -138,6 +161,12 @@ function ScheduleFixture() {
 function Fixture() {
   return <BrowserRouter><DndProvider backend={HTML5Backend}><ApplicationSurface>
     <Routes>
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/restaurants" element={<LandingPage />} />
+      <Route path="/marketing" element={<LandingPage />} />
+      <Route path="/overview" element={<DashboardOverview />} />
+      <Route path="/setup-guide" element={<FirstScreenGuide />} />
+      <Route path="/restaurant-settings" element={<OrganizationView />} />
       <Route path="/super-admin/templates/:templateId" element={<TemplateEditor />} />
       <Route path="/super-admin/*" element={<SuperAdminDashboard />} />
       <Route path="/designer/*" element={<DesignerDashboard />} />

@@ -1,4 +1,7 @@
+import { journeyRelease } from './journey/release.generated';
 import { preflightCinematicImport } from './cinematic/importPolicy';
+import { checkoutSubscription, publicSubscriptionPlans, syncJourneySubscription, journeyBillingReturn, type CheckoutRequest } from './journey/billing';
+import { assertBillingMember } from './journey/catalog';
 import * as functions from 'firebase-functions/v1';
 // Force redeploy
 import { onCall, CallableContext } from 'firebase-functions/v1/https';
@@ -955,53 +958,13 @@ export const sendSupportEmail = functions.runWith({ secrets: [sendgridApiKey, gm
 
 // --- Stripe Functions ---
 
-export const getSubscriptionPlans = functions.runWith({ secrets: [stripeSecretKey] }).https.onCall(async () => {
-  try {
-    const prices = await getStripe().prices.list({
-      active: true,
-      expand: ['data.product'],
-      limit: 20
-    });
-
-    const plans = prices.data
-      .filter(price => price.type === 'recurring') // Only subscription plans
-      .map(price => {
-        const product = price.product as Stripe.Product;
-        // Parse features from metadata if available
-        let features: string[] = [];
-        if (product.metadata && product.metadata.features) {
-             try {
-                 features = JSON.parse(product.metadata.features);
-             } catch {
-                 features = [product.metadata.features];
-             }
-        } else if (product.description) {
-             features = [product.description];
-        }
-
-        return {
-          id: price.id,
-          name: product.name,
-          price: (price.unit_amount || 0) / 100,
-          currency: price.currency,
-          interval: price.recurring?.interval || 'month',
-          features: features,
-          metadata: product.metadata // pass through metadata just in case
-        };
-      });
-      
-      // Sort by price
-      plans.sort((a, b) => a.price - b.price);
-
-    return plans;
-  } catch (error: unknown) {
-    functions.logger.error('Get Subscription Plans Error:', error);
-    throw new functions.https.HttpsError('internal', 'Failed to get subscription plans.');
-  }
+export const getSubscriptionPlans = functions.https.onCall(async (data: { journeyHealth?: number } | undefined) => {
+  if (data?.journeyHealth === 2) return { journeyRelease };
+  return publicSubscriptionPlans(db);
 });
 
-export const createStripeCheckoutSession = functions.runWith({ secrets: [stripeSecretKey] }).https.onCall(async (data: { 
-  priceId?: string; 
+export const createStripeCheckoutSession = functions.runWith({ secrets: [stripeSecretKey] }).https.onCall(async (data: CheckoutRequest & { 
+  journeyHealth?: number; priceId?: string; 
   successUrl: string; 
   cancelUrl: string; 
   mode?: 'payment' | 'subscription';
@@ -1010,10 +973,15 @@ export const createStripeCheckoutSession = functions.runWith({ secrets: [stripeS
   metadata?: Record<string, string>;
   addOns?: { screen?: number; seat?: number; screenPriceId?: string; seatPriceId?: string };
 }, context: CallableContext) => {
+  if (data?.journeyHealth === 2) return { journeyRelease };
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'User must be logged in.');
   }
 
+  if (!data || typeof data !== 'object') throw new functions.https.HttpsError('invalid-argument', 'Choose a plan first.');
+  if ((data.mode || 'subscription') === 'subscription') {
+    return checkoutSubscription(db, getStripe(), data, context.auth.uid);
+  }
   const { priceId, successUrl, cancelUrl, mode = 'subscription', amount, currency, metadata, addOns } = data;
 
   // Fetch user's orgId to link subscription
@@ -1073,7 +1041,8 @@ export const createStripeCheckoutSession = functions.runWith({ secrets: [stripeS
   }
 });
 
-export const createStripePortalSession = functions.runWith({ secrets: [stripeSecretKey] }).https.onCall(async (data: { returnUrl: string }, context: CallableContext) => {
+export const createStripePortalSession = functions.runWith({ secrets: [stripeSecretKey] }).https.onCall(async (data: { returnUrl: string; journeyHealth?: number }, context: CallableContext) => {
+  if (data?.journeyHealth === 2) return { journeyRelease };
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'User must be logged in.');
   }
@@ -1092,6 +1061,9 @@ export const createStripePortalSession = functions.runWith({ secrets: [stripeSec
       throw new functions.https.HttpsError('not-found', 'Organization not found.');
     }
 
+    const membership = await db.doc(`organizations/${orgId}/members/${userId}`).get();
+    try { assertBillingMember(orgDoc.data() || {}, membership.data(), userId); }
+    catch { throw new functions.https.HttpsError('permission-denied', 'Only restaurant owners and administrators can manage billing.'); }
     const stripeCustomerId = orgDoc.data()?.stripeCustomerId;
     if (!stripeCustomerId) {
       throw new functions.https.HttpsError('failed-precondition', 'Organization does not have a billing account.');
@@ -1099,7 +1071,7 @@ export const createStripePortalSession = functions.runWith({ secrets: [stripeSec
 
     const session = await getStripe().billingPortal.sessions.create({
       customer: stripeCustomerId,
-      return_url: data.returnUrl
+      return_url: journeyBillingReturn(data.returnUrl)
     });
 
     return { url: session.url };
@@ -2198,6 +2170,7 @@ export const createThemeTemplates = onCall(async (data: { themeName: string }, c
 // --- Stripe Webhook Handler ---
 
 export const stripeWebhook = functions.runWith({ secrets: [stripeWebhookSecret, stripeSecretKey] }).https.onRequest(async (req, res) => {
+  if (req.method === 'GET' && req.query.journeyHealth === '2') { res.set('Cache-Control', 'no-store').json({ journeyRelease }); return; }
   const sig = req.get('stripe-signature');
   const endpointSecret = stripeWebhookSecret.value();
 
@@ -2282,110 +2255,42 @@ async function findOrgByCustomerId(customerId: string): Promise<string | null> {
 }
 
 async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
-  const customerId = invoice.customer as string;
+  const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
+  if (!customerId) return;
   const orgId = await findOrgByCustomerId(customerId);
-
-  if (!orgId) {
-    functions.logger.warn(`No org found for customer ${customerId}`);
-    return;
-  }
-
-  // Just ensure status is active
-  await db.doc(`organizations/${orgId}`).update({
-    subscriptionStatus: 'active',
-    updatedAt: Timestamp.now()
-  });
-  functions.logger.info(`Updated org ${orgId} to active status`);
+  if (!orgId) return;
+  const org = await db.doc(`organizations/${orgId}`).get();
+  const id = org.data()?.subscriptionId;
+  if (typeof id === 'string') await syncJourneySubscription(db, getStripe(), await getStripe().subscriptions.retrieve(id), orgId);
 }
 
 async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
-  const customerId = invoice.customer as string;
-  const orgId = await findOrgByCustomerId(customerId);
-
-  if (!orgId) {
-    functions.logger.warn(`No org found for customer ${customerId}`);
-    return;
-  }
-
-  await db.doc(`organizations/${orgId}`).update({
-    subscriptionStatus: 'past_due',
-    updatedAt: Timestamp.now()
-  });
-  functions.logger.info(`Updated org ${orgId} to past_due status`);
+  // A delayed invoice must not revive or downgrade a different subscription.
+  await handleInvoicePaymentSucceeded(invoice);
 }
 
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
-  const customerId = subscription.customer as string;
-  const orgId = await findOrgByCustomerId(customerId);
-
-  if (!orgId) {
-    functions.logger.warn(`No org found for customer ${customerId}`);
-    return;
-  }
-
-  // Map Stripe status
-  let status: 'active' | 'past_due' | 'canceled' | 'trialing' = 'active';
-  if (subscription.status === 'canceled') status = 'canceled';
-  else if (subscription.status === 'past_due' || subscription.status === 'unpaid') status = 'past_due';
-  else if (subscription.status === 'trialing') status = 'trialing';
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const currentPeriodEnd = (subscription as any).current_period_end;
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const updateData: any = {
-    subscriptionStatus: status,
-    subscriptionPeriodEnd: Timestamp.fromMillis(
-      currentPeriodEnd * 1000
-    ),
-    cancelAtPeriodEnd: subscription.cancel_at_period_end,
-    updatedAt: Timestamp.now()
-  };
-
-  // Update plan name if available
-  if (subscription.items.data.length > 0) {
-    const price = subscription.items.data[0].price;
-    if (price && price.metadata && price.metadata.planName) {
-      updateData.plan = price.metadata.planName;
-    }
-  }
-
-  await db.doc(`organizations/${orgId}`).update(updateData);
-  functions.logger.info(`Updated org ${orgId} subscription: ${status}`);
+  await syncJourneySubscription(db, getStripe(), subscription);
 }
 
 async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
-  const customerId = subscription.customer as string;
-  const orgId = await findOrgByCustomerId(customerId);
-
-  if (!orgId) {
-    functions.logger.warn(`No org found for customer ${customerId}`);
-    return;
-  }
-
-  await db.doc(`organizations/${orgId}`).update({
-    subscriptionStatus: 'canceled',
-    subscriptionId: FieldValue.delete(),
-    plan: 'Free',
-    updatedAt: Timestamp.now()
-  });
-  functions.logger.info(`Canceled subscription for org ${orgId}`);
+  await syncJourneySubscription(db, getStripe(), subscription);
 }
 
 async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) {
+  if (session.mode !== 'subscription') return;
   const orgId = session.metadata?.orgId;
-  const customerId = session.customer as string;
-
-  if (orgId && customerId) {
-    await db.doc(`organizations/${orgId}`).update({
-      stripeCustomerId: customerId,
-      updatedAt: Timestamp.now()
-    });
-    functions.logger.info(`Linked Customer ${customerId} to Org ${orgId}`);
-  } else {
-    functions.logger.warn(`Missing orgId or customerId in checkout session ${session.id}`);
-  }
+  const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id;
+  const subscriptionId = typeof session.subscription === 'string' ? session.subscription : session.subscription?.id;
+  if (!orgId || !customerId || !subscriptionId || !/^[\w-]{1,128}$/.test(orgId)) throw new Error('Subscription checkout cannot be matched.');
+  const ref = db.doc(`organizations/${orgId}`);
+  const existing = await ref.get();
+  if (!existing.exists) throw new Error('Restaurant no longer exists.');
+  if (existing.data()?.stripeCustomerId && existing.data()?.stripeCustomerId !== customerId) throw new Error('Billing account mismatch.');
+  await ref.update({ stripeCustomerId: customerId, updatedAt: Timestamp.now() });
+  await syncJourneySubscription(db, getStripe(), await getStripe().subscriptions.retrieve(subscriptionId), orgId);
 }
+
 
 
 const assertOrgAudioAccess = async (uid: string, orgId: string) => {

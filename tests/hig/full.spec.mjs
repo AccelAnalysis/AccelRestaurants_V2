@@ -45,11 +45,11 @@ test('designer invitation failure keeps labelled draft', async ({page}) => {
 });
 test('notification load and save failure both recover', async ({page}) => {
   await page.goto('/super-admin?failNotifications=1'); await page.getByRole('button',{name:'Notifications',exact:true}).click();
-  await expect(page.getByRole('alert')).toContainText('Could not load');
+  await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toContainText('Could not load');
   await page.evaluate(() => window.__hig.failNotifications=false); await page.getByRole('button',{name:'Retry',exact:true}).click();
   await page.getByRole('button',{name:/Welcome email/}).click(); await page.getByLabel('Subject Line').fill('Edited welcome');
   await page.evaluate(() => window.__hig.failSave=true); await page.getByRole('button',{name:'Save',exact:true}).click();
-  await expect(page.getByRole('alert')).toContainText('Failed to save'); await expect(page.getByLabel('Subject Line')).toHaveValue('Edited welcome');
+  await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toContainText('Failed to save'); await expect(page.getByLabel('Subject Line')).toHaveValue('Edited welcome');
   await page.evaluate(() => window.__hig.failSave=false); await page.getByRole('button',{name:'Save',exact:true}).click();
   await expect(page.getByRole('status')).toContainText('saved'); await audit(page);
 });
@@ -72,44 +72,56 @@ for(const route of ['/designer','/designer/my-jobs','/designer/profile','/market
 test('designer profile saves by keyboard and retains failures',async({page})=>{
  await page.goto('/designer/profile');await page.getByLabel('Display Name').fill('Jamie Updated');
  await page.evaluate(()=>window.__hig.failSave=true);await page.getByLabel('Display Name').press('Enter');
- await expect(page.getByRole('alert')).toContainText('Failed');await expect(page.getByLabel('Display Name')).toHaveValue('Jamie Updated');
+ await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toContainText('Failed');await expect(page.getByLabel('Display Name')).toHaveValue('Jamie Updated');
  await page.evaluate(()=>window.__hig.failSave=false);await page.getByRole('button',{name:'Save Changes'}).click();
  await expect.poll(()=>page.evaluate(()=>window.__hig.profileWrites.length)).toBe(1);
 });
-test('billing plan review cancel causes no checkout; failure stays contextual',async({page},info)=>{
- await page.goto('/billing');await page.getByRole('button',{name:'Review Basic plan'}).click();await audit(page);
- await page.getByRole('button',{name:'Cancel',exact:true}).click();expect(await page.evaluate(()=>window.__hig.checkoutCalls.length)).toBe(0);
- await page.getByRole('button',{name:'Review Growth plan'}).click();await page.getByRole('button',{name:'Continue to secure checkout'}).click();
- await expect(page.getByRole('dialog').getByRole('alert')).toContainText('No purchase was confirmed');
- expect(await page.evaluate(()=>window.__hig.checkoutCalls.length)).toBe(1);await audit(page);await fits(page);await page.screenshot({path:info.outputPath('billing.png'),fullPage:true});
+test('billing errors retain plan choices without confirming a purchase',async({page},info)=>{
+ await page.goto('/billing?newSubscription=1');
+ expect(await page.evaluate(()=>window.__hig.checkoutCalls.length)).toBe(0);
+ await page.getByRole('button',{name:'Choose Basic plan',exact:true}).click();
+ await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toContainText('No payment was confirmed');
+ expect(await page.evaluate(()=>window.__hig.checkoutCalls.length)).toBe(1);
+ await expect(page.getByRole('button',{name:'Choose Basic plan',exact:true})).toHaveAttribute('aria-pressed','true');
+ await page.getByRole('button',{name:'Choose Basic plan',exact:true}).click();
+ expect(await page.evaluate(()=>window.__hig.checkoutCalls.length)).toBe(2);
+ await audit(page);await fits(page);await page.screenshot({path:info.outputPath('billing.png'),fullPage:true});
 });
-test('billing load retry is separate from empty plans and portal failure',async({page})=>{
- await page.goto('/billing?failPlans=1');await expect(page.getByRole('alert').filter({hasText:'Plans could not'})).toBeVisible();
- await page.evaluate(()=>window.__hig.failPlans=false);await page.getByRole('button',{name:'Retry loading plans'}).click();await expect(page.getByRole('button',{name:'Review Basic plan'})).toBeVisible();
- await page.getByRole('button',{name:'Manage subscription'}).click();await expect(page.getByRole('alert').filter({hasText:'portal could not be opened'})).toBeVisible();
+test('billing load retry and existing subscription changes use the portal',async({page})=>{
+ await page.goto('/billing?failPlans=1');await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toContainText('load plan');
+ await page.evaluate(()=>window.__hig.failPlans=false);await page.getByRole('button',{name:'Try again',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Choose Basic plan',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Manage subscription',exact:true}).click();await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toContainText('billing details');
+ expect(await page.evaluate(()=>window.__hig.checkoutCalls.length)).toBe(0);
+ expect(await page.evaluate(()=>window.__hig.portalCalls.length)).toBe(1);
 });
-test('onboarding account labels, mobile progress and validation',async({page})=>{
+test('onboarding account labels, compact progress and validation',async({page})=>{
  await page.goto('/onboarding?new=1');await expect(page.getByText('Step 1 of 4')).toBeVisible();await audit(page);await fits(page);
- await page.getByLabel('Full Name',{exact:true}).fill('New owner');await page.getByLabel('Email',{exact:true}).fill('owner@example.invalid');await page.getByLabel('Password',{exact:true}).fill('not-a-real-password');await page.getByLabel(/I agree/).check();
- await page.getByRole('button',{name:'Create Account'}).click();await expect(page.getByRole('alert')).toBeVisible();
- await page.evaluate(()=>window.__hig.allowAuth=true);await page.getByRole('button',{name:'Create Account'}).click();await expect(page.getByText('Step 2 of 4')).toBeVisible();await audit(page);
+ await page.getByLabel('Full name',{exact:true}).fill('New owner');await page.getByLabel('Email',{exact:true}).fill('owner@example.invalid');await page.getByLabel('Password',{exact:true}).fill('not-a-real-password');await page.getByLabel(/I agree/).check();
+ await page.getByRole('button',{name:'Create account',exact:true}).click();await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toBeVisible();
+ await page.evaluate(()=>window.__hig.allowAuth=true);await page.getByRole('button',{name:'Create account',exact:true}).click();await expect(page.getByText('Step 2 of 4')).toBeVisible();await audit(page);
 });
-test('onboarding Free plan reaches content; template Cancel is neutral; finish failure retains choices',async({page},info)=>{
+test('design setup is optional, cancellation is neutral and save failure keeps progress',async({page},info)=>{
  await page.goto('/onboarding');await expect(page.getByText('Step 3 of 4')).toBeVisible();await audit(page);await fits(page);
- await page.getByRole('button',{name:'Start for Free'}).click();await expect(page.getByText('Step 4 of 4')).toBeVisible();
- await page.getByRole('button',{name:/Use a Template/}).click();await expect(page.getByRole('dialog',{name:'Your restaurant, screen-ready'})).toBeVisible();await page.getByRole('button',{name:'Save for later',exact:true}).click();
- await expect(page.getByText('Step 4 of 4')).toBeVisible();await page.evaluate(()=>window.__hig.failDatabase=true);await page.getByRole('button',{name:/Start from Scratch/}).click();
- await expect(page.getByRole('alert')).toContainText('Your choices are still here');await expect(page.getByText('Step 4 of 4')).toBeVisible();await audit(page);await page.screenshot({path:info.outputPath('onboarding.png'),fullPage:true});
+ await page.getByRole('button',{name:'Choose a restaurant design',exact:true}).click();await expect(page.getByRole('dialog',{name:'Your restaurant, screen-ready'})).toBeVisible();
+ await page.getByRole('button',{name:'Save for later',exact:true}).click();
+ expect(await page.evaluate(()=>window.__hig.checkoutCalls.length)).toBe(0);
+ expect(await page.evaluate(()=>window.__hig.callables.length)).toBe(0);
+ await page.evaluate(()=>window.__hig.failDatabase=true);await page.getByRole('button',{name:'Set up later',exact:true}).click();
+ await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toContainText('could not finish');await expect(page.getByText('Step 3 of 4')).toBeVisible();
+ await audit(page);await page.screenshot({path:info.outputPath('onboarding.png'),fullPage:true});
 });
+
+
 test('invitation network error can retry rather than declare link invalid',async({page})=>{
- await page.goto('/join?token=synthetic&id=invite-1&failCallable=1');await expect(page.getByRole('alert')).toContainText('may still be valid');
+ await page.goto('/join?token=synthetic&id=invite-1&failCallable=1');await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toContainText('may still be valid');
  await page.evaluate(()=>window.__hig.failCallable=false);await page.getByRole('button',{name:'Retry',exact:true}).click();await expect(page.getByRole('heading',{name:'Join Test restaurant'})).toBeVisible();await audit(page);await fits(page);
 });
 test('tenant colors remain legible and malformed or failed saves keep drafts',async({page})=>{
  await page.goto('/brand');await page.getByLabel('Primary brand color hex').fill('not-a-color');await page.getByRole('button',{name:'Save Changes'}).click();
- await expect(page.getByRole('alert')).toContainText(/color|hex/i);expect(await page.evaluate(()=>window.__hig.configWrites.length)).toBe(0);
+ await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toContainText(/color|hex/i);expect(await page.evaluate(()=>window.__hig.configWrites.length)).toBe(0);
  await page.getByLabel('Primary brand color hex').fill('#ffffff');await page.evaluate(()=>window.__hig.failSettings=true);await page.getByRole('button',{name:'Save Changes'}).click();
- await expect(page.getByRole('alert')).toContainText(/fail|could not/i);await expect(page.getByLabel('Primary brand color hex')).toHaveValue('#ffffff');
+ await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toContainText(/fail|could not/i);await expect(page.getByLabel('Primary brand color hex')).toHaveValue('#ffffff');
  await page.evaluate(()=>window.__hig.failSettings=false);await page.getByRole('button',{name:'Save Changes'}).click();await expect.poll(()=>page.evaluate(()=>window.__hig.configWrites.length)).toBe(1);
  for(const color of ['#ffffff','#000000','#ff0000','#00ff00','#0000ff','#ffff00']){await page.evaluate(c=>window.__hig.setBrand(c),color);await audit(page);}
 });
@@ -122,8 +134,8 @@ test('brand contrast derivation handles a 4096-color grid and invalid values',as
 });
 test('form and poll acknowledge only successful persistence and allow retry',async({page})=>{
  await page.goto('/form-tile');await page.getByLabel('Name (required)').fill('A guest');await page.getByLabel('Email (required)').fill('guest@example.invalid');await page.getByRole('button',{name:'Submit Request'}).click();
- await expect(page.getByRole('alert')).toContainText('Your entries are still here');await expect(page.getByLabel('Name (required)')).toHaveValue('A guest');await page.evaluate(()=>window.__hig.failForm=false);await page.getByRole('button',{name:'Submit Request'}).click();await expect(page.getByRole('status')).toContainText('sent successfully');await audit(page);
- await page.goto('/poll-tile');await page.getByRole('button',{name:/Tea/}).click();await expect(page.getByRole('alert')).toContainText('could not be saved');await page.evaluate(()=>window.__hig.failVote=false);await page.getByRole('button',{name:/Tea/}).click();await expect(page.getByRole('status')).toContainText('vote was saved');
+ await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toContainText('Your entries are still here');await expect(page.getByLabel('Name (required)')).toHaveValue('A guest');await page.evaluate(()=>window.__hig.failForm=false);await page.getByRole('button',{name:'Submit Request'}).click();await expect(page.getByRole('status')).toContainText('sent successfully');await audit(page);
+ await page.goto('/poll-tile');await page.getByRole('button',{name:/Tea/}).click();await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toContainText('could not be saved');await page.evaluate(()=>window.__hig.failVote=false);await page.getByRole('button',{name:/Tea/}).click();await expect(page.getByRole('status')).toContainText('vote was saved');
 });
 
 test('new template opens a real editor and preserves a failed save',async({page})=>{
@@ -132,7 +144,7 @@ test('new template opens a real editor and preserves a failed save',async({page}
  const tools=page.getByRole('button',{name:'Tiles',exact:true});if(await tools.getAttribute('aria-expanded')==='false')await tools.click();
  await page.getByRole('button',{name:'Add Text Block tile',exact:true}).click();
  await page.evaluate(()=>window.__hig.failSave=true);await page.getByRole('button',{name:'Save Changes',exact:true}).click();
- await expect(page.getByRole('alert').filter({hasText:'Could not save the template'})).toBeVisible();
+ await expect(page.getByRole('alert').filter({ hasText: /\S/ }).filter({hasText:'Could not save the template'})).toBeVisible();
  await expect(page.getByLabel('Name',{exact:true}).first()).toHaveValue('New seasonal template');
  await expect(page.getByRole('heading',{name:'New Template',exact:true})).toBeVisible();
 });

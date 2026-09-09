@@ -16,13 +16,13 @@ Every pull request runs:
 
 A failing CI job blocks the preview job.
 
-## 2. Pull requests: Firebase Hosting preview channels in the production Firebase project
+## 2. Pull requests: Firebase Hosting preview channels in an isolated TEST project
 
-Same-repository pull requests deploy to a temporary Firebase Hosting preview channel only after frontend and Functions CI pass.
+Same-repository pull requests deploy to a temporary Firebase Hosting preview channel only after frontend and Functions CI pass and the `staging` environment targets a separate TEST Firebase project. All PR checks check out the PR head SHA explicitly.
 
-The preview job uses the GitHub environment named `staging`, but `staging` is only the GitHub Actions configuration scope for PR previews. It does not represent a separate Firebase backend. Preview channels use the existing Firebase project `accelrestaurant-d2c1f` and therefore share that project's real Auth, Firestore, Functions, Storage, and other backend resources.
+The previous `staging` configuration pointed at production (`accelrestaurant-d2c1f`); its name did not provide backend isolation. The workflow now skips preview deployment and live pricing smoke when that configuration is still present, records the missing prerequisite, and retains a read-only compatibility report. A green report job is not release approval.
 
-The workflow requires the preview project ID to be exactly `accelrestaurant-d2c1f` so a PR cannot accidentally deploy to an unrelated Firebase project. Hosting preview channels expire after 14 days and do not replace the `live` channel.
+An operator must configure the intended dedicated AccelRestaurants TEST project; do not repurpose another application's project. The validator rejects the production project and Stripe live publishable keys for staging. Hosting preview channels expire after 14 days and do not replace the `live` channel.
 
 Fork pull requests run CI but do not receive preview credentials and do not deploy previews.
 
@@ -30,7 +30,7 @@ Fork pull requests run CI but do not receive preview credentials and do not depl
 
 Environment variables:
 
-- `FIREBASE_PROJECT_ID` = `accelrestaurant-d2c1f`
+- `FIREBASE_PROJECT_ID` = the intended dedicated AccelRestaurants TEST project ID
 - `VITE_FIREBASE_API_KEY`
 - `VITE_FIREBASE_AUTH_DOMAIN`
 - `VITE_FIREBASE_STORAGE_BUCKET`
@@ -38,17 +38,17 @@ Environment variables:
 - `VITE_FIREBASE_APP_ID`
 - `VITE_FIREBASE_MEASUREMENT_ID`
 - `VITE_FINNHUB_API_KEY`
-- `VITE_STRIPE_PUBLISHABLE_KEY`
+- `VITE_STRIPE_PUBLISHABLE_KEY` = the matching Stripe TEST account's publishable key
 
 Environment secret:
 
-- `FIREBASE_SERVICE_ACCOUNT` — service-account JSON authorized to deploy Firebase Hosting preview channels for `accelrestaurant-d2c1f`
+- `FIREBASE_SERVICE_ACCOUNT` — service-account JSON authorized for the dedicated TEST project, including read access to its deployed Rules metadata for preflight
 
 `VITE_FIREBASE_PROJECT_ID` is derived from `FIREBASE_PROJECT_ID` in the workflow so the build and deployment cannot silently target different Firebase projects.
 
-Because the preview frontend shares the production Firebase backend, preview testing must avoid destructive or real-world side effects unless explicitly intended. In particular, use caution with writes to production Firestore/Storage, callable Functions, transactional email/SMS, irreversible deletes, and Stripe/payment flows. Hosting is isolated by channel; backend resources are not.
+Auth, Firestore, Functions, Storage, the authoritative catalogue and Stripe TEST configuration must all belong to this matched test environment. A Hosting-only preview does not deploy or validate its backend. Configure Functions `APP_URL` for the reviewed test frontend and store `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` in the test project's Secret Manager.
 
-Until the required `staging` GitHub environment variables and service-account secret exist, the preview job deliberately fails before deployment.
+Missing or production project targeting skips deployment with an explicit warning. An isolated project with incomplete client/secret configuration fails validation before deployment. No workflow provisions test products, prices, customers or catalogues automatically.
 
 ## 3. Production: manual gated release
 
@@ -67,7 +67,7 @@ The production workflow:
 7. builds the frontend
 8. installs and builds Functions
 9. runs the Functions Jest suite
-10. deploys the exact checked-out frontend build to the Firebase Hosting `live` channel
+10. requires the release preflight to pass before deploying the exact checked-out frontend build to the Firebase Hosting `live` channel
 
 ### Required `production` GitHub environment configuration
 
@@ -105,4 +105,4 @@ npm run build --prefix functions
 npm test --prefix functions -- --runInBand
 ```
 
-The validator fails immediately when required Vite variables are missing or when preview/production Firebase targeting does not match `accelrestaurant-d2c1f`.
+The validator fails when required Vite variables are missing, deploy and client project IDs differ, staging points at production or a Stripe live key, or production targets any other Firebase project. Firebase Functions deployments run the Functions build first, regenerating the reviewed source fingerprint before compiling the deployment bundle.

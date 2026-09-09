@@ -7,7 +7,9 @@
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
-    "test": "jest"
+    "test": "jest",
+    "prebuild": "node ../scripts/journey-release.mjs --write-manifest",
+    "pretest": "node ../scripts/journey-release.mjs --write-manifest"
   },
   "engines": {
     "node": "22"

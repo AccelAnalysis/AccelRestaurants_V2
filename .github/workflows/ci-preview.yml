@@ -30,6 +30,8 @@ jobs:
       VITE_STRIPE_PUBLISHABLE_KEY: pk_test_ci_placeholder
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v5
         with:
           node-version: '20'
@@ -51,6 +53,8 @@ jobs:
         working-directory: functions
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v5
         with:
           node-version: '20'
@@ -64,7 +68,7 @@ jobs:
         run: npm test -- --runInBand
 
   preview:
-    name: Firebase PR Preview (same project)
+    name: Firebase TEST preview and backend report
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository
@@ -91,11 +95,24 @@ jobs:
       VITE_STRIPE_PUBLISHABLE_KEY: ${{ vars.VITE_STRIPE_PUBLISHABLE_KEY }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v5
         with:
           node-version: '20'
           cache: npm
+      - name: Require an isolated Firebase project before deploying a preview
+        id: test-target
+        run: |
+          if [ -z "$FIREBASE_PROJECT_ID" ] || [ "$FIREBASE_PROJECT_ID" = 'accelrestaurant-d2c1f' ]; then
+            echo 'deploy=false' >> "$GITHUB_OUTPUT"
+            echo '::warning::TEST preview not deployed: staging must use a separate non-production Firebase project.'
+            echo 'TEST preview not deployed. No isolated Firebase project is configured; real Stripe and Storage release checks remain blocked.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'deploy=true' >> "$GITHUB_OUTPUT"
+          fi
       - name: Validate preview Firebase target and service account
+        if: steps.test-target.outputs.deploy == 'true'
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
@@ -104,22 +121,43 @@ jobs:
             echo '::error::The staging GitHub environment is missing FIREBASE_PROJECT_ID.'
             exit 1
           fi
-          if [ "$FIREBASE_PROJECT_ID" != 'accelrestaurant-d2c1f' ]; then
-            echo '::error::Preview FIREBASE_PROJECT_ID must be accelrestaurant-d2c1f.'
-            exit 1
-          fi
           if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
             echo '::error::The staging GitHub environment is missing the FIREBASE_SERVICE_ACCOUNT secret.'
             exit 1
           fi
       - name: Install frontend dependencies
+        if: steps.test-target.outputs.deploy == 'true'
         run: npm ci
       - name: Build Firebase Hosting preview
+        if: steps.test-target.outputs.deploy == 'true'
         run: npm run build
       - name: Deploy Firebase Hosting preview channel
+        if: steps.test-target.outputs.deploy == 'true'
+        id: hosting-preview
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           projectId: ${{ vars.FIREBASE_PROJECT_ID }}
           expires: 14d
+
+      - name: Report actual backend compatibility (Hosting preview is not a backend release)
+        if: env.FIREBASE_PROJECT_ID != ''
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: npm ci --prefix functions && node scripts/journey-release.mjs --preview
+      - name: Install public preview browser checks
+        if: steps.test-target.outputs.deploy == 'true'
+        run: npm ci --prefix tests/hig && cd tests/hig && npx playwright install --with-deps chromium
+      - name: Verify plan comparison on the deployed preview without service mocks
+        if: steps.test-target.outputs.deploy == 'true'
+        env:
+          PREVIEW_URL: ${{ fromJSON(steps.hosting-preview.outputs.urls || '[]')[0] || '' }}
+        run: node tests/journey/preview.mjs
+      - name: Retain actual preview and dependency evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: journey-live-preview-evidence
+          path: test-results
+          retention-days: 7

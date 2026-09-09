@@ -1,11 +1,15 @@
-import { doc, getDoc, setDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, getDocFromServer, setDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { PLAN_CONFIGS } from '../lib/plans';
-import type { PlanType, PlanLimits } from '../lib/plans';
+import { createCatalogueReader } from '../lib/planCatalogueCache';
+import { validateCatalogue } from '../../functions/src/journey/catalog';
+import type { WebsiteContent } from '../lib/websiteContent';
+import { PLAN_CONFIGS, type PlanType, type PlanLimits } from '../lib/plans';
 
 const SYSTEM_COLLECTION = 'system';
 const PLANS_DOC = 'plans';
 const GENERAL_DOC = 'general';
+// Firebase project IDs separate production and demo/emulator caches.
+const planReader = createCatalogueReader(db.app?.options.projectId || 'unconfigured', PLAN_CONFIGS);
 
  const removeUndefinedDeep = <T>(value: T): T => {
    if (value === undefined || value === null) return value;
@@ -43,6 +47,7 @@ export interface SystemPlanConfig {
 }
 
 export interface GeneralConfig {
+  marketing?: WebsiteContent;
   landingPageVideoUrl?: string;
   landingPageTitle?: string;
   landingPageDescription?: string;
@@ -100,26 +105,16 @@ export const ConfigService = {
     }
   },
 
-  /**
-   * Fetch plan configurations from Firestore
-   * Falls back to local defaults if not found
-   */
-  getPlanConfigs: async (): Promise<Record<PlanType, PlanLimits>> => {
-    try {
-      const docRef = doc(db, SYSTEM_COLLECTION, PLANS_DOC);
-      const docSnap = await getDoc(docRef);
+  /** Prefer the live catalogue, then a validated saved copy, then bundled display defaults. */
+  getPlanCatalogue: () => planReader.load(async () => {
+    const snapshot = await getDocFromServer(doc(db, SYSTEM_COLLECTION, PLANS_DOC));
+    if (!snapshot.exists()) throw new Error('Current plan details are not available.');
+    return snapshot.data().configs;
+  }),
 
-      if (docSnap.exists()) {
-        const data = docSnap.data() as SystemPlanConfig;
-        return data.configs;
-      } else {
-        // Initialize with defaults if not exists
-        await ConfigService.savePlanConfigs(PLAN_CONFIGS);
-        return PLAN_CONFIGS;
-      }
-    } catch {
-      return PLAN_CONFIGS; // Fallback to defaults on error
-    }
+  getPlanConfigs: async (): Promise<Record<PlanType, PlanLimits>> => {
+    const result = await ConfigService.getPlanCatalogue();
+    return result.configs as Record<PlanType, PlanLimits>;
   },
 
   /**
@@ -129,9 +124,10 @@ export const ConfigService = {
     try {
       const docRef = doc(db, SYSTEM_COLLECTION, PLANS_DOC);
       await setDoc(docRef, {
-        configs,
+        configs: validateCatalogue(configs),
         updatedAt: serverTimestamp()
       });
+      planReader.remember(configs);
     } catch {
       throw new Error('Failed to save plan configurations.');
     }

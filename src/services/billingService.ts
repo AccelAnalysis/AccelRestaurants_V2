@@ -2,6 +2,13 @@ import { functions } from '../lib/firebase';
 import { httpsCallable } from 'firebase/functions';
 
 export const BillingService = {
+  createPlanCheckout: async (orgId: string, planName: string, screens: number, seats: number, returnTo: 'setup' | 'billing', requestId: string): Promise<string> => {
+    const call = httpsCallable(functions, 'createStripeCheckoutSession');
+    const response = await call({ orgId, planName, screens, seats, returnTo, requestId, mode: 'subscription' });
+    const url = (response.data as { url?: string }).url;
+    if (!url || new URL(url).protocol !== 'https:') throw new Error('Payment options could not be opened.');
+    return url;
+  },
   /**
    * Create a Stripe Checkout Session for subscription
    */
