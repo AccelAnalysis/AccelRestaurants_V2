@@ -103,7 +103,7 @@ export const OnboardingPage = () => {
   };
   const selectedDesign = RESTAURANT_TEMPLATES.find(t => t.id === intent.templateId);
   const timezones = Array.from(new Set([timezone, 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Phoenix', 'Pacific/Honolulu', 'Europe/London', 'UTC']));
-  return <div className="min-h-screen bg-background text-text">
+  return <div className="min-h-screen bg-transparent bg-speed-pattern text-text">
     <a className="skip-link" href="#setup-main">Skip to content</a>
     <header className="border-b border-surface-highlight p-4 sm:px-8 flex flex-wrap justify-between gap-4"><Link to="/restaurants" className="font-semibold text-xl min-h-11 inline-flex items-center">AccelRestaurants</Link><nav aria-label="Setup progress"><p className="text-sm mb-2">Step {step} of 4</p><ol className="flex flex-wrap gap-4 text-sm">{['Account', 'Restaurant', 'Design', 'Connect'].map((label, i) => <li key={label} aria-current={step === i + 1 ? 'step' : undefined} className={step === i + 1 ? 'font-semibold' : 'text-text-secondary'}>{i + 1}. {label}</li>)}</ol></nav></header>
     <main id="setup-main" className="max-w-3xl mx-auto p-4 sm:p-8 py-10">

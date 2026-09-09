@@ -29,16 +29,19 @@ const groups = [
 
 export const AdminShell = ({ children, account, banner }: { children: ReactNode; account: ReactNode; banner?: ReactNode }) => {
   const [navigationOpen, setNavigationOpen] = useState(false);
+  const [desktopNavigationOpen, setDesktopNavigationOpen] = useState(true);
   const desktop = useMediaQuery('(min-width: 1024px)');
   const { pathname } = useLocation();
   const main = useRef<HTMLElement>(null);
   const previousPath = useRef(pathname);
+
   useEffect(() => {
     if (previousPath.current !== pathname) {
       previousPath.current = pathname;
       main.current?.focus();
     }
   }, [pathname]);
+
   const navigation = <nav className="admin-nav space-y-5" aria-label="Main navigation">
     {groups.map(group => <section key={group.title} aria-label={group.title}>
       <h2 className="px-3 mb-1 text-xs font-semibold text-text-muted">{group.title}</h2>
@@ -47,15 +50,34 @@ export const AdminShell = ({ children, account, banner }: { children: ReactNode;
       </NavLink>)}
     </section>)}
   </nav>;
+
+  const navigationButtonLabel = desktop
+    ? desktopNavigationOpen ? 'Collapse navigation' : 'Expand navigation'
+    : 'Open navigation';
+
   return <div className="min-h-screen bg-background text-text">
     <a className="skip-link" href="#admin-main">Skip to content</a>
     {banner}
     <header className="sticky top-0 z-40 min-h-16 bg-surface border-b border-surface-highlight flex items-center gap-3 px-4 py-2" style={{ paddingTop: 'max(.5rem, env(safe-area-inset-top))' }}>
-      {!desktop && <button type="button" className="ui-button ui-button-secondary" aria-label="Open navigation" aria-expanded={navigationOpen} aria-haspopup="dialog" onClick={() => setNavigationOpen(true)}><Menu size={22} aria-hidden="true" /></button>}
-      <img src={logo} alt="" className="h-7 w-auto" /><span className="text-base sm:text-lg font-semibold text-primary">AccelRestaurants</span><ApplicationVolumeControl />
+      <button
+        type="button"
+        className="ui-button ui-button-secondary"
+        aria-label={navigationButtonLabel}
+        aria-expanded={desktop ? desktopNavigationOpen : navigationOpen}
+        aria-haspopup={desktop ? undefined : 'dialog'}
+        onClick={() => {
+          if (desktop) setDesktopNavigationOpen(value => !value);
+          else setNavigationOpen(true);
+        }}
+      >
+        <Menu size={22} aria-hidden="true" />
+      </button>
+      <img src={logo} alt="" className="h-7 w-auto" />
+      <span className="text-base sm:text-lg font-semibold text-primary">AccelRestaurants</span>
+      <ApplicationVolumeControl />
     </header>
     <div className="flex min-w-0">
-      {desktop && <aside className="w-60 shrink-0 p-4 border-r border-surface-highlight space-y-6">{navigation}{account}</aside>}
+      {desktop && desktopNavigationOpen && <aside className="w-60 shrink-0 p-4 border-r border-surface-highlight space-y-6">{navigation}{account}</aside>}
       <main id="admin-main" ref={main} tabIndex={-1} className="flex-1 min-w-0 focus:outline-none">{children}</main>
     </div>
     {navigationOpen && !desktop && <AccessibleDialog title="Navigation" description="Choose a workspace or manage your account." onClose={() => setNavigationOpen(false)}>{navigation}<div className="mt-6">{account}</div></AccessibleDialog>}

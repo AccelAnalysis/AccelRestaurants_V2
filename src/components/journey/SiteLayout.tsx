@@ -18,7 +18,7 @@ export const SiteLayout = ({ children }: { children: ReactNode }) => {
     else window.scrollTo(0, 0);
   }, [hash, pathname]);
 
-  return <div className="min-h-screen bg-background text-text">
+  return <div className="min-h-screen bg-transparent bg-speed-pattern text-text">
     <a className="skip-link" href="#site-main">Skip to content</a>
     <header className="border-b border-surface-highlight bg-surface">
       <nav aria-label="Main navigation" className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
